@@ -32,6 +32,7 @@ Commands:
   backup [service]         archive a service's storage (all services if omitted)
   backup --list <service>  list a service's existing backups
   restore <service> [ts]   restore storage from a backup (newest if ts omitted)
+  tui                      launch the dashboard
   install [--system]       install the launchd/systemd service that keeps
                            the daemon running across reboots
   uninstall [--system]     stop that service and remove it
@@ -94,6 +95,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return a.cmdBackup(cmdArgs)
 	case "restore":
 		return a.cmdRestore(cmdArgs)
+	case "tui":
+		return a.cmdTUI(cmdArgs)
 	case "install":
 		return a.cmdInstall(cmdArgs)
 	case "uninstall":

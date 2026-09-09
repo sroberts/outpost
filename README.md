@@ -15,10 +15,10 @@ and that document disagree.
 
 Built and tested: manifest loading and validation, process supervision with
 restart policies and backoff, SQLite state, the CLI, the daemon and its control
-socket, autostart under launchd and systemd, and backup/restore.
+socket, autostart under launchd and systemd, backup/restore, and the dashboard.
 
 Not built: container services (`runtime = "container"` is rejected at apply
-time), Hermes `SKILL.md` generation, and the TUI.
+time) and Hermes `SKILL.md` generation.
 
 **Tailscale integration is written but unverified.** No node has ever joined a
 real tailnet — it needs credentials and a device slot. It is off by default; see
@@ -169,6 +169,7 @@ outpost restart <service>        restart a service
 outpost backup [service]         archive a service's storage (all if omitted)
 outpost backup --list <service>  list existing backups
 outpost restore <service> [ts]   restore from a backup (newest if ts omitted)
+outpost tui                      launch the dashboard
 outpost install [--system]       install the launchd/systemd autostart service
 outpost uninstall [--system]     stop that service and remove it
 ```
@@ -192,6 +193,47 @@ a framed protocol for no practical gain.
 Commands that need the daemon fail with a clear error when none is running.
 `apply` still validates manifests without one, since that is a pure function of
 the files on disk.
+
+## Dashboard
+
+`outpost tui` is a Bubble Tea dashboard over the same control socket the CLI
+uses — it goes through the daemon, not the state store, so there is one code
+path to the supervisor.
+
+```
+  Outpost                                                        3 services
+
+    NAME       RUNTIME  STATUS             UPTIME  RESTARTS
+  ▸ plumbline  process  ● running          3h      0
+    kosync     process  ▲ unhealthy        -       3
+    broken     process  ✖ failed (halted)  -       12
+
+  plumbline ──────────────────────────────────────────────────────────────
+  port 8081 · /up · on-failure, backoff 5s
+  tailscale plumbline
+  storage   ~/.outpost/data/plumbline
+  instance  4242
+
+  recent activity
+  16:33:29  health-ok    healthcheck recovered
+  13:34:29  started      started (id 4242)
+
+  ↑/k up • ↓/j down • s start • x stop • r restart • l logs • ? help • q quit
+```
+
+| Key | Action |
+|---|---|
+| `↑`/`k`, `↓`/`j` | move between services |
+| `s`, `x`, `r` | start, stop, restart the selected service |
+| `l` | toggle a log pane for the selected service |
+| `R` | refresh now |
+| `?` | expand the help |
+| `q`, `esc`, `ctrl+c` | quit |
+
+It refreshes every two seconds, and an action refreshes immediately rather than
+waiting for the next tick. Status is carried by both colour and a glyph, so it
+reads correctly without colour. With no daemon running it says so and explains
+how to start one, then reconnects on its own once one appears.
 
 ## Layout
 
@@ -344,7 +386,7 @@ service cannot end up silently off the tailnet.
 ## Development
 
 ```sh
-go test ./...           # 185 tests
+go test ./...           # 210 tests
 go test ./... -race
 go vet ./...
 ```
@@ -352,8 +394,8 @@ go vet ./...
 Layout follows `spec.md` §4. `internal/manifest` parses and validates;
 `internal/runtime` starts and stops things; `internal/supervisor` decides what
 *should* run and owns the reconcile loop; `internal/state` records what was
-observed; `internal/ipc` carries CLI requests to the daemon; `internal/backup`
-and `internal/tsnet` are self-contained.
+observed; `internal/ipc` carries CLI requests to the daemon; `internal/backup`,
+`internal/tsnet`, `internal/autostart` and `internal/tui` are self-contained.
 
 The supervisor's state is deliberately single-threaded. Its exported API hands
 work to the reconcile loop through a command queue rather than locking, and runs
@@ -377,7 +419,7 @@ updated_at)`. This adds `desired` (your start/stop intent), `restart_epoch` (how
 given up). They are load-bearing, not incidental.
 
 **The CLI differs from spec §12.** Added: `serve`, `install`, `uninstall`,
-`--home` / `$OUTPOST_HOME`, `backup --list`, `--tailnet`. Not built: `outpost tui` and
+`--home` / `$OUTPOST_HOME`, `backup --list`, `--tailnet`. Not built:
 `outpost hermes publish`, which spec §12 lists.
 
 **Manifest reloading polls instead of using fsnotify.** Spec §6 calls for
