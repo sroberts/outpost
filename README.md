@@ -344,7 +344,7 @@ service cannot end up silently off the tailnet.
 ## Development
 
 ```sh
-go test ./...           # PLACEHOLDER tests
+go test ./...           # 185 tests
 go test ./... -race
 go vet ./...
 ```
