@@ -21,18 +21,19 @@ Companion documents: [`README.md`](README.md) for operating Outpost,
   listen on exactly that port.
 - **Loopback only.** Bind `127.0.0.1`, not `0.0.0.0`. Outpost reaches you on
   `127.0.0.1:<port>`, and when Tailscale is enabled a `tsnet` node reverse-proxies
-  to that same address. Binding a public interface defeats the entire model:
-  nothing should be reachable except through Tailscale.
+  to that same address. Binding a public interface defeats the model: nothing
+  should be reachable except through Tailscale. An installation running with
+  `tailscale.enabled = false` reaches services on loopback only, so the same
+  rule holds.
 - **Plain HTTP.** Outpost probes `http://127.0.0.1:<port><healthcheck>`. Do not
   terminate TLS yourself. Tailscale provides transport security; a service that
   only speaks HTTPS on loopback will fail every healthcheck.
 
 ### How you learn your port
 
-**This is currently the sharpest edge in the contract.** Outpost does *not* tell
-you your port. The operator writes it twice in the manifest — once in `port`, so
-Outpost knows where to probe, and once in whatever way your service actually
-takes it:
+Outpost does *not* tell you your port. The operator writes it twice in the
+manifest — once in `port`, so Outpost knows where to probe, and once in whatever
+way your service actually takes it:
 
 ```toml
 binary = "/opt/outpost/bin/plumbline"
@@ -40,15 +41,19 @@ args   = ["serve", "--port", "8081"]   # how your service learns the port
 port   = 8081                          # where Outpost probes
 ```
 
-Nothing validates that these two agree. If they disagree, your service runs fine
-and Outpost restart-loops it forever, because it is healthchecking a port
-nothing is listening on.
+Outpost now catches the common case: `outpost apply` rejects a manifest whose
+`port` disagrees with a `--port`/`-port` argument, because otherwise your service
+runs fine while Outpost health-checks a port nothing is listening on and
+restart-loops it forever.
+
+That check is a heuristic — it only recognises the conventional spellings. If
+your service takes its port some other way (`--listen`, `-p`, a config file),
+nothing validates the agreement and the mismatch is yours to avoid.
 
 **What to do about it:** accept the port from *both* a flag and an environment
 variable, preferring the flag. Support `OUTPOST_PORT` specifically — it costs
-you three lines and it is the convention Outpost will adopt when it starts
-generating manifests itself. Never hard-code a port, and never pick one
-dynamically: Outpost has to know it in advance.
+three lines, and `outpost add` uses it when generating manifests. Never hard-code
+a port, and never pick one dynamically: Outpost has to know it in advance.
 
 ---
 
@@ -262,6 +267,7 @@ Do not build expecting any of this:
 | Not provided | What to do instead |
 |---|---|
 | TLS | Tailscale terminates it; serve plain HTTP on loopback |
+| A bind address | You bind loopback; Outpost never binds your port |
 | Authentication or authorization | Tailnet membership is the boundary; add your own if you need more |
 | Secrets management | Read secrets from a file path given via env |
 | Service discovery | No registry; addresses are the operator's business |

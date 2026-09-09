@@ -69,7 +69,8 @@ func (a *app) validateManifests() ([]*manifest.Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	if errs := manifest.ValidateAll(services); len(errs) > 0 {
+	opts := manifest.Options{RequireTailscale: a.config.TailscaleEnabled()}
+	if errs := manifest.ValidateWith(services, opts); len(errs) > 0 {
 		var b strings.Builder
 		fmt.Fprintf(&b, "%d manifest error(s):", len(errs))
 		for _, e := range errs {
@@ -209,9 +210,17 @@ func (a *app) cmdLogs(args []string) error {
 	fs := flag.NewFlagSet("logs", flag.ContinueOnError)
 	fs.SetOutput(a.err)
 	follow := fs.Bool("f", false, "follow the log as it grows")
+	events := fs.Bool("events", false, "show the activity feed instead of the log file")
+	limit := fs.Int("n", 20, "number of events to show with --events")
 	name, err := parseServiceCommand(fs, "logs", args)
 	if err != nil {
 		return err
+	}
+
+	// The activity feed lives in the state store and comes from the daemon,
+	// unlike the log file, which is read directly (§8).
+	if *events {
+		return a.showEvents(name, *limit)
 	}
 
 	path := filepath.Join(a.logsDir(), name+".log")
@@ -231,6 +240,28 @@ func (a *app) cmdLogs(args []string) error {
 		return nil
 	}
 	return a.followLog(f, path)
+}
+
+// showEvents prints a service's recent lifecycle events.
+func (a *app) showEvents(name string, limit int) error {
+	c := a.client()
+	if !c.Available() {
+		return errNoDaemon()
+	}
+	events, err := c.Events(name, limit)
+	if err != nil {
+		return err
+	}
+	if len(events) == 0 {
+		fmt.Fprintf(a.out, "no recorded activity for %s\n", name)
+		return nil
+	}
+	for i := len(events) - 1; i >= 0; i-- {
+		e := events[i]
+		fmt.Fprintf(a.out, "%s  %-12s %s\n",
+			e.At.Format("2006-01-02 15:04:05"), e.Kind, e.Message)
+	}
+	return nil
 }
 
 // followLog polls the open file for growth, reopening it if it is rotated or

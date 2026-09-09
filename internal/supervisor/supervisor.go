@@ -69,6 +69,9 @@ type Options struct {
 	BackupDir string
 	// Tailnet, when set, gives each running service a Tailscale identity (§7).
 	Tailnet TailnetRouter
+	// ManifestOptions controls validation rules that depend on global config,
+	// such as whether tailscale_name is required.
+	ManifestOptions manifest.Options
 	// Now is injectable so tests can control backoff without sleeping.
 	Now func() time.Time
 	// Logf receives operator-facing progress lines; defaults to discarding.
@@ -78,12 +81,13 @@ type Options struct {
 // Supervisor owns the reconcile loop. It is not safe for concurrent use by
 // multiple goroutines; Run drives it from one.
 type Supervisor struct {
-	servicesDir string
-	backupDir   string
-	store       *state.Store
-	procRT      runtime.Runtime
-	containerRT runtime.Runtime
-	tailnet     TailnetRouter
+	servicesDir  string
+	backupDir    string
+	store        *state.Store
+	procRT       runtime.Runtime
+	containerRT  runtime.Runtime
+	tailnet      TailnetRouter
+	manifestOpts manifest.Options
 
 	Interval            time.Duration
 	healthFailThreshold int
@@ -158,6 +162,7 @@ func New(opts Options) (*Supervisor, error) {
 		procRT:              opts.ProcessRuntime,
 		containerRT:         opts.ContainerRuntime,
 		tailnet:             opts.Tailnet,
+		manifestOpts:        opts.ManifestOptions,
 		Interval:            opts.Interval,
 		healthFailThreshold: opts.HealthFailThreshold,
 		now:                 opts.Now,
@@ -188,7 +193,7 @@ func (s *Supervisor) applyLocked(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("load manifests: %w", err)
 	}
-	if errs := manifest.ValidateAll(services); len(errs) > 0 {
+	if errs := manifest.ValidateWith(services, s.manifestOpts); len(errs) > 0 {
 		return fmt.Errorf("invalid manifests:\n%s", indentErrors(errs))
 	}
 

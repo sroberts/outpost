@@ -13,6 +13,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/sroberts/outpost/internal/config"
 )
 
 const usage = `outpost — supervise a declared set of local services
@@ -21,17 +23,21 @@ Usage:
   outpost <command> [flags]
 
 Commands:
-  serve [--tailnet]        run the daemon (reconcile loop + control socket)
+  serve [--tailnet=BOOL]   run the daemon (reconcile loop + control socket)
+  add <service> --binary   declare a new service
+  remove <service>         undeclare a service (--purge deletes its data)
   apply                    validate manifests and reconcile
   list                     table of services and their status
   status <service>         health, restart count and recent events
   logs <service> [-f]      show or follow a service's logs
+  logs <service> --events  show the service's recent activity
   start <service>          start a stopped service
   stop <service>           stop a running service
   restart <service>        restart a service
   backup [service]         archive a service's storage (all services if omitted)
   backup --list <service>  list a service's existing backups
   restore <service> [ts]   restore storage from a backup (newest if ts omitted)
+  config [--init]          show or create the global configuration
   install [--system]       install the launchd/systemd service that keeps
                            the daemon running across reboots
   uninstall [--system]     stop that service and remove it
@@ -56,9 +62,10 @@ var errUsage = errors.New("usage")
 
 // app carries everything a command needs, so commands stay testable.
 type app struct {
-	home string
-	out  io.Writer
-	err  io.Writer
+	home   string
+	out    io.Writer
+	err    io.Writer
+	config config.Config
 }
 
 func run(args []string, stdout, stderr io.Writer) error {
@@ -71,6 +78,15 @@ func run(args []string, stdout, stderr io.Writer) error {
 	}
 
 	a := &app{home: home, out: stdout, err: stderr}
+
+	// Global settings shape validation and whether the tailnet is used at all.
+	// A missing file is normal; a malformed one is worth stopping for.
+	cfg, err := config.Load(a.configPath())
+	if err != nil {
+		return err
+	}
+	a.config = cfg
+
 	cmd, cmdArgs := rest[0], rest[1:]
 
 	switch cmd {
@@ -94,6 +110,12 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return a.cmdBackup(cmdArgs)
 	case "restore":
 		return a.cmdRestore(cmdArgs)
+	case "add":
+		return a.cmdAdd(cmdArgs)
+	case "remove", "rm":
+		return a.cmdRemove(cmdArgs)
+	case "config":
+		return a.cmdConfig(cmdArgs)
 	case "install":
 		return a.cmdInstall(cmdArgs)
 	case "uninstall":
@@ -145,6 +167,7 @@ func (a *app) pidPath() string     { return filepath.Join(a.home, "outpost.pid")
 func (a *app) socketPath() string  { return filepath.Join(a.home, "outpost.sock") }
 func (a *app) backupsDir() string  { return filepath.Join(a.home, "backups") }
 func (a *app) tsnetDir() string    { return filepath.Join(a.home, "tsnet") }
+func (a *app) configPath() string  { return filepath.Join(a.home, "config.toml") }
 
 // ensureLayout creates the Outpost root on first use.
 func (a *app) ensureLayout() error {

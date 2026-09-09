@@ -64,6 +64,29 @@ outpost logs plumbline -f
 it exits, so nothing is left orphaned holding a port. To keep it running across
 logins and reboots, see [Running under launchd](#running-under-launchd).
 
+## Adding and removing services
+
+`outpost add` writes the manifest you would otherwise hand-write, allocating a
+free port and filling in the defaults:
+
+```sh
+outpost add plumbline --binary /opt/outpost/bin/plumbline \
+    --args "serve,--port,8081" --port 8081
+outpost add plumbline --binary ... --print   # render it without writing
+```
+
+It validates the result against every other declared service *before* writing,
+so a port or name collision is an error rather than something the next `apply`
+discovers.
+
+```sh
+outpost remove plumbline            # delete the manifest, keep the data
+outpost remove plumbline --purge    # delete its storage and backups too
+```
+
+A running daemon stops a removed service on its next reconcile, because it is no
+longer declared. `--purge` asks for confirmation unless given `--yes`.
+
 ## The service contract
 
 Outpost does not care what a service does internally. It requires that the
@@ -116,7 +139,7 @@ start_grace_seconds = 30
 | `runtime` | `process` | `container` is rejected at apply time |
 | `port` | — | Required; must be unique across `process` services |
 | `storage` | — | Required; `~` is expanded, created `0700` if missing |
-| `tailscale_name` | — | Required; must be unique |
+| `tailscale_name` | — | Required unless `tailscale.enabled = false`; must be unique |
 | `healthcheck` | `/up` | Must start with `/` |
 | `restart_policy` | `on-failure` | See below |
 | `backoff_seconds` | `5` | Doubles per consecutive restart, capped at 300s |
@@ -158,11 +181,14 @@ The grace covers slow healthchecks, not a process that exits.
 ## CLI
 
 ```
-outpost serve [--tailnet]        run the daemon (reconcile loop + control socket)
+outpost serve [--tailnet=BOOL]   run the daemon (reconcile loop + control socket)
+outpost add <name> --binary ...  declare a new service
+outpost remove <name> [--purge]  undeclare a service, optionally deleting its data
 outpost apply                    validate manifests and reconcile
 outpost list                     table of services and their status
 outpost status <service>         health, restart count and recent events
 outpost logs <service> [-f]      show or follow a service's logs
+outpost logs <service> --events  show the service's recent activity
 outpost start <service>          start a stopped service
 outpost stop <service>           stop a running service
 outpost restart <service>        restart a service
@@ -193,6 +219,52 @@ Commands that need the daemon fail with a clear error when none is running.
 `apply` still validates manifests without one, since that is a pure function of
 the files on disk.
 
+## Configuration
+
+Global settings live in `~/.outpost/config.toml`. Everything per-service belongs
+in that service's manifest instead. The file is optional — Outpost works with no
+configuration at all — and `outpost config --init` writes a commented starter.
+
+```toml
+# Which container engine backs runtime = "container" services.
+container_engine = "podman"
+
+[tailscale]
+enabled  = true
+# auth_key = "tskey-..."
+```
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `container_engine` | `podman` | `podman`, `docker` or `colima` (§9; containers not implemented yet) |
+| `tailscale.enabled` | `true` | Whether services get a Tailscale identity |
+| `tailscale.auth_key` | — | Registers nodes unattended; `TS_AUTHKEY` wins over it |
+
+The file may hold an auth key, so it is written `0600`. Prefer `TS_AUTHKEY` in
+the environment, or `outpost install --authkey`, over writing one to disk.
+
+## Running without Tailscale
+
+Tailscale is the default, but it is not required. Set:
+
+```toml
+[tailscale]
+enabled = false
+```
+
+Then `tailscale_name` is no longer required in a manifest, `outpost add` stops
+generating one, and the daemon never contacts Tailscale. Everything else —
+supervision, health checks, restarts, backups, the dashboard — is unchanged, and
+`outpost list` simply shows `-` in the tailnet column.
+
+`outpost serve --tailnet=false` does the same for a single run without editing
+the config; `--tailnet` forces it on.
+
+Services still bind loopback, because that is what the service contract asks
+for. Without Tailscale they are reachable from the machine itself; exposing them
+further is between you and whatever you put in front of them — Outpost has no
+`bind` setting, because it never binds the port itself.
+
 ## Layout
 
 Everything lives under `~/.outpost` (or `$OUTPOST_HOME`, or `--home`):
@@ -205,6 +277,7 @@ Everything lives under `~/.outpost` (or `$OUTPOST_HOME`, or `--home`):
   backups/<name>/<ts>.tar.gz
   tsnet/<name>/            per-service Tailscale node identity
   state.db                 SQLite observed state and event log
+  config.toml              global settings, mode 0600 (optional)
   outpost.sock             control socket, mode 0600
   outpost.pid              running daemon's PID
   logs/outpost.out.log     the daemon's own output (macOS; journal on Linux)
@@ -344,7 +417,7 @@ service cannot end up silently off the tailnet.
 ## Development
 
 ```sh
-go test ./...           # 185 tests
+go test ./...           # 218 tests
 go test ./... -race
 go vet ./...
 ```
