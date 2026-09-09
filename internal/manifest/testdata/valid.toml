@@ -1,0 +1,8 @@
+name    = "testsvc"
+runtime = "process"
+binary  = "/usr/bin/true"
+args    = []
+port    = 8080
+storage = "/tmp/testsvc"
+tailscale_name = "testsvc"
+healthcheck    = "/health"

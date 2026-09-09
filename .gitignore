@@ -1,0 +1,15 @@
+# Built binaries
+/outpost
+/outpost-tui
+/fakeservice
+
+# Local state from other tooling
+.crush/
+
+# macOS
+.DS_Store
+
+# Go
+*.test
+*.out
+coverage.*

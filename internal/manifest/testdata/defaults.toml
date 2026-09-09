@@ -1,0 +1,2 @@
+name = "defaults-svc"
+binary = "/usr/bin/true"
