@@ -284,14 +284,17 @@ Without `TS_AUTHKEY`, tsnet logs a one-time login URL per service on first run.
 Each service costs one device on your tailnet — check your plan's limit before
 this scales past a handful. `funnel = true` is rejected.
 
-Known gaps in this layer, not yet addressed: joining the tailnet blocks the
-reconcile loop while it happens, and a failed attach is not retried until the
-service restarts.
+Joining the tailnet happens in the background: `Attach` records intent and
+returns, so a node that is slow to register — or waiting on a first-run login
+URL — never stalls supervision or the control socket. A failed attach is retried
+with backoff (2s, doubling to 60s) until it succeeds or the service is detached,
+and the reconcile loop re-asserts membership for every running service, so a
+service cannot end up silently off the tailnet.
 
 ## Development
 
 ```sh
-go test ./...           # 150 tests
+go test ./...           # 160 tests
 go test ./... -race
 go vet ./...
 ```

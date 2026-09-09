@@ -193,3 +193,55 @@ func contains(s, sub string) bool {
 	}
 	return false
 }
+
+// Attach is idempotent, so the reconcile loop re-asserts it for running
+// services. Without that, a service whose attach failed stays off the tailnet
+// until it happens to restart.
+func TestTailnet_ReassertedForRunningServices(t *testing.T) {
+	h, tn := tailnetHarness(t)
+	h.writeManifest("alpha", "")
+	h.apply()
+	h.tick()
+
+	attachedAfterStart, _, _ := tn.counts("alpha")
+
+	// Several healthy ticks with no lifecycle change at all.
+	for i := 0; i < 3; i++ {
+		h.clock.Advance(5 * time.Second)
+		h.tick()
+	}
+
+	attachedNow, _, _ := tn.counts("alpha")
+	if attachedNow <= attachedAfterStart {
+		t.Errorf("tailnet attach not re-asserted while running (%d -> %d); a failed attach would never recover",
+			attachedAfterStart, attachedNow)
+	}
+
+	// Re-asserting must not disturb the service itself.
+	if got := h.rt.startCount("alpha"); got != 1 {
+		t.Errorf("service restarted by tailnet re-assertion (starts = %d; want 1)", got)
+	}
+	if got := h.rt.stopCount("alpha"); got != 0 {
+		t.Errorf("service stopped by tailnet re-assertion (stops = %d; want 0)", got)
+	}
+}
+
+// A service that is not running must not be re-attached.
+func TestTailnet_NotReassertedForStoppedServices(t *testing.T) {
+	h, tn := tailnetHarness(t)
+	h.writeManifest("alpha", "")
+	h.apply()
+	h.tick()
+	h.store.SetDesired("alpha", "stopped")
+	h.tick()
+
+	attachedAfterStop, _, _ := tn.counts("alpha")
+	for i := 0; i < 3; i++ {
+		h.clock.Advance(5 * time.Second)
+		h.tick()
+	}
+	if attachedNow, _, live := tn.counts("alpha"); attachedNow != attachedAfterStop || live {
+		t.Errorf("a stopped service was attached to the tailnet (%d -> %d, live=%v)",
+			attachedAfterStop, attachedNow, live)
+	}
+}
