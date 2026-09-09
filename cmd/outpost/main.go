@@ -32,7 +32,9 @@ Commands:
   backup [service]         archive a service's storage (all services if omitted)
   backup --list <service>  list a service's existing backups
   restore <service> [ts]   restore storage from a backup (newest if ts omitted)
-  install                  write the launchd agent that keeps the daemon alive
+  install [--system]       install the launchd/systemd service that keeps
+                           the daemon running across reboots
+  uninstall [--system]     stop that service and remove it
 
 Flags:
   --home <dir>             Outpost root (default $OUTPOST_HOME or ~/.outpost)
@@ -94,6 +96,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return a.cmdRestore(cmdArgs)
 	case "install":
 		return a.cmdInstall(cmdArgs)
+	case "uninstall":
+		return a.cmdUninstall(cmdArgs)
 	case "help", "-h", "--help":
 		fmt.Fprint(stdout, usage)
 		return nil

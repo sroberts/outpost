@@ -80,6 +80,16 @@ func (a *app) cmdServe(args []string) error {
 		return err
 	}
 
+	// A daemon killed with SIGKILL — OOM, power cut, `kill -9` — leaves its
+	// services running and holding their ports. Clear them before starting
+	// replacements, or every one of them restart-loops on a bound port.
+	if reclaimed, err := sup.ReclaimOrphans(context.Background()); err != nil {
+		fmt.Fprintf(a.err, "outpost: orphan reclaim: %v\n", err)
+	} else if len(reclaimed) > 0 {
+		fmt.Fprintf(a.out, "outpost: reclaimed %d service(s) from a previous run: %s\n",
+			len(reclaimed), strings.Join(reclaimed, ", "))
+	}
+
 	srv, err := ipc.Listen(a.socketPath(), sup, func(format string, v ...any) {
 		fmt.Fprintf(a.err, format+"\n", v...)
 	})
