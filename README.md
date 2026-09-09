@@ -15,7 +15,7 @@ and that document disagree.
 
 Built and tested: manifest loading and validation, process supervision with
 restart policies and backoff, SQLite state, the CLI, the daemon and its control
-socket, launchd registration, and backup/restore.
+socket, autostart under launchd and systemd, and backup/restore.
 
 Not built: container services (`runtime = "container"` is rejected at apply
 time), Hermes `SKILL.md` generation, and the TUI.
@@ -169,7 +169,8 @@ outpost restart <service>        restart a service
 outpost backup [service]         archive a service's storage (all if omitted)
 outpost backup --list <service>  list existing backups
 outpost restore <service> [ts]   restore from a backup (newest if ts omitted)
-outpost install                  write the launchd agent
+outpost install [--system]       install the launchd/systemd autostart service
+outpost uninstall [--system]     stop that service and remove it
 ```
 
 Global flags:
@@ -206,6 +207,7 @@ Everything lives under `~/.outpost` (or `$OUTPOST_HOME`, or `--home`):
   state.db                 SQLite observed state and event log
   outpost.sock             control socket, mode 0600
   outpost.pid              running daemon's PID
+  logs/outpost.out.log     the daemon's own output (macOS; journal on Linux)
 ```
 
 `state.db` is a cache of observed reality, not the source of truth. Deleting it
@@ -218,27 +220,75 @@ intent: `outpost stop` records that a service should stay down.
 > deeply nested `--home` can exceed it; Outpost reports this explicitly rather
 > than failing with a bare `bind: invalid argument`.
 
-## Running under launchd
+## Running at startup
+
+Outpost supervises the services; the init system supervises Outpost. Both
+platforms are supported, and the generated file is the same shape either way:
+start at boot or login, restart the daemon if it dies, and give it enough time
+on the way down to stop its services in order.
 
 ```sh
-outpost install          # writes ~/Library/LaunchAgents/com.sroberts.outpost.plist
-outpost install --print  # print the plist without writing it
-outpost install --load   # write it and load it immediately
+outpost install            # write the launchd job / systemd unit
+outpost install --enable   # write it and start it
+outpost install --print    # print it without writing anything
+outpost install --system   # boot-time service instead of per-user (needs root)
+outpost uninstall          # stop it and remove it
 ```
 
-Without `--load`, `install` prints the `launchctl` commands rather than running
-them — registering a background service on your machine should be your call.
+`install` writes the file and prints the commands that would enable it, rather
+than running them — registering a background service should be a deliberate act.
+Pass `--enable` to have Outpost run them for you.
 
-```sh
-launchctl load -w ~/Library/LaunchAgents/com.sroberts.outpost.plist
-launchctl unload -w ~/Library/LaunchAgents/com.sroberts.outpost.plist
-```
+Pass `--authkey` (or set `TS_AUTHKEY`) to put a Tailscale auth key in the
+service environment, which keeps it out of the manifests.
 
-The agent runs with `KeepAlive`, so launchd restarts the Outpost daemon if it
-dies; Outpost restarts the services. Its own stdout and stderr go to
+### User scope versus system scope
+
+| | Starts | Needs root | Where |
+|---|---|---|---|
+| default | at login | no | `~/Library/LaunchAgents`, `~/.config/systemd/user` |
+| `--system` | at boot | yes | `/Library/LaunchDaemons`, `/etc/systemd/system` |
+
+**This distinction matters on a headless machine.** The default installs a
+per-user service, which starts when you log in — so a Mac Mini that reboots
+unattended will not start Outpost until someone logs in. Either enable automatic
+login, or install with `--system`.
+
+On Linux the equivalent trap is lingering: a systemd user unit stops at logout
+and does not start at boot unless `loginctl enable-linger <user>` has been run.
+`outpost install` prints that command along with the others.
+
+### What the generated files do
+
+**macOS (launchd):** `RunAtLoad` and `KeepAlive` start the daemon and bring it
+back if it exits. `ThrottleInterval` stops a daemon that fails immediately from
+spinning. `ExitTimeOut` gives Outpost 60 seconds to stop its services before
+launchd escalates to SIGKILL. Outpost's own output goes to
 `~/.outpost/logs/outpost.{out,err}.log`.
 
-`install` is macOS-only. On Linux, run `outpost serve` under a systemd unit.
+**Linux (systemd):** `Restart=always` with `RestartSec=5`, and
+`StartLimitIntervalSec=0` so systemd never gives up restarting.
+`KillMode=mixed` sends SIGTERM to the daemon alone, so it can stop its services
+in order, and `TimeoutStopSec=60` bounds that before systemd kills what is left.
+Outpost's own output goes to the journal — `journalctl --user -u outpost -f`.
+
+Per-service logs are files under `~/.outpost/logs/` on both platforms either way.
+
+### Surviving an unclean shutdown
+
+A daemon killed with SIGKILL — an OOM kill, a power cut, `kill -9` — never runs
+its shutdown path, so its services keep running, reparented to init and still
+holding their ports.
+
+On startup Outpost finds those processes, using the PIDs recorded in `state.db`,
+and stops them before starting replacements. Without that, every service would
+restart-loop against a port its own orphan still held. A recorded PID is only
+acted on if the process is alive *and* its command line matches the manifest's
+binary — PIDs get recycled, and killing an unrelated process would be worse than
+leaving an orphan.
+
+Orphans are stopped rather than adopted: a process that is not the daemon's own
+child cannot be waited on, so the supervisor could not observe it exiting.
 
 ## Backups
 
@@ -291,7 +341,7 @@ service restarts.
 ## Development
 
 ```sh
-go test ./...           # 150 tests
+go test ./...           # 175 tests
 go test ./... -race
 go vet ./...
 ```
@@ -323,8 +373,8 @@ updated_at)`. This adds `desired` (your start/stop intent), `restart_epoch` (how
 `outpost restart` reaches the daemon) and `halted` (whether the supervisor has
 given up). They are load-bearing, not incidental.
 
-**The CLI differs from spec §12.** Added: `serve`, `install`, `--home` /
-`$OUTPOST_HOME`, `backup --list`, `--tailnet`. Not built: `outpost tui` and
+**The CLI differs from spec §12.** Added: `serve`, `install`, `uninstall`,
+`--home` / `$OUTPOST_HOME`, `backup --list`, `--tailnet`. Not built: `outpost tui` and
 `outpost hermes publish`, which spec §12 lists.
 
 **Manifest reloading polls instead of using fsnotify.** Spec §6 calls for
