@@ -602,12 +602,20 @@ func (s *Supervisor) maybeStart(ctx context.Context, st *svcState) {
 	// Join the tailnet once the service is up. A failure here leaves the
 	// service running and reachable on loopback rather than tearing it down:
 	// losing tailnet exposure is not a reason to take a working service off.
-	if s.tailnet != nil {
-		if err := s.tailnet.Attach(ctx, st.svc); err != nil {
-			s.recordError(st.svc.Name, fmt.Sprintf("tailnet: %v", err))
-		}
-	}
+	s.attachToTailnet(ctx, st.svc)
 	s.persist(st)
+}
+
+// attachToTailnet asks the router to put a service on the tailnet. The router
+// returns immediately and retries in the background, so this is safe to call
+// from the reconcile loop on every tick.
+func (s *Supervisor) attachToTailnet(ctx context.Context, svc *manifest.Service) {
+	if s.tailnet == nil {
+		return
+	}
+	if err := s.tailnet.Attach(ctx, svc); err != nil {
+		s.recordError(svc.Name, fmt.Sprintf("tailnet: %v", err))
+	}
 }
 
 // checkHealth probes a running service and restarts it once it has failed the
@@ -621,6 +629,11 @@ func (s *Supervisor) checkHealth(ctx context.Context, st *svcState) {
 		st.healthFails = 0
 		st.everHealthy = true
 		st.status = runtime.StatusRunning
+
+		// Re-assert tailnet membership for a running service. Attach is a
+		// cheap no-op once a node is up, and without this an attach that failed
+		// at start time would never be retried at the supervisor level.
+		s.attachToTailnet(ctx, st.svc)
 		// A service that has stayed up is no longer in a crash loop.
 		if !st.startedAt.IsZero() && s.now().Sub(st.startedAt) >= stableAfter {
 			st.backoff = initialBackoff(st.svc)
