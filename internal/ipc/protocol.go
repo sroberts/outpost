@@ -10,6 +10,7 @@ package ipc
 
 import (
 	"encoding/json"
+	"time"
 
 	"github.com/sroberts/outpost/internal/backup"
 	"github.com/sroberts/outpost/internal/supervisor"
@@ -29,6 +30,30 @@ const (
 	CmdRestore = "restore"
 	CmdBackups = "backups"
 )
+
+// Timeouts. Most commands are near-instant queries against the supervisor's
+// in-memory state, so a short bound is the right way to notice a wedged
+// daemon. Backup and restore are different in kind: they copy a service's
+// entire storage directory, and how long that takes is a property of how much
+// data the operator has, not of whether anything is wrong.
+const (
+	// RequestTimeout bounds an ordinary command.
+	RequestTimeout = 30 * time.Second
+	// TransferTimeout bounds one that moves a service's data. Generous on
+	// purpose: cutting a working backup off partway through and reporting a
+	// failure is far worse than waiting.
+	TransferTimeout = 2 * time.Hour
+)
+
+// Timeout returns how long the given command is allowed to take.
+func Timeout(command string) time.Duration {
+	switch command {
+	case CmdBackup, CmdRestore:
+		return TransferTimeout
+	default:
+		return RequestTimeout
+	}
+}
 
 // Request is what the CLI sends.
 type Request struct {

@@ -291,8 +291,12 @@ func (s *Supervisor) Reload(ctx context.Context) (bool, error) {
 	return v.(bool), nil
 }
 
-// Tick performs one reconcile pass. Safe to call from any goroutine; the CLI
-// and tests use it to drive reconciliation deterministically.
+// Tick performs one reconcile pass. Safe to call from any goroutine.
+//
+// The running daemon does not call this -- Run ticks on its own timer. It
+// exists so tests can drive reconciliation a step at a time instead of waiting
+// on wall-clock intervals, which is also why `deadcode` reports it unreachable
+// from main. It is not dead.
 func (s *Supervisor) Tick(ctx context.Context) {
 	// Tick has no error to report; a stopped loop simply has nothing to do.
 	_, _ = s.submit(ctx, func(s *Supervisor) (any, error) {
@@ -695,8 +699,11 @@ func (s *Supervisor) stopInstance(ctx context.Context, st *svcState, reason stri
 	st.startedAt = time.Time{}
 }
 
-// Shutdown stops every running service. Used when the foreground supervisor is
-// interrupted, so nothing is orphaned holding a port.
+// Shutdown stops every running service, so nothing is orphaned holding a port.
+//
+// The daemon does not reach it this way: Run watches its context and calls
+// shutdownLocked directly when a signal cancels it. This is the entry point
+// for a caller outside the loop, which today means the tests.
 func (s *Supervisor) Shutdown(ctx context.Context) error {
 	if s.loopRunning.Load() {
 		_, err := s.submit(ctx, func(s *Supervisor) (any, error) {

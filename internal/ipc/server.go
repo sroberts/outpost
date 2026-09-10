@@ -16,9 +16,6 @@ import (
 	"github.com/sroberts/outpost/internal/supervisor"
 )
 
-// requestTimeout bounds how long one command may occupy a connection.
-const requestTimeout = 30 * time.Second
-
 // maxSocketPath is the shortest of the platform sockaddr_un limits, so the
 // check behaves the same on darwin and linux.
 const maxSocketPath = 104
@@ -111,7 +108,8 @@ func (s *Server) Close() error {
 // handle serves one request/response exchange.
 func (s *Server) handle(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(requestTimeout))
+	// Reading the request is always quick; only running it can be slow.
+	_ = conn.SetDeadline(time.Now().Add(RequestTimeout))
 
 	body, err := io.ReadAll(io.LimitReader(conn, 1<<20))
 	if err != nil {
@@ -124,7 +122,13 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
+	// Now that the command is known, give it its own budget. A flat bound
+	// cancelled a backup of a large storage directory partway through and
+	// reported a failure for work that would have succeeded.
+	budget := Timeout(req.Command)
+	_ = conn.SetDeadline(time.Now().Add(budget))
+
+	ctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
 	writeResponse(conn, s.dispatch(ctx, req))
 }

@@ -19,13 +19,23 @@ var ErrNoDaemon = errors.New("no outpost daemon is running")
 
 // Client talks to the daemon over its Unix socket.
 type Client struct {
-	path    string
+	path string
+	// timeout overrides the per-command budget when non-zero. Tests set it;
+	// normal use takes the budget from the command itself.
 	timeout time.Duration
 }
 
 // NewClient returns a client for the socket at path.
 func NewClient(path string) *Client {
-	return &Client{path: path, timeout: requestTimeout}
+	return &Client{path: path}
+}
+
+// budget is how long this client waits for a reply to req.
+func (c *Client) budget(req Request) time.Duration {
+	if c.timeout > 0 {
+		return c.timeout
+	}
+	return Timeout(req.Command)
 }
 
 // Available reports whether a daemon is accepting connections.
@@ -51,7 +61,8 @@ func (c *Client) do(req Request) (Response, error) {
 		return Response{}, fmt.Errorf("connect to %s: %w", c.path, err)
 	}
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(c.timeout))
+	budget := c.budget(req)
+	_ = conn.SetDeadline(time.Now().Add(budget))
 
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -69,6 +80,17 @@ func (c *Client) do(req Request) (Response, error) {
 	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
 		if err == io.EOF {
 			return Response{}, fmt.Errorf("daemon closed the connection without replying")
+		}
+		// A deadline here says the daemon is slow, not that it is broken, and
+		// for a transfer the work is very likely still running and will still
+		// finish. Saying "failed" would be a lie the operator acts on.
+		if errors.Is(err, os.ErrDeadlineExceeded) {
+			if Timeout(req.Command) == TransferTimeout {
+				return Response{}, fmt.Errorf(
+					"%s: no reply after %s; the daemon may still be working — check `outpost logs %s --events`",
+					req.Command, budget, req.Service)
+			}
+			return Response{}, fmt.Errorf("%s: the daemon did not reply within %s", req.Command, budget)
 		}
 		return Response{}, fmt.Errorf("read response: %w", err)
 	}
