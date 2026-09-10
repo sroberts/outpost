@@ -236,7 +236,8 @@ func (s *Store) DeleteService(name string) error {
 	if err != nil {
 		return fmt.Errorf("delete service %s: %w", name, err)
 	}
-	defer tx.Rollback()
+	// Rollback after a successful Commit is a no-op error; nothing to do with it.
+	defer func() { _ = tx.Rollback() }()
 
 	if _, err := tx.Exec(`DELETE FROM services WHERE name = ?`, name); err != nil {
 		return fmt.Errorf("delete service %s: %w", name, err)

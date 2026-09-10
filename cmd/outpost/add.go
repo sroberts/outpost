@@ -210,7 +210,9 @@ func (a *app) cmdRemove(args []string) error {
 		fmt.Fprintf(a.out, "\nThis will permanently delete:\n  %s\n  %s\n", storage, backups)
 		fmt.Fprint(a.out, "Type the service name to confirm: ")
 		var typed string
-		fmt.Fscanln(os.Stdin, &typed)
+		// A read error leaves typed empty, which fails the comparison below —
+		// a non-interactive stdin must not count as confirmation.
+		_, _ = fmt.Fscanln(os.Stdin, &typed)
 		if typed != name {
 			return fmt.Errorf("not confirmed; data left in place")
 		}

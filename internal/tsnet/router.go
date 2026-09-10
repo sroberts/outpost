@@ -184,7 +184,7 @@ func (r *Router) Attach(ctx context.Context, svc *manifest.Service) error {
 		// one down outside the lock.
 		delete(r.nodes, svc.Name)
 		r.mu.Unlock()
-		r.shutdownNode(existing)
+		_ = r.shutdownNode(existing)
 		r.mu.Lock()
 	}
 
@@ -342,7 +342,7 @@ func (r *Router) shutdownNode(n *node) error {
 
 	if srv != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		srv.Shutdown(ctx)
+		_ = srv.Shutdown(ctx)
 		cancel()
 	}
 	if live != nil {

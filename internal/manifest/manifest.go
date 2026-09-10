@@ -70,9 +70,6 @@ func LoadDir(dir string) ([]*Service, error) {
 	return services, nil
 }
 
-// validate checks a single Service with the default options.
-func (s *Service) validate() []error { return s.validateWith(DefaultOptions()) }
-
 // validateWith checks a single Service for schema violations.
 func (s *Service) validateWith(opts Options) []error {
 	var errs []error

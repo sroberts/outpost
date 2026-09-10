@@ -38,10 +38,10 @@ func (s *Supervisor) Backup(ctx context.Context, name string) (backup.Archive, e
 		archive.Path = backup.ArchivePath(s.backupDir, name, now)
 
 		if err := backup.Create(svc.ExpandStorage(), archive.Path); err != nil {
-			s.store.AppendEvent(name, state.EventError, fmt.Sprintf("backup failed: %v", err))
+			s.event(name, state.EventError, fmt.Sprintf("backup failed: %v", err))
 			return nil, err
 		}
-		s.store.AppendEvent(name, state.EventBackup, "backed up to "+archive.Path)
+		s.event(name, state.EventBackup, "backed up to "+archive.Path)
 		s.logf("backed up %s to %s", name, archive.Path)
 
 		// Report the archive as it landed on disk.
@@ -74,10 +74,10 @@ func (s *Supervisor) Restore(ctx context.Context, name, timestamp string) (backu
 		defer s.resume(ctx, name, wasRunning)
 
 		if err := backup.Extract(archive.Path, svc.ExpandStorage()); err != nil {
-			s.store.AppendEvent(name, state.EventError, fmt.Sprintf("restore failed: %v", err))
+			s.event(name, state.EventError, fmt.Sprintf("restore failed: %v", err))
 			return nil, err
 		}
-		s.store.AppendEvent(name, state.EventRestore, "restored from "+archive.Path)
+		s.event(name, state.EventRestore, "restored from "+archive.Path)
 		s.logf("restored %s from %s", name, archive.Path)
 		return archive, nil
 	})

@@ -276,7 +276,7 @@ func (r *ProcessRuntime) Healthy(ctx context.Context, handle Handle) (bool, erro
 		return false, fmt.Errorf("%s: healthcheck %s: %w", h.svc.Name, url, err)
 	}
 	defer resp.Body.Close()
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<10))
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<10))
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return false, fmt.Errorf("%s: healthcheck %s returned %s", h.svc.Name, url, resp.Status)

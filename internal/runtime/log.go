@@ -85,13 +85,13 @@ func (w *rotatingWriter) rotate() error {
 	os.Remove(backup(w.backups))
 	for i := w.backups - 1; i >= 1; i-- {
 		if err := os.Rename(backup(i), backup(i+1)); err != nil && !os.IsNotExist(err) {
-			w.open()
+			_ = w.open()
 			return err
 		}
 	}
 	if err := os.Rename(w.path, backup(1)); err != nil && !os.IsNotExist(err) {
 		// Reopen regardless so writes keep landing somewhere.
-		w.open()
+		_ = w.open()
 		return err
 	}
 	return w.open()

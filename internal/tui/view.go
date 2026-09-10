@@ -194,10 +194,10 @@ func (m Model) detail() string {
 	if len(m.events) > 0 {
 		b.WriteString("\n  " + sectionStyle.Render("recent activity") + "\n")
 		for _, e := range m.events {
-			b.WriteString(fmt.Sprintf("  %s  %s  %s\n",
+			fmt.Fprintf(&b, "  %s  %s  %s\n",
 				labelStyle.Render(e.At.Format("15:04:05")),
 				labelStyle.Render(pad(e.Kind, 11)),
-				valueStyle.Render(e.Message)))
+				valueStyle.Render(e.Message))
 		}
 	}
 	return b.String()
