@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -170,9 +171,16 @@ func validServiceName(name string) error {
 		return fmt.Errorf("service name %q contains a path separator", name)
 	case strings.HasPrefix(name, "."):
 		return fmt.Errorf("service name %q starts with a dot", name)
+	case !serviceNamePattern.MatchString(name):
+		// A descriptor picks this name, and it becomes a filename, a tailnet
+		// hostname and a storage directory. Anything outside the character
+		// class below is trouble in at least one of those.
+		return fmt.Errorf("service name %q must be letters, digits, dot, dash or underscore", name)
 	}
 	return nil
 }
+
+var serviceNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 // serviceName is the first of the explicit name, the descriptor's, and the
 // repository's that is set.

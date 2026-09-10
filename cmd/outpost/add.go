@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -64,6 +65,12 @@ func (a *app) cmdAdd(args []string) error {
 		})
 	}
 
+	// --name only means anything when the name has to be derived from a
+	// repository; accepting and ignoring it here would write a manifest under
+	// the positional name while the operator believed they had renamed it.
+	if flagsSet(fs)["name"] {
+		return fmt.Errorf("add: --name applies to a repository reference; `outpost add %s` already names the service", name)
+	}
 	if *binary == "" {
 		return fmt.Errorf("add: --binary is required, or give a GitHub repository URL instead")
 	}
@@ -338,9 +345,24 @@ func tomlTable(m map[string]string) string {
 
 	pairs := make([]string, 0, len(keys))
 	for _, k := range keys {
-		pairs = append(pairs, fmt.Sprintf("%s = %q", k, m[k]))
+		pairs = append(pairs, fmt.Sprintf("%s = %q", tomlKey(k), m[k]))
 	}
 	return "{ " + strings.Join(pairs, ", ") + " }"
+}
+
+// bareKey is a TOML key that needs no quoting.
+var bareKey = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// tomlKey quotes a key that is not a bare one. Env keys can come from a
+// repository's outpost.toml, so a key holding a quote or a brace would
+// otherwise close the inline table and let the descriptor write whatever it
+// liked into the generated manifest — or, at best, produce a file that no
+// longer parses.
+func tomlKey(k string) string {
+	if bareKey.MatchString(k) {
+		return k
+	}
+	return fmt.Sprintf("%q", k)
 }
 
 // splitList splits a comma-separated flag value, ignoring empty entries.

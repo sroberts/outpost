@@ -378,3 +378,114 @@ func TestDownloadText_IsBoundedWellBelowTheAssetLimit(t *testing.T) {
 		t.Errorf("error = %v; want it to name the limit", err)
 	}
 }
+
+// "arm64" contains "arm", so a plain substring match hands a 32-bit ARM host a
+// binary it cannot exec at all — the failure mode being an immediate exec
+// error, which the supervisor would then restart-loop.
+func TestSelectAsset_ArmDoesNotMatchArm64(t *testing.T) {
+	h := newFakeHub(t)
+	h.release = &Release{Tag: "v1"}
+	h.addAsset("svc-linux-arm64", []byte("64-bit"))
+	h.addAsset("svc-linux-armv8", []byte("also 64-bit"))
+	h.addAsset("svc-linux-arm", []byte("32-bit"))
+
+	c := h.client()
+	c.GOARCH = "arm"
+	got, err := c.SelectAsset(h.release, &Descriptor{})
+	if err != nil {
+		t.Fatalf("SelectAsset: %v", err)
+	}
+	if got.Name != "svc-linux-arm" {
+		t.Errorf("selected %q for GOARCH=arm; want the 32-bit asset", got.Name)
+	}
+
+	// A release with only 64-bit ARM assets must refuse, not hand over one.
+	h2 := newFakeHub(t)
+	h2.release = &Release{Tag: "v1"}
+	h2.addAsset("svc-linux-arm64", []byte("64-bit"))
+	c2 := h2.client()
+	c2.GOARCH = "arm"
+	if got, err := c2.SelectAsset(h2.release, &Descriptor{}); err == nil {
+		t.Errorf("selected %q for GOARCH=arm; want no match", got.Name)
+	}
+
+	// And arm64 must still find its own asset.
+	c3 := h.client()
+	c3.GOARCH = "arm64"
+	if got, err := c3.SelectAsset(h.release, &Descriptor{}); err == nil && got.Name != "svc-linux-arm64" {
+		t.Errorf("GOARCH=arm64 selected %q", got.Name)
+	}
+}
+
+// "checksums exist but not for this asset" is a different problem from
+// "publishes none", and sending the operator to look for a file that is right
+// there wastes their time.
+func TestInstall_DistinguishesMissingChecksumFromMissingEntry(t *testing.T) {
+	h := newFakeHub(t)
+	h.release = &Release{Tag: "v1"}
+	h.addAsset("svc-linux-amd64", []byte("binary"))
+	h.addAsset("SHA256SUMS", []byte(sum([]byte("x"))+"  some-other-file\n"))
+
+	c := h.client()
+	asset, _ := c.SelectAsset(h.release, &Descriptor{})
+	res, err := c.Install(context.Background(), h.release, asset, filepath.Join(t.TempDir(), "svc"))
+	if err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if res.Verified {
+		t.Error("Verified = true with no entry for this asset")
+	}
+	if !strings.Contains(res.Warning, "publishes checksums but none for") {
+		t.Errorf("Warning = %q; want it to say the file exists but omits this asset", res.Warning)
+	}
+	if !strings.Contains(res.Warning, "unverified") {
+		t.Errorf("Warning = %q; must still say unverified", res.Warning)
+	}
+}
+
+// isChecksumName already skipped ".sha256sum" during selection, so a release
+// using that suffix had its checksum ignored rather than read.
+func TestInstall_ReadsTheSha256sumSuffixToo(t *testing.T) {
+	body := []byte("the binary")
+	h := newFakeHub(t)
+	h.release = &Release{Tag: "v1"}
+	h.addAsset("svc-linux-amd64", body)
+	h.addAsset("svc-linux-amd64.sha256sum", []byte(sum(body)+"  svc-linux-amd64\n"))
+
+	c := h.client()
+	asset, err := c.SelectAsset(h.release, &Descriptor{})
+	if err != nil {
+		t.Fatalf("SelectAsset: %v", err)
+	}
+	res, err := c.Install(context.Background(), h.release, asset, filepath.Join(t.TempDir(), "svc"))
+	if err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if !res.Verified {
+		t.Errorf("Verified = false; the .sha256sum file should have been read (warning: %q)", res.Warning)
+	}
+}
+
+// A private repository's asset must be fetched from the API endpoint, which
+// accepts the bearer token; browser_download_url is served by github.com and
+// 404s for a private release.
+func TestInstall_PrefersTheAPIAssetURL(t *testing.T) {
+	body := []byte("private binary")
+	h := newFakeHub(t)
+	h.release = &Release{Tag: "v1"}
+	h.addAsset("svc-linux-amd64", body)
+
+	// Point browser_download_url at a path that is not served, so only the API
+	// URL can succeed.
+	h.release.Assets[0].APIURL = h.release.Assets[0].URL
+	h.release.Assets[0].URL = h.srv.URL + "/dl/does-not-exist"
+
+	c := h.client()
+	res, err := c.Install(context.Background(), h.release, h.release.Assets[0], filepath.Join(t.TempDir(), "svc"))
+	if err != nil {
+		t.Fatalf("Install used the wrong URL: %v", err)
+	}
+	if res.Asset != "svc-linux-amd64" {
+		t.Errorf("Asset = %q", res.Asset)
+	}
+}

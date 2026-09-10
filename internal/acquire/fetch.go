@@ -57,7 +57,7 @@ func (c *Client) SelectAsset(rel *Release, d *Descriptor) (Asset, error) {
 		if isChecksumName(a.Name) || hasArchiveExt(name) {
 			continue
 		}
-		if strings.Contains(name, c.GOOS) && strings.Contains(name, c.GOARCH) {
+		if strings.Contains(name, c.GOOS) && matchesArch(name, c.GOARCH) {
 			matches = append(matches, a)
 		}
 	}
@@ -77,6 +77,20 @@ func (c *Client) SelectAsset(rel *Release, d *Descriptor) (Asset, error) {
 			"name the right one with `asset = \"...\"` in %s",
 			rel.Tag, len(matches), c.GOOS, c.GOARCH, strings.Join(names, ", "), DescriptorName)
 	}
+}
+
+// matchesArch is a substring match with the one overlap that matters spelled
+// out: "arm64" contains "arm", so a plain Contains would hand a 32-bit ARM
+// host (GOARCH=arm) an arm64 binary that cannot exec at all. Every other
+// GOARCH value is a prefix of nothing else Go emits.
+func matchesArch(lowerName, goarch string) bool {
+	if !strings.Contains(lowerName, goarch) {
+		return false
+	}
+	if goarch == "arm" {
+		return !strings.Contains(lowerName, "arm64") && !strings.Contains(lowerName, "armv8")
+	}
+	return true
 }
 
 func isChecksumName(name string) bool {
@@ -109,7 +123,7 @@ func hasArchiveExt(lower string) bool {
 func (c *Client) Install(ctx context.Context, rel *Release, asset Asset, dest string) (Result, error) {
 	res := Result{Tag: rel.Tag, Asset: asset.Name, Path: dest}
 
-	want, err := c.expectedSum(ctx, rel, asset.Name)
+	want, published, err := c.expectedSum(ctx, rel, asset.Name)
 	if err != nil {
 		return res, err
 	}
@@ -129,7 +143,7 @@ func (c *Client) Install(ctx context.Context, rel *Release, asset Asset, dest st
 		os.Remove(tmpName)
 	}()
 
-	sum, err := c.download(ctx, asset.URL, tmp)
+	sum, err := c.download(ctx, asset.downloadURL(), tmp)
 	if err != nil {
 		return res, err
 	}
@@ -138,6 +152,11 @@ func (c *Client) Install(ctx context.Context, rel *Release, asset Asset, dest st
 	}
 
 	switch {
+	case want == "" && published:
+		// A checksum file exists but does not list this asset — a different
+		// failure from publishing none, and saying "no checksums" would send
+		// the operator looking for a file that is right there.
+		res.Warning = fmt.Sprintf("release %s publishes checksums but none for %s; it was installed unverified", rel.Tag, asset.Name)
 	case want == "":
 		res.Warning = fmt.Sprintf("release %s publishes no checksums; %s was installed unverified", rel.Tag, asset.Name)
 	case !strings.EqualFold(want, sum):
@@ -190,13 +209,15 @@ func (c *Client) downloadLimit(ctx context.Context, url string, w io.Writer, max
 	return hex.EncodeToString(sum.Sum(nil)), nil
 }
 
-// expectedSum finds the published SHA-256 for one asset, or "" when the
-// release publishes no checksums.
+// expectedSum finds the published SHA-256 for one asset. It also reports
+// whether the release published any checksum file at all, so the caller can
+// tell "nothing to check against" from "checksums exist but not for this
+// asset" — two different things to warn about.
 //
 // Both shapes are tried, and a release-wide manifest that turns out not to
 // list this asset falls through to the per-asset one rather than reporting
 // "no checksums" while a usable "<name>.sha256" sits in the same release.
-func (c *Client) expectedSum(ctx context.Context, rel *Release, assetName string) (string, error) {
+func (c *Client) expectedSum(ctx context.Context, rel *Release, assetName string) (string, bool, error) {
 	var candidates []*Asset
 	for _, want := range checksumNames {
 		for i, a := range rel.Assets {
@@ -206,24 +227,28 @@ func (c *Client) expectedSum(ctx context.Context, rel *Release, assetName string
 			}
 		}
 	}
-	// A per-asset "<name>.sha256" is the other common shape.
-	for i, a := range rel.Assets {
-		if strings.EqualFold(a.Name, assetName+".sha256") {
-			candidates = append(candidates, &rel.Assets[i])
-			break
+	// A per-asset "<name>.sha256" is the other common shape; ".sha256sum" is
+	// the same file under the other conventional suffix, which isChecksumName
+	// already recognises.
+	for _, suffix := range []string{".sha256", ".sha256sum"} {
+		for i, a := range rel.Assets {
+			if strings.EqualFold(a.Name, assetName+suffix) {
+				candidates = append(candidates, &rel.Assets[i])
+				break
+			}
 		}
 	}
 
 	for _, manifest := range candidates {
 		var buf strings.Builder
-		if _, err := c.downloadText(ctx, manifest.URL, &buf); err != nil {
-			return "", fmt.Errorf("fetch %s: %w", manifest.Name, err)
+		if _, err := c.downloadText(ctx, manifest.downloadURL(), &buf); err != nil {
+			return "", true, fmt.Errorf("fetch %s: %w", manifest.Name, err)
 		}
 		if sum := parseChecksums(buf.String(), assetName); sum != "" {
-			return sum, nil
+			return sum, true, nil
 		}
 	}
-	return "", nil
+	return "", len(candidates) > 0, nil
 }
 
 // parseChecksums reads `sha256sum` output: "<hex>  <name>" per line. A

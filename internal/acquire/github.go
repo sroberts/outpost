@@ -73,7 +73,22 @@ func ghToken() string {
 type Asset struct {
 	Name string `json:"name"`
 	URL  string `json:"browser_download_url"`
-	Size int64  `json:"size"`
+	// APIURL is the release-asset endpoint. It is what makes a private
+	// repository work: browser_download_url is served by github.com, which
+	// does not accept an API token (and Go strips Authorization across the
+	// redirect anyway), so a private asset 404s there. The API URL accepts
+	// the bearer token and redirects to a pre-signed storage URL.
+	APIURL string `json:"url"`
+	Size   int64  `json:"size"`
+}
+
+// downloadURL is the URL to fetch this asset from, preferring the API
+// endpoint when the release listing gave us one.
+func (a Asset) downloadURL() string {
+	if a.APIURL != "" {
+		return a.APIURL
+	}
+	return a.URL
 }
 
 // Release is a published GitHub release.
@@ -145,7 +160,7 @@ func (c *Client) Descriptor(ctx context.Context, repo Repo, rel *Release) (*Desc
 	for _, a := range rel.Assets {
 		if strings.EqualFold(a.Name, DescriptorName) {
 			var buf strings.Builder
-			if _, err := c.downloadText(ctx, a.URL, &buf); err != nil {
+			if _, err := c.downloadText(ctx, a.downloadURL(), &buf); err != nil {
 				return nil, fmt.Errorf("fetch %s from release %s: %w", DescriptorName, rel.Tag, err)
 			}
 			return ParseDescriptor([]byte(buf.String()))
