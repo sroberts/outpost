@@ -258,3 +258,84 @@ func manifestPort(t *testing.T, body string) int {
 	t.Fatalf("no port in manifest:\n%s", body)
 	return 0
 }
+
+// A manifest the declared set rejects must leave nothing behind. Installing
+// first and validating second meant a failed add still wrote a binary — and
+// with --force, overwrote a running service's binary before aborting, so the
+// daemon would restart it into the new binary under the old manifest.
+func TestAdd_ValidationFailureInstallsNothing(t *testing.T) {
+	home := t.TempDir()
+	// A descriptor naming a port Outpost did not assign: portInArgs rejects
+	// the manifest, because otherwise the service binds one port while Outpost
+	// health-checks another and restart-loops it forever.
+	const mismatched = `
+name = "hello"
+args = ["serve", "--port", "8080"]
+`
+	useFakeGitHub(t, fakeGitHub(t, []byte("binary"), mismatched, true))
+
+	_, _, err := runCLI(t, home, "add", "https://github.com/o/r")
+	if err == nil {
+		t.Fatal("a manifest with a port mismatch was accepted")
+	}
+
+	if _, statErr := os.Stat(filepath.Join(home, "bin", "hello")); !os.IsNotExist(statErr) {
+		t.Error("a binary was installed for a service whose manifest was rejected")
+	}
+	if _, statErr := os.Stat(filepath.Join(home, "services", "hello.toml")); !os.IsNotExist(statErr) {
+		t.Error("a manifest was written despite validation failing")
+	}
+}
+
+// --binary alongside a repository reference used to be ignored silently, so
+// the operator's local build was discarded for a downloaded one.
+func TestAdd_BinaryWithRepoRefIsRefused(t *testing.T) {
+	home := t.TempDir()
+	useFakeGitHub(t, fakeGitHub(t, []byte("binary"), helloDescriptor, true))
+
+	_, _, err := runCLI(t, home, "add", "https://github.com/o/r", "--binary", "/bin/sleep")
+	if err == nil {
+		t.Fatal("--binary with a repository reference was accepted")
+	}
+	if !strings.Contains(err.Error(), "--binary cannot be combined") {
+		t.Errorf("error = %v; want it to explain the conflict", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(home, "bin", "hello")); !os.IsNotExist(statErr) {
+		t.Error("a binary was downloaded despite the conflicting flags")
+	}
+}
+
+// The service spec has told authors to support OUTPOST_PORT since §1 was
+// written. Until it was actually set, a service that took that advice and
+// shipped no args got no port at all.
+func TestAdd_GeneratedManifestSetsOutpostPort(t *testing.T) {
+	home := t.TempDir()
+	useFakeGitHub(t, fakeGitHub(t, []byte("binary"), "name = \"hello\"\n", true))
+
+	if _, stderr, err := runCLI(t, home, "add", "https://github.com/o/r"); err != nil {
+		t.Fatalf("add: %v\nstderr: %s", err, stderr)
+	}
+	body, err := os.ReadFile(filepath.Join(home, "services", "hello.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := manifestPort(t, string(body))
+	if want := fmt.Sprintf(`OUTPOST_PORT = "%d"`, port); !strings.Contains(string(body), want) {
+		t.Errorf("manifest does not set %s:\n%s", want, body)
+	}
+}
+
+// A descriptor that sets OUTPOST_PORT itself said so deliberately.
+func TestAdd_DescriptorOutpostPortIsNotOverwritten(t *testing.T) {
+	home := t.TempDir()
+	useFakeGitHub(t, fakeGitHub(t, []byte("binary"),
+		"name = \"hello\"\nenv = { OUTPOST_PORT = \"fixed\" }\n", true))
+
+	if _, stderr, err := runCLI(t, home, "add", "https://github.com/o/r"); err != nil {
+		t.Fatalf("add: %v\nstderr: %s", err, stderr)
+	}
+	body, _ := os.ReadFile(filepath.Join(home, "services", "hello.toml"))
+	if !strings.Contains(string(body), `OUTPOST_PORT = "fixed"`) {
+		t.Errorf("the descriptor's own OUTPOST_PORT was overwritten:\n%s", body)
+	}
+}

@@ -106,24 +106,11 @@ func (a *app) addFromRepo(ref string, opts addOptions) error {
 	}
 
 	dest := filepath.Join(a.home, "bin", name)
-	if opts.dryRun {
-		fmt.Fprintf(a.out, "would install %s from release %s to %s\n", asset.Name, rel.Tag, dest)
-	} else {
-		fmt.Fprintf(a.out, "downloading %s from release %s…\n", asset.Name, rel.Tag)
-		res, err := client.Install(ctx, rel, asset, dest)
-		if err != nil {
-			return err
-		}
-		if res.Warning != "" {
-			fmt.Fprintf(a.err, "outpost: %s\n", res.Warning)
-		}
-		verified := "unverified"
-		if res.Verified {
-			verified = "checksum verified"
-		}
-		fmt.Fprintf(a.out, "installed %s (%s)\n", dest, verified)
-	}
 
+	// Built and validated before anything is downloaded: a manifest the
+	// declared set rejects — a port collision, or descriptor args naming a
+	// port Outpost did not assign — must not leave an installed binary
+	// behind, least of all one that overwrote a working service's.
 	svc, err := a.serviceFromDescriptor(name, dest, port, desc, opts)
 	if err != nil {
 		return err
@@ -134,9 +121,25 @@ func (a *app) addFromRepo(ref string, opts addOptions) error {
 
 	body := renderManifest(svc)
 	if opts.dryRun {
+		fmt.Fprintf(a.out, "would install %s from release %s to %s\n", asset.Name, rel.Tag, dest)
 		fmt.Fprint(a.out, body)
 		return nil
 	}
+
+	fmt.Fprintf(a.out, "downloading %s from release %s…\n", asset.Name, rel.Tag)
+	res, err := client.Install(ctx, rel, asset, dest)
+	if err != nil {
+		return err
+	}
+	if res.Warning != "" {
+		fmt.Fprintf(a.err, "outpost: %s\n", res.Warning)
+	}
+	verified := "unverified"
+	if res.Verified {
+		verified = "checksum verified"
+	}
+	fmt.Fprintf(a.out, "installed %s (%s)\n", dest, verified)
+
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
@@ -235,6 +238,7 @@ func (a *app) serviceFromDescriptor(name, binary string, port int, desc *acquire
 		MCP:               mcp,
 		StartGraceSeconds: desc.StartGraceSeconds,
 	}
+	svc.Env = withOutpostPort(svc.Env, port)
 	svc.SetRoot(a.home)
 	return svc, nil
 }

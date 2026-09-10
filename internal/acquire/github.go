@@ -17,6 +17,11 @@ import (
 // binary; anything past this is not one, and refusing beats filling the disk.
 const maxAssetBytes = 512 << 20
 
+// maxTextBytes bounds a file read into memory: a checksum manifest or a
+// descriptor. Neither is ever large, and both are buffered rather than
+// streamed to disk.
+const maxTextBytes = 1 << 20
+
 // DefaultBaseURL is GitHub's REST API.
 const DefaultBaseURL = "https://api.github.com"
 
@@ -140,7 +145,7 @@ func (c *Client) Descriptor(ctx context.Context, repo Repo, rel *Release) (*Desc
 	for _, a := range rel.Assets {
 		if strings.EqualFold(a.Name, DescriptorName) {
 			var buf strings.Builder
-			if _, err := c.download(ctx, a.URL, &buf); err != nil {
+			if _, err := c.downloadText(ctx, a.URL, &buf); err != nil {
 				return nil, fmt.Errorf("fetch %s from release %s: %w", DescriptorName, rel.Tag, err)
 			}
 			return ParseDescriptor([]byte(buf.String()))

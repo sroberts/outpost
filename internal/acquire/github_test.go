@@ -332,3 +332,49 @@ func TestDescriptor_AbsentIsNotAnError(t *testing.T) {
 		t.Errorf("Descriptor = %+v; want nil when the repository publishes none", d)
 	}
 }
+
+// A release-wide manifest that does not happen to list this asset must not end
+// the search: giving up on the first candidate reported "no checksums
+// published" while a usable per-asset hash sat in the same release.
+func TestInstall_FallsThroughToAPerAssetChecksum(t *testing.T) {
+	body := []byte("the binary")
+	h := newFakeHub(t)
+	h.release = &Release{Tag: "v1"}
+	h.addAsset("svc-linux-amd64", body)
+	// Lists only the archives, as a release publishing both shapes often does.
+	h.addAsset("SHA256SUMS", []byte(sum([]byte("tarball"))+"  svc-linux-amd64.tar.gz\n"))
+	h.addAsset("svc-linux-amd64.sha256", []byte(sum(body)+"  svc-linux-amd64\n"))
+
+	c := h.client()
+	asset, err := c.SelectAsset(h.release, &Descriptor{})
+	if err != nil {
+		t.Fatalf("SelectAsset: %v", err)
+	}
+	res, err := c.Install(context.Background(), h.release, asset, filepath.Join(t.TempDir(), "svc"))
+	if err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if !res.Verified {
+		t.Errorf("Verified = false; the per-asset checksum should have been used (warning: %q)", res.Warning)
+	}
+}
+
+// A text file is read into memory, so it gets a much smaller bound than an
+// asset streamed to disk.
+func TestDownloadText_IsBoundedWellBelowTheAssetLimit(t *testing.T) {
+	if maxTextBytes >= maxAssetBytes {
+		t.Fatalf("maxTextBytes %d is not below maxAssetBytes %d", maxTextBytes, maxAssetBytes)
+	}
+	h := newFakeHub(t)
+	h.release = &Release{Tag: "v1"}
+	h.addAsset("SHA256SUMS", make([]byte, maxTextBytes+1))
+
+	var buf strings.Builder
+	_, err := h.client().downloadText(context.Background(), h.release.Assets[0].URL, &buf)
+	if err == nil {
+		t.Fatal("an oversized text file was accepted")
+	}
+	if !strings.Contains(err.Error(), "limit") {
+		t.Errorf("error = %v; want it to name the limit", err)
+	}
+}

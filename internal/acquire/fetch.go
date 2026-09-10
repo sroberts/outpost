@@ -156,8 +156,20 @@ func (c *Client) Install(ctx context.Context, rel *Release, asset Asset, dest st
 	return res, nil
 }
 
+// downloadText fetches a small text file — a checksum manifest or a
+// descriptor — into memory. It gets its own, far smaller bound: an asset may
+// legitimately be hundreds of megabytes, but buffering that much of a
+// checksum file in a strings.Builder never is.
+func (c *Client) downloadText(ctx context.Context, url string, w io.Writer) (string, error) {
+	return c.downloadLimit(ctx, url, w, maxTextBytes)
+}
+
 // download copies the body to w and returns its SHA-256.
 func (c *Client) download(ctx context.Context, url string, w io.Writer) (string, error) {
+	return c.downloadLimit(ctx, url, w, maxAssetBytes)
+}
+
+func (c *Client) downloadLimit(ctx context.Context, url string, w io.Writer, max int64) (string, error) {
 	resp, err := c.get(ctx, url, "application/octet-stream")
 	if err != nil {
 		return "", fmt.Errorf("download %s: %w", url, err)
@@ -168,49 +180,50 @@ func (c *Client) download(ctx context.Context, url string, w io.Writer) (string,
 	}
 
 	sum := sha256.New()
-	n, err := io.Copy(io.MultiWriter(w, sum), io.LimitReader(resp.Body, maxAssetBytes+1))
+	n, err := io.Copy(io.MultiWriter(w, sum), io.LimitReader(resp.Body, max+1))
 	if err != nil {
 		return "", fmt.Errorf("download %s: %w", url, err)
 	}
-	if n > maxAssetBytes {
-		return "", fmt.Errorf("download %s: larger than the %d MiB limit for a service binary", url, maxAssetBytes>>20)
+	if n > max {
+		return "", fmt.Errorf("download %s: larger than the %d MiB limit", url, max>>20)
 	}
 	return hex.EncodeToString(sum.Sum(nil)), nil
 }
 
 // expectedSum finds the published SHA-256 for one asset, or "" when the
 // release publishes no checksums.
+//
+// Both shapes are tried, and a release-wide manifest that turns out not to
+// list this asset falls through to the per-asset one rather than reporting
+// "no checksums" while a usable "<name>.sha256" sits in the same release.
 func (c *Client) expectedSum(ctx context.Context, rel *Release, assetName string) (string, error) {
-	var manifest *Asset
+	var candidates []*Asset
 	for _, want := range checksumNames {
 		for i, a := range rel.Assets {
 			if strings.EqualFold(a.Name, want) {
-				manifest = &rel.Assets[i]
+				candidates = append(candidates, &rel.Assets[i])
 				break
 			}
-		}
-		if manifest != nil {
-			break
 		}
 	}
 	// A per-asset "<name>.sha256" is the other common shape.
-	if manifest == nil {
-		for i, a := range rel.Assets {
-			if strings.EqualFold(a.Name, assetName+".sha256") {
-				manifest = &rel.Assets[i]
-				break
-			}
+	for i, a := range rel.Assets {
+		if strings.EqualFold(a.Name, assetName+".sha256") {
+			candidates = append(candidates, &rel.Assets[i])
+			break
 		}
 	}
-	if manifest == nil {
-		return "", nil
-	}
 
-	var buf strings.Builder
-	if _, err := c.download(ctx, manifest.URL, &buf); err != nil {
-		return "", fmt.Errorf("fetch %s: %w", manifest.Name, err)
+	for _, manifest := range candidates {
+		var buf strings.Builder
+		if _, err := c.downloadText(ctx, manifest.URL, &buf); err != nil {
+			return "", fmt.Errorf("fetch %s: %w", manifest.Name, err)
+		}
+		if sum := parseChecksums(buf.String(), assetName); sum != "" {
+			return sum, nil
+		}
 	}
-	return parseChecksums(buf.String(), assetName), nil
+	return "", nil
 }
 
 // parseChecksums reads `sha256sum` output: "<hex>  <name>" per line. A

@@ -52,8 +52,9 @@ nothing validates the agreement and the mismatch is yours to avoid.
 
 **What to do about it:** accept the port from *both* a flag and an environment
 variable, preferring the flag. Support `OUTPOST_PORT` specifically — it costs
-three lines, and `outpost add` uses it when generating manifests. Never hard-code
-a port, and never pick one dynamically: Outpost has to know it in advance.
+three lines, and every manifest `outpost add` generates sets it, so supporting
+it means the operator need not write `args` at all. Never hard-code a port, and
+never pick one dynamically: Outpost has to know it in advance.
 
 ---
 
@@ -570,8 +571,13 @@ asset       = "yourservice-${GOOS}-${GOARCH}"  # only if your names are unusual
 
 **`${PORT}` is the important one.** Outpost assigns the port — that is how it
 keeps services from colliding (§1) — so a service that takes its port as a flag
-has no other way to be told what it got. If you read `PORT` from the
-environment instead, you need no `args` at all.
+has no other way to be told what it got.
+
+If you read the port from `OUTPOST_PORT` instead (§1), you need no `args` at
+all: `outpost add` writes `OUTPOST_PORT` into every manifest it generates. Note
+that this is a property of the generated manifest, not of the runtime — Outpost
+itself only ever injects `OUTPOST_STORAGE_DIR` (§4), so a hand-written manifest
+gets `OUTPOST_PORT` only if it says so.
 
 Setting a fixed `port` is possible and usually wrong: it removes Outpost's
 ability to avoid a collision with another service on the same machine.

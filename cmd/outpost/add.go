@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/sroberts/outpost/internal/manifest"
@@ -41,6 +42,12 @@ func (a *app) cmdAdd(args []string) error {
 
 	// A reference containing a slash is a repository, never a service name.
 	if isRepoRef(name) {
+		// Silently ignoring --binary here would install the release asset
+		// while the operator believed their local build was being declared.
+		if *binary != "" {
+			return fmt.Errorf("add: --binary cannot be combined with a repository reference; "+
+				"use `outpost add <name> --binary %s` to declare a local build", *binary)
+		}
 		return a.addFromRepo(name, addOptions{
 			set:     flagsSet(fs),
 			name:    *asName,
@@ -154,7 +161,23 @@ func (a *app) buildService(name, binary string, port int, storage, tsName, healt
 		}
 		svc.Env = env
 	}
+	svc.Env = withOutpostPort(svc.Env, port)
 	return svc, nil
+}
+
+// withOutpostPort adds OUTPOST_PORT to a generated manifest. The service spec
+// has told service authors to support it since §1 was written; until now
+// nothing set it, so a service that took the advice got nothing. An explicit
+// value already in env wins — the operator or the descriptor said it on purpose.
+func withOutpostPort(env map[string]string, port int) map[string]string {
+	if _, ok := env["OUTPOST_PORT"]; ok {
+		return env
+	}
+	if env == nil {
+		env = map[string]string{}
+	}
+	env["OUTPOST_PORT"] = strconv.Itoa(port)
+	return env
 }
 
 // parseEnv turns KEY=VALUE pairs into a map.
@@ -286,8 +309,9 @@ func renderManifest(s *manifest.Service) string {
 		b.WriteString("mcp            = true\n")
 	}
 	// Only written when set, so a generated manifest stays as short as the
-	// service actually needs. Both were previously dropped on the floor: `add`
-	// had no flag for either, so nothing ever set them until a descriptor could.
+	// service actually needs. start_grace_seconds is what a descriptor can
+	// declare today; backoff_seconds has no flag and no descriptor field yet,
+	// and is rendered here so it survives a round-trip if one ever sets it.
 	if s.BackoffSeconds > 0 {
 		fmt.Fprintf(&b, "backoff_seconds = %d\n", s.BackoffSeconds)
 	}
