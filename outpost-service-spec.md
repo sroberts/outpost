@@ -498,3 +498,91 @@ outpost logs myservice       # expect: your stdout and stderr
 conforming service that can be told to crash, stall its startup, or go unhealthy
 on demand. It is useful both as a worked example and as something to test
 Outpost's own behaviour against.
+
+## 14. Publishing releases `outpost add` can install
+
+Everything above is about running correctly once Outpost starts you. This
+section is about the step before that: making
+
+```sh
+outpost add https://github.com/you/yourservice
+```
+
+enough to install and configure your service, instead of the operator building
+it first and hand-writing a manifest.
+
+None of this is required. A service that satisfies §1–§8 works perfectly well
+when added with `--binary`. This only removes a manual step.
+
+### Publish a release with per-platform binaries
+
+`outpost add` reads your repository's **latest non-prerelease GitHub release**
+and installs one asset from it. It never builds from source: running a
+repository's build scripts is a much larger trust decision than downloading a
+binary its author published, and Outpost does not make it on the operator's
+behalf.
+
+Name the asset so it contains the Go `GOOS` and `GOARCH`:
+
+```
+yourservice-linux-amd64
+yourservice-linux-arm64
+yourservice-darwin-arm64
+```
+
+That is what `go build` users produce anyway, and it is what Outpost's own
+release workflow does. If your names differ, say so in the descriptor's `asset`
+field below rather than renaming them.
+
+Archives (`.tar.gz`, `.zip`) are skipped, not unpacked — publish the bare
+binary alongside them if you also ship archives.
+
+### Publish checksums
+
+If your release includes a `SHA256SUMS` file (or `checksums.txt`, or a
+`<asset>.sha256`), Outpost verifies the download against it and **refuses to
+install on a mismatch**. If your release publishes none, Outpost installs
+anyway and warns that it could not verify.
+
+The format is `sha256sum` output — `<hex>  <filename>`, one per line. Generating
+it is one line in a release workflow:
+
+```sh
+sha256sum yourservice-* > SHA256SUMS
+```
+
+### Describe yourself in `outpost.toml`
+
+Put an `outpost.toml` in your repository root — or attach it to the release,
+which is preferred, because it is then the copy that shipped with that binary:
+
+```toml
+# outpost.toml
+name        = "yourservice"                    # default: the repository name
+args        = ["serve", "--port", "${PORT}"]   # ${PORT} is substituted
+env         = { LOG_LEVEL = "info" }           # ${PORT} works here too
+healthcheck = "/up"                            # default: /up
+mcp         = true                             # you serve /mcp
+restart_policy = "on-failure"                  # on-failure | always | never
+start_grace_seconds = 15                       # if you are slow to bind
+asset       = "yourservice-${GOOS}-${GOARCH}"  # only if your names are unusual
+```
+
+**`${PORT}` is the important one.** Outpost assigns the port — that is how it
+keeps services from colliding (§1) — so a service that takes its port as a flag
+has no other way to be told what it got. If you read `PORT` from the
+environment instead, you need no `args` at all.
+
+Setting a fixed `port` is possible and usually wrong: it removes Outpost's
+ability to avoid a collision with another service on the same machine.
+
+Every field is optional, and an operator's explicit flag always wins over what
+you declare here — `--healthcheck /ready` overrides your `healthcheck`. What
+you put here are defaults, not requirements.
+
+### What this does not do
+
+Upgrades are not handled: `outpost add` on a service that already exists
+refuses unless given `--force`. Private repositories work if the operator has
+the `gh` CLI authenticated, or `GITHUB_TOKEN` set; Outpost stores no
+credentials of its own.

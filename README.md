@@ -79,6 +79,25 @@ outpost add plumbline --binary /opt/outpost/bin/plumbline \
 outpost add plumbline --binary ... --print   # render it without writing
 ```
 
+Or install from a GitHub release, which needs no local build:
+
+```sh
+outpost add https://github.com/sroberts/plumbline
+outpost add sroberts/plumbline --name pl     # shorthand, with a chosen name
+```
+
+This fetches the latest release, picks the asset matching your platform,
+verifies it against the release's checksums when it publishes any (and refuses
+to install on a mismatch), and installs it under `~/.outpost/bin/`. If the
+repository ships an `outpost.toml`, its declared args, healthcheck and so on
+become the manifest's defaults — see [outpost-service-spec.md](outpost-service-spec.md)
+§14 for what a service can declare. Flags you pass override it.
+
+Outpost never builds from source. A repository with no usable release gets a
+clear error pointing back at `--binary`. Private repositories work if you have
+the `gh` CLI authenticated or `GITHUB_TOKEN` set; Outpost stores no credentials
+of its own.
+
 It validates the result against every other declared service *before* writing,
 so a port or name collision is an error rather than something the next `apply`
 discovers.
@@ -186,7 +205,8 @@ The grace covers slow healthchecks, not a process that exits.
 
 ```
 outpost serve [--tailnet=BOOL]   run the daemon (reconcile loop + control socket)
-outpost add <name> --binary ...  declare a new service
+outpost add <name> --binary ...  declare a new service from a local binary
+outpost add <github-url>         install from the latest GitHub release
 outpost remove <name> [--purge]  undeclare a service, optionally deleting its data
 outpost apply                    validate manifests and reconcile
 outpost list                     table of services and their status

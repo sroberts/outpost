@@ -1,0 +1,260 @@
+package main
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+
+	"github.com/sroberts/outpost/internal/acquire"
+)
+
+// fakeGitHub serves one release, its assets and an outpost.toml, so `outpost
+// add <url>` can be exercised end to end without the network.
+func fakeGitHub(t *testing.T, binary []byte, descriptor string, withChecksums bool) *httptest.Server {
+	return fakeGitHubWithSum(t, binary, descriptor, withChecksums, "")
+}
+
+// fakeGitHubWithSum lets a test publish a checksum that does not match the
+// asset, which is the case the verification exists for.
+func fakeGitHubWithSum(t *testing.T, binary []byte, descriptor string, withChecksums bool, forceSum string) *httptest.Server {
+	t.Helper()
+
+	assetName := fmt.Sprintf("svc-%s-%s", runtime.GOOS, runtime.GOARCH)
+	files := map[string][]byte{assetName: binary}
+	assets := []map[string]any{}
+
+	var srv *httptest.Server
+	mux := http.NewServeMux()
+	add := func(name string) {
+		assets = append(assets, map[string]any{
+			"name":                 name,
+			"browser_download_url": srv.URL + "/dl/" + name,
+			"size":                 len(files[name]),
+		})
+	}
+
+	srv = httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	if withChecksums {
+		h := sha256.Sum256(binary)
+		hash := hex.EncodeToString(h[:])
+		if forceSum != "" {
+			hash = forceSum
+		}
+		files["SHA256SUMS"] = []byte(hash + "  " + assetName + "\n")
+	}
+	add(assetName)
+	if withChecksums {
+		add("SHA256SUMS")
+	}
+
+	mux.HandleFunc("/repos/o/r/releases/latest", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"tag_name": "v1.2.3", "assets": assets})
+	})
+	mux.HandleFunc("/repos/o/r/contents/outpost.toml", func(w http.ResponseWriter, r *http.Request) {
+		if descriptor == "" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_, _ = w.Write([]byte(descriptor))
+	})
+	mux.HandleFunc("/dl/", func(w http.ResponseWriter, r *http.Request) {
+		body, ok := files[strings.TrimPrefix(r.URL.Path, "/dl/")]
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_, _ = w.Write(body)
+	})
+	return srv
+}
+
+// useFakeGitHub points the CLI's acquire client at srv for one test.
+func useFakeGitHub(t *testing.T, srv *httptest.Server) {
+	t.Helper()
+	prev := acquireClient
+	t.Cleanup(func() { acquireClient = prev })
+	acquireClient = func() *acquire.Client {
+		return &acquire.Client{
+			HTTP:    srv.Client(),
+			BaseURL: srv.URL,
+			GOOS:    runtime.GOOS,
+			GOARCH:  runtime.GOARCH,
+		}
+	}
+}
+
+const helloDescriptor = `
+name        = "hello"
+args        = ["serve", "--port", "${PORT}"]
+env         = { LOG_LEVEL = "debug" }
+healthcheck = "/healthz"
+mcp         = true
+start_grace_seconds = 15
+`
+
+// The headline case: a URL is enough to install a service and write a correct
+// manifest, with no --binary and no hand-written args.
+func TestAdd_FromGitHubURL(t *testing.T) {
+	home := t.TempDir()
+	useFakeGitHub(t, fakeGitHub(t, []byte("#!/bin/sh\nexit 0\n"), helloDescriptor, true))
+
+	stdout, stderr, err := runCLI(t, home, "add", "https://github.com/o/r")
+	if err != nil {
+		t.Fatalf("add: %v\nstderr: %s", err, stderr)
+	}
+
+	body, err := os.ReadFile(filepath.Join(home, "services", "hello.toml"))
+	if err != nil {
+		t.Fatalf("manifest: %v", err)
+	}
+	manifest := string(body)
+
+	for _, want := range []string{
+		`name           = "hello"`,
+		`healthcheck    = "/healthz"`,
+		`mcp            = true`,
+		"start_grace_seconds = 15",
+		`"serve"`,
+		`LOG_LEVEL = "debug"`,
+	} {
+		if !strings.Contains(manifest, want) {
+			t.Errorf("manifest missing %q:\n%s", want, manifest)
+		}
+	}
+
+	// The descriptor's ${PORT} must have become the port Outpost assigned,
+	// otherwise the service binds something other than what Outpost probes.
+	port := manifestPort(t, manifest)
+	if !strings.Contains(manifest, fmt.Sprintf(`"%d"`, port)) {
+		t.Errorf("args do not carry the assigned port %d:\n%s", port, manifest)
+	}
+
+	installed := filepath.Join(home, "bin", "hello")
+	fi, err := os.Stat(installed)
+	if err != nil {
+		t.Fatalf("binary not installed: %v", err)
+	}
+	if fi.Mode().Perm()&0o100 == 0 {
+		t.Errorf("installed binary is not executable (mode %#o)", fi.Mode().Perm())
+	}
+	if !strings.Contains(stdout, "checksum verified") {
+		t.Errorf("stdout does not report verification:\n%s", stdout)
+	}
+}
+
+// Without a descriptor the flags still have to work, and the operator must be
+// told they are getting defaults rather than the service's own configuration.
+func TestAdd_FromGitHubURLWithoutADescriptor(t *testing.T) {
+	home := t.TempDir()
+	useFakeGitHub(t, fakeGitHub(t, []byte("binary"), "", true))
+
+	_, stderr, err := runCLI(t, home, "add", "https://github.com/o/r",
+		"--name", "custom", "--args", "run,--verbose")
+	if err != nil {
+		t.Fatalf("add: %v\nstderr: %s", err, stderr)
+	}
+	if !strings.Contains(stderr, "publishes no outpost.toml") {
+		t.Errorf("stderr does not mention the missing descriptor:\n%s", stderr)
+	}
+
+	body, err := os.ReadFile(filepath.Join(home, "services", "custom.toml"))
+	if err != nil {
+		t.Fatalf("manifest: %v", err)
+	}
+	if !strings.Contains(string(body), `"--verbose"`) {
+		t.Errorf("flags were not applied:\n%s", body)
+	}
+}
+
+// An explicit flag beats the descriptor; the operator asked for it by name.
+func TestAdd_FlagsOverrideTheDescriptor(t *testing.T) {
+	home := t.TempDir()
+	useFakeGitHub(t, fakeGitHub(t, []byte("binary"), helloDescriptor, true))
+
+	if _, stderr, err := runCLI(t, home, "add", "https://github.com/o/r",
+		"--healthcheck", "/ready", "--restart", "always"); err != nil {
+		t.Fatalf("add: %v\nstderr: %s", err, stderr)
+	}
+
+	body, _ := os.ReadFile(filepath.Join(home, "services", "hello.toml"))
+	if !strings.Contains(string(body), `healthcheck    = "/ready"`) {
+		t.Errorf("flag did not override the descriptor:\n%s", body)
+	}
+	if !strings.Contains(string(body), `restart_policy = "always"`) {
+		t.Errorf("flag did not override the default:\n%s", body)
+	}
+}
+
+// A corrupted or substituted asset must stop the install, and must not leave a
+// half-installed service behind.
+func TestAdd_ChecksumMismatchInstallsNothing(t *testing.T) {
+	home := t.TempDir()
+	// A checksum that does not match the asset, as a substituted binary would
+	// produce.
+	useFakeGitHub(t, fakeGitHubWithSum(t, []byte("binary"), helloDescriptor, true, strings.Repeat("0", 64)))
+
+	_, _, err := runCLI(t, home, "add", "https://github.com/o/r")
+	if err == nil {
+		t.Fatal("checksum mismatch: want an error")
+	}
+	if !strings.Contains(err.Error(), "checksum mismatch") {
+		t.Errorf("error = %v; want it to name the mismatch", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(home, "services", "hello.toml")); !os.IsNotExist(statErr) {
+		t.Error("a manifest was written despite the mismatch")
+	}
+	if _, statErr := os.Stat(filepath.Join(home, "bin", "hello")); !os.IsNotExist(statErr) {
+		t.Error("a binary was installed despite the mismatch")
+	}
+}
+
+// A service name is a filename; a repository must not be able to choose one
+// that escapes the services directory.
+func TestValidServiceName_RejectsPathTricks(t *testing.T) {
+	for _, name := range []string{"", ".", "..", "a/b", ".hidden", "../escape"} {
+		if err := validServiceName(name); err == nil {
+			t.Errorf("validServiceName(%q) = nil; want an error", name)
+		}
+	}
+	if err := validServiceName("plumbline"); err != nil {
+		t.Errorf("validServiceName(\"plumbline\") = %v; want nil", err)
+	}
+}
+
+func TestIsRepoRef(t *testing.T) {
+	for _, ref := range []string{"https://github.com/o/r", "github.com/o/r", "o/r", "git@github.com:o/r.git"} {
+		if !isRepoRef(ref) {
+			t.Errorf("isRepoRef(%q) = false; want true", ref)
+		}
+	}
+	for _, name := range []string{"plumbline", "kosync", "web-1"} {
+		if isRepoRef(name) {
+			t.Errorf("isRepoRef(%q) = true; want false for a service name", name)
+		}
+	}
+}
+
+// manifestPort digs the assigned port out of a rendered manifest.
+func manifestPort(t *testing.T, body string) int {
+	t.Helper()
+	for _, line := range strings.Split(body, "\n") {
+		if after, ok := strings.CutPrefix(strings.TrimSpace(line), "port"); ok {
+			var p int
+			if _, err := fmt.Sscanf(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(after), "=")), "%d", &p); err == nil {
+				return p
+			}
+		}
+	}
+	t.Fatalf("no port in manifest:\n%s", body)
+	return 0
+}

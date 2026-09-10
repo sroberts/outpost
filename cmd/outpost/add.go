@@ -32,13 +32,33 @@ func (a *app) cmdAdd(args []string) error {
 	mcp := fs.Bool("mcp", false, "the service exposes an MCP endpoint at /mcp")
 	force := fs.Bool("force", false, "overwrite an existing manifest")
 	dryRun := fs.Bool("print", false, "print the manifest instead of writing it")
+	asName := fs.String("name", "", "service name (default: the repository name, when adding from a URL)")
 
 	name, err := parseServiceCommand(fs, "add", args)
 	if err != nil {
 		return err
 	}
+
+	// A reference containing a slash is a repository, never a service name.
+	if isRepoRef(name) {
+		return a.addFromRepo(name, addOptions{
+			set:     flagsSet(fs),
+			name:    *asName,
+			port:    *port,
+			storage: *storage,
+			tsName:  *tsName,
+			health:  *health,
+			policy:  *policy,
+			argList: *argList,
+			envList: *envList,
+			mcp:     *mcp,
+			force:   *force,
+			dryRun:  *dryRun,
+		})
+	}
+
 	if *binary == "" {
-		return fmt.Errorf("add: --binary is required")
+		return fmt.Errorf("add: --binary is required, or give a GitHub repository URL instead")
 	}
 	if err := a.ensureLayout(); err != nil {
 		return err
@@ -128,17 +148,29 @@ func (a *app) buildService(name, binary string, port int, storage, tsName, healt
 		svc.Args = splitList(argList)
 	}
 	if envList != "" {
-		env := map[string]string{}
-		for _, pair := range splitList(envList) {
-			k, v, ok := strings.Cut(pair, "=")
-			if !ok {
-				return nil, fmt.Errorf("--env %q is not KEY=VALUE", pair)
-			}
-			env[k] = v
+		env, err := parseEnv(splitList(envList))
+		if err != nil {
+			return nil, err
 		}
 		svc.Env = env
 	}
 	return svc, nil
+}
+
+// parseEnv turns KEY=VALUE pairs into a map.
+func parseEnv(pairs []string) (map[string]string, error) {
+	if len(pairs) == 0 {
+		return nil, nil
+	}
+	env := map[string]string{}
+	for _, pair := range pairs {
+		k, v, ok := strings.Cut(pair, "=")
+		if !ok {
+			return nil, fmt.Errorf("--env %q is not KEY=VALUE", pair)
+		}
+		env[k] = v
+	}
+	return env, nil
 }
 
 // validateAgainstExisting checks the new service against the declared set.
@@ -252,6 +284,15 @@ func renderManifest(s *manifest.Service) string {
 	fmt.Fprintf(&b, "restart_policy = %q\n", s.RestartPolicy)
 	if s.MCP {
 		b.WriteString("mcp            = true\n")
+	}
+	// Only written when set, so a generated manifest stays as short as the
+	// service actually needs. Both were previously dropped on the floor: `add`
+	// had no flag for either, so nothing ever set them until a descriptor could.
+	if s.BackoffSeconds > 0 {
+		fmt.Fprintf(&b, "backoff_seconds = %d\n", s.BackoffSeconds)
+	}
+	if s.StartGraceSeconds > 0 {
+		fmt.Fprintf(&b, "start_grace_seconds = %d\n", s.StartGraceSeconds)
 	}
 	return b.String()
 }
