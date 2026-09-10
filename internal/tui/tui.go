@@ -140,8 +140,9 @@ func (m Model) fetchEvents(service string) tea.Cmd {
 	return func() tea.Msg {
 		events, err := m.client.Events(service, eventLimit)
 		if err != nil {
-			// The feed is decoration; a failure here must not replace the view.
-			return eventsMsg{service: service}
+			// The feed is decoration; a failure here must leave the view as it
+			// is rather than blanking the activity it already shows.
+			return nil
 		}
 		return eventsMsg{service: service, events: events}
 	}
@@ -211,8 +212,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.err = nil
+		was := m.selectedName()
 		m.services = msg.services
-		m.clampCursor()
+		m.reselect(was)
 
 		cmds := []tea.Cmd{m.fetchEvents(m.selectedName())}
 		if m.showLogs {
@@ -290,21 +292,27 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.fetchServices()
 
 	case key.Matches(msg, m.keys.Start):
-		m.notice = "starting " + m.selectedName()
-		m.noticeIsErr = false
-		return m, m.act("start", m.selectedName())
+		return m, m.announce("start", "starting")
 
 	case key.Matches(msg, m.keys.Stop):
-		m.notice = "stopping " + m.selectedName()
-		m.noticeIsErr = false
-		return m, m.act("stop", m.selectedName())
+		return m, m.announce("stop", "stopping")
 
 	case key.Matches(msg, m.keys.Restart):
-		m.notice = "restarting " + m.selectedName()
-		m.noticeIsErr = false
-		return m, m.act("restart", m.selectedName())
+		return m, m.announce("restart", "restarting")
 	}
 	return m, nil
+}
+
+// announce says what is about to happen and issues the action. With nothing
+// selected it does neither, rather than leaving a nameless "starting " on screen.
+func (m *Model) announce(verb, gerund string) tea.Cmd {
+	name := m.selectedName()
+	if name == "" {
+		return nil
+	}
+	m.notice = gerund + " " + name
+	m.noticeIsErr = false
+	return m.act(verb, name)
 }
 
 func (m Model) maybeFetchLogs() tea.Cmd {
@@ -328,6 +336,23 @@ func (m Model) selected() (supervisor.ServiceStatus, bool) {
 		return supervisor.ServiceStatus{}, false
 	}
 	return m.services[m.cursor], true
+}
+
+// reselect keeps the highlight on the service named was after a refresh.
+//
+// The cursor is an index, so a service appearing or disappearing above it would
+// otherwise slide the highlight onto a neighbour — and the next start/stop
+// would hit a service the user never chose.
+func (m *Model) reselect(was string) {
+	if was != "" {
+		for i, s := range m.services {
+			if s.Name == was {
+				m.cursor = i
+				return
+			}
+		}
+	}
+	m.clampCursor()
 }
 
 // clampCursor keeps the selection valid as services come and go.

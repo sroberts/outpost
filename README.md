@@ -306,6 +306,7 @@ Services still bind loopback, because that is what the service contract asks
 for. Without Tailscale they are reachable from the machine itself; exposing them
 further is between you and whatever you put in front of them — Outpost has no
 `bind` setting, because it never binds the port itself.
+
 ## Layout
 
 Everything lives under `~/.outpost` (or `$OUTPOST_HOME`, or `--home`):
@@ -478,7 +479,7 @@ service cannot end up silently off the tailnet.
 ## Development
 
 ```sh
-go test ./...           # 253 tests
+go test ./...           # 261 tests
 go test ./... -race
 go vet ./...
 ```
