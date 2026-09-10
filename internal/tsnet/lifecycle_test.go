@@ -147,29 +147,49 @@ func TestAttach_ConcurrentCallsStartOneNode(t *testing.T) {
 }
 
 // Detaching while an attach is in flight must close the node that arrives late.
+//
+// The interleaving is arranged rather than hoped for. This test used to detach
+// and only then release the pending startNode, which deadlocked whenever the
+// attach goroutine reached startNode before the cancel landed -- rare on a
+// developer's machine, reliable on a loaded CI runner, and a ten-minute
+// timeout when it happened.
 func TestDetach_DuringInFlightAttachDoesNotLeak(t *testing.T) {
 	release := make(chan struct{})
+	entered := make(chan struct{})
 	created := make(chan *fakeNode, 1)
+	var once sync.Once
 	r := testRouter(t, func(ctx context.Context, cfg nodeConfig) (tailnetNode, error) {
+		once.Do(func() { close(entered) })
 		<-release
 		n := newFakeNode(t)
-		created <- n
+		select {
+		case created <- n:
+		default:
+		}
 		return n, nil
 	})
 
 	if err := r.Attach(context.Background(), svc("racy", 9004)); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.Detach(context.Background(), "racy"); err != nil {
+	// The attach is genuinely in flight before Detach begins.
+	<-entered
+
+	detached := make(chan error, 1)
+	go func() { detached <- r.Detach(context.Background(), "racy") }()
+
+	// Let the node arrive after Detach has started: the case under test.
+	close(release)
+
+	if err := <-detached; err != nil {
 		t.Fatalf("Detach: %v", err)
 	}
-	close(release)
 
 	select {
 	case n := <-created:
 		waitFor(t, 2*time.Second, "the late node to be closed", func() bool { return n.closed.Load() })
-	case <-time.After(time.Second):
-		// The attach was cancelled before building a node, which is also fine.
+	case <-time.After(2 * time.Second):
+		t.Fatal("startNode returned no node, though it was entered and released")
 	}
 	if got := r.Attached(); len(got) != 0 {
 		t.Errorf("Attached = %v after Detach; want empty", got)
@@ -286,5 +306,47 @@ func TestClose_ClosesEveryNode(t *testing.T) {
 	}
 	if got := r.Attached(); len(got) != 0 {
 		t.Errorf("Attached = %v after Close", got)
+	}
+}
+
+// Detach runs on the reconcile loop, so it must not be at the mercy of a
+// startNode that never returns. Before this was bounded, a pending attach that
+// ignored cancellation blocked Detach forever -- which is how CI came to hang
+// for its full ten-minute timeout rather than fail.
+func TestDetach_DoesNotWaitForeverOnAWedgedAttach(t *testing.T) {
+	blocked := make(chan struct{})
+	entered := make(chan struct{})
+	var once sync.Once
+	r := testRouter(t, func(ctx context.Context, cfg nodeConfig) (tailnetNode, error) {
+		once.Do(func() { close(entered) })
+		// Deliberately ignores ctx: the failure mode being guarded against.
+		<-blocked
+		return nil, context.Canceled
+	})
+	// Let the wedged goroutine go once the test is done with it.
+	t.Cleanup(func() { close(blocked) })
+
+	r.shutdownGrace = 100 * time.Millisecond
+
+	if err := r.Attach(context.Background(), svc("wedged", 9010)); err != nil {
+		t.Fatal(err)
+	}
+	<-entered
+
+	done := make(chan error, 1)
+	go func() { done <- r.Detach(context.Background(), "wedged") }()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Detach: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Detach never returned; the wait on the attach goroutine is unbounded again")
+	}
+
+	// And the service is gone from the router regardless of the stuck attach.
+	if got := r.Attached(); len(got) != 0 {
+		t.Errorf("Attached = %v after Detach; want empty", got)
 	}
 }
