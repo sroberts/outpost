@@ -22,6 +22,7 @@ type fakeClient struct {
 	services  []supervisor.ServiceStatus
 	events    []supervisor.EventRecord
 	listErr   error
+	eventsErr error
 	actionErr error
 	calls     []string
 }
@@ -45,6 +46,9 @@ func (c *fakeClient) List() ([]supervisor.ServiceStatus, error) {
 func (c *fakeClient) Events(service string, limit int) ([]supervisor.EventRecord, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.eventsErr != nil {
+		return nil, c.eventsErr
+	}
 	return c.events, nil
 }
 
@@ -537,5 +541,81 @@ func TestPad_CountsDisplayCells(t *testing.T) {
 	// Over-long input is returned untouched rather than truncated.
 	if got := pad("something long", 4); got != "something long" {
 		t.Errorf("pad shortened an over-long value: %q", got)
+	}
+}
+
+// The cursor is an index, but the selection is a service. A refresh that adds a
+// service sorting above the selected one must not slide the highlight onto a
+// neighbour — the next start/stop would hit a service the user never chose.
+func TestRefresh_KeepsSelectionOnTheSameService(t *testing.T) {
+	c := newFakeClient(svc("a", "running"), svc("b", "running"), svc("c", "running"))
+	m := loaded(t, c)
+
+	m, _ = run(t, m, keyMsg("j")) // select "b"
+	if got := m.selectedName(); got != "b" {
+		t.Fatalf("selected %q; want b", got)
+	}
+
+	// `outpost apply` adds "aa", which sorts between "a" and "b".
+	m, _ = run(t, m, servicesMsg{services: []supervisor.ServiceStatus{
+		svc("a", "running"), svc("aa", "running"), svc("b", "running"), svc("c", "running"),
+	}})
+
+	if got := m.selectedName(); got != "b" {
+		t.Errorf("selection slid to %q after a service appeared above it; want b", got)
+	}
+}
+
+// If the selected service is removed, the cursor must land somewhere valid.
+func TestRefresh_SelectionSurvivesTheServiceDisappearing(t *testing.T) {
+	c := newFakeClient(svc("a", "running"), svc("b", "running"), svc("c", "running"))
+	m := loaded(t, c)
+	m, _ = run(t, m, keyMsg("j"))
+	m, _ = run(t, m, keyMsg("j")) // select "c"
+
+	m, _ = run(t, m, servicesMsg{services: []supervisor.ServiceStatus{svc("a", "running")}})
+	if m.cursor != 0 || m.selectedName() != "a" {
+		t.Errorf("cursor = %d (%q) after the selection vanished; want 0 (a)", m.cursor, m.selectedName())
+	}
+	if view := m.View(); view == "" {
+		t.Error("view is empty after the selection vanished")
+	}
+}
+
+// The activity feed is decoration. One failed poll must not blank what is
+// already on screen — that would flicker every couple of seconds.
+func TestEvents_FailedPollLeavesTheFeedAlone(t *testing.T) {
+	c := newFakeClient(svc("a", "running"))
+	m := loaded(t, c)
+	m, _ = run(t, m, eventsMsg{service: "a", events: []supervisor.EventRecord{
+		{Service: "a", Kind: "started", Message: "started (id 42)", At: time.Now()},
+	}})
+	if !strings.Contains(m.View(), "started (id 42)") {
+		t.Fatal("event not shown to begin with")
+	}
+
+	c.mu.Lock()
+	c.eventsErr = errors.New("socket closed")
+	c.mu.Unlock()
+
+	// A failing fetch must produce no message at all, so Update cannot blank it.
+	if msg := m.fetchEvents("a")(); msg != nil {
+		t.Errorf("a failed events poll produced %#v; want no message", msg)
+	}
+	if !strings.Contains(m.View(), "started (id 42)") {
+		t.Error("the existing activity feed was lost after a failed poll")
+	}
+}
+
+// With nothing selected, an action key must not leave a nameless notice on
+// screen that never resolves.
+func TestActions_NoSelectionLeavesNoNotice(t *testing.T) {
+	m := loaded(t, newFakeClient())
+
+	for _, k := range []string{"s", "x", "r"} {
+		m, _ = run(t, m, keyMsg(k))
+		if m.notice != "" {
+			t.Errorf("%s with nothing selected set notice %q", k, m.notice)
+		}
 	}
 }

@@ -92,18 +92,20 @@ type colWidths struct{ name, rt, status, uptime, restarts int }
 func (m Model) columnWidths() colWidths {
 	w := colWidths{name: len("NAME"), rt: len("RUNTIME"), status: len("STATUS"),
 		uptime: len("UPTIME"), restarts: len("RESTARTS")}
+	// Widths are display cells, matching pad: a byte count over-pads any column
+	// holding a multi-byte name.
 	for _, s := range m.services {
-		if n := len(s.Name); n > w.name {
+		if n := lipgloss.Width(s.Name); n > w.name {
 			w.name = n
 		}
-		if n := len(s.Runtime); n > w.rt {
+		if n := lipgloss.Width(s.Runtime); n > w.rt {
 			w.rt = n
 		}
 		// +2 for the status glyph and its space.
-		if n := len(statusText(s)) + 2; n > w.status {
+		if n := lipgloss.Width(statusText(s)) + 2; n > w.status {
 			w.status = n
 		}
-		if n := len(uptime(s)); n > w.uptime {
+		if n := lipgloss.Width(uptime(s)); n > w.uptime {
 			w.uptime = n
 		}
 		if n := len(fmt.Sprintf("%d", s.RestartCount)); n > w.restarts {
@@ -240,12 +242,17 @@ func truncate(s string, width int) string {
 		return "…"
 	}
 
+	// Accumulate the width as we go: re-measuring the whole prefix per rune is
+	// quadratic, and log lines are neither short nor rare.
 	var b strings.Builder
+	used := 0
 	for _, r := range s {
-		if lipgloss.Width(b.String()+string(r)) > width-1 {
+		rw := lipgloss.Width(string(r))
+		if used+rw > width-1 {
 			break
 		}
 		b.WriteRune(r)
+		used += rw
 	}
 	return b.String() + "…"
 }
