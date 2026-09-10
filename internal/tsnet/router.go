@@ -38,6 +38,10 @@ const (
 	// Retry pacing for a node that will not come up.
 	defaultRetryInitial = 2 * time.Second
 	defaultRetryMax     = 60 * time.Second
+
+	// defaultShutdownGrace bounds how long Detach waits for an attach
+	// goroutine to notice it was cancelled.
+	defaultShutdownGrace = 10 * time.Second
 )
 
 // Options configures a Router.
@@ -80,8 +84,9 @@ type Router struct {
 	// startNode brings a node up. Swapped out in tests.
 	startNode func(ctx context.Context, cfg nodeConfig) (tailnetNode, error)
 
-	retryInitial time.Duration
-	retryMax     time.Duration
+	retryInitial  time.Duration
+	retryMax      time.Duration
+	shutdownGrace time.Duration
 
 	mu    sync.Mutex
 	nodes map[string]*node
@@ -119,13 +124,14 @@ func New(opts Options) (*Router, error) {
 	}
 
 	r := &Router{
-		stateDir:     opts.StateDir,
-		authKey:      opts.AuthKey,
-		logf:         logf,
-		verbose:      opts.Verbose,
-		retryInitial: defaultRetryInitial,
-		retryMax:     defaultRetryMax,
-		nodes:        map[string]*node{},
+		stateDir:      opts.StateDir,
+		authKey:       opts.AuthKey,
+		logf:          logf,
+		verbose:       opts.Verbose,
+		retryInitial:  defaultRetryInitial,
+		retryMax:      defaultRetryMax,
+		shutdownGrace: defaultShutdownGrace,
+		nodes:         map[string]*node{},
 	}
 	r.startNode = r.startTsnetNode
 	return r, nil
@@ -331,9 +337,18 @@ func (r *Router) Close() error {
 // shutdownNode stops a node's attach goroutine and closes whatever it built.
 func (r *Router) shutdownNode(n *node) error {
 	n.cancel()
-	// Wait for the attach goroutine so a node that arrives late is closed by
-	// bringUp rather than leaked.
-	<-n.done
+	// Wait for the attach goroutine, so a node that arrives late is closed by
+	// bringUp rather than leaked -- but not forever. Detach runs on the
+	// reconcile loop, and a startNode that does not honour cancellation would
+	// otherwise wedge it indefinitely: the same hazard the non-blocking Attach
+	// exists to avoid. Giving up on the wait costs ordering, not the leak
+	// guarantee, because bringUp closes a late node whether or not anyone is
+	// still listening.
+	select {
+	case <-n.done:
+	case <-time.After(r.shutdownGrace):
+		r.logf("%s: tailnet attach did not stop within %s; detaching anyway", n.name, r.shutdownGrace)
+	}
 
 	n.mu.Lock()
 	srv, live := n.http, n.live
