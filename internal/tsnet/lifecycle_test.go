@@ -124,7 +124,7 @@ func TestAttach_ConcurrentCallsStartOneNode(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			r.Attach(context.Background(), svc("contended", 9003))
+			_ = r.Attach(context.Background(), svc("contended", 9003))
 		}()
 	}
 	wg.Wait()
@@ -184,9 +184,13 @@ func TestDetach_StopsRetrying(t *testing.T) {
 		return nil, errors.New("still failing")
 	})
 
-	r.Attach(context.Background(), svc("doomed", 9005))
+	if err := r.Attach(context.Background(), svc("doomed", 9005)); err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
 	waitFor(t, 2*time.Second, "at least one attempt", func() bool { return attempts.Load() >= 1 })
-	r.Detach(context.Background(), "doomed")
+	if err := r.Detach(context.Background(), "doomed"); err != nil {
+		t.Fatalf("Detach: %v", err)
+	}
 
 	settled := attempts.Load()
 	time.Sleep(200 * time.Millisecond)
@@ -227,10 +231,14 @@ func TestAttach_ConfigChangeReplacesNode(t *testing.T) {
 		return n, nil
 	})
 
-	r.Attach(context.Background(), svc("mover", 9007))
+	if err := r.Attach(context.Background(), svc("mover", 9007)); err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
 	waitFor(t, time.Second, "first attach", func() bool { return len(r.Attached()) == 1 })
 
-	r.Attach(context.Background(), svc("mover", 9008))
+	if err := r.Attach(context.Background(), svc("mover", 9008)); err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
 	waitFor(t, 2*time.Second, "the replacement node", func() bool {
 		mu.Lock()
 		defer mu.Unlock()
@@ -260,7 +268,9 @@ func TestClose_ClosesEveryNode(t *testing.T) {
 	r.retryInitial, r.retryMax = 5*time.Millisecond, 20*time.Millisecond
 
 	for i := 0; i < 3; i++ {
-		r.Attach(context.Background(), svc(fmt.Sprintf("svc%d", i), 9100+i))
+		if err := r.Attach(context.Background(), svc(fmt.Sprintf("svc%d", i), 9100+i)); err != nil {
+			t.Fatalf("Attach: %v", err)
+		}
 	}
 	waitFor(t, 2*time.Second, "all nodes to attach", func() bool { return len(r.Attached()) == 3 })
 

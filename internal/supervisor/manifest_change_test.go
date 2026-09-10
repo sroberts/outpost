@@ -90,7 +90,9 @@ func TestReconcile_ChangedManifestDoesNotResurrectAStoppedService(t *testing.T) 
 	h.writeManifest("alpha", `env = { MODE = "before" }`)
 	h.apply()
 	h.tick()
-	h.store.SetDesired("alpha", "stopped")
+	if err := h.store.SetDesired("alpha", "stopped"); err != nil {
+		t.Fatalf("SetDesired: %v", err)
+	}
 	h.tick()
 
 	h.writeManifest("alpha", `env = { MODE = "after" }`)

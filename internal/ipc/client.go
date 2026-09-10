@@ -51,7 +51,7 @@ func (c *Client) do(req Request) (Response, error) {
 		return Response{}, fmt.Errorf("connect to %s: %w", c.path, err)
 	}
 	defer conn.Close()
-	conn.SetDeadline(time.Now().Add(c.timeout))
+	_ = conn.SetDeadline(time.Now().Add(c.timeout))
 
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -62,7 +62,7 @@ func (c *Client) do(req Request) (Response, error) {
 	}
 	// Signal end-of-request so the daemon's ReadAll returns.
 	if uc, ok := conn.(*net.UnixConn); ok {
-		uc.CloseWrite()
+		_ = uc.CloseWrite()
 	}
 
 	var resp Response

@@ -205,7 +205,7 @@ func (s *Supervisor) applyLocked(ctx context.Context) error {
 	if fp, err := s.manifestFingerprint(); err == nil {
 		s.fingerprint = fp
 	}
-	s.store.AppendEvent("", state.EventApply, fmt.Sprintf("applied %d service(s)", len(next)))
+	s.event("", state.EventApply, fmt.Sprintf("applied %d service(s)", len(next)))
 	return nil
 }
 
@@ -294,7 +294,8 @@ func (s *Supervisor) Reload(ctx context.Context) (bool, error) {
 // Tick performs one reconcile pass. Safe to call from any goroutine; the CLI
 // and tests use it to drive reconciliation deterministically.
 func (s *Supervisor) Tick(ctx context.Context) {
-	s.submit(ctx, func(s *Supervisor) (any, error) {
+	// Tick has no error to report; a stopped loop simply has nothing to do.
+	_, _ = s.submit(ctx, func(s *Supervisor) (any, error) {
 		s.tickLocked(ctx)
 		return nil, nil
 	})
@@ -390,9 +391,9 @@ func (s *Supervisor) tickLocked(ctx context.Context) {
 			}
 		}
 		if s.tailnet != nil {
-			s.tailnet.Detach(ctx, name)
+			_ = s.tailnet.Detach(ctx, name)
 		}
-		s.store.AppendEvent(name, state.EventStopped, "removed from manifest")
+		s.event(name, state.EventStopped, "removed from manifest")
 		if err := s.store.DeleteService(name); err != nil {
 			s.logf("outpost: %v", err)
 		}
@@ -429,7 +430,7 @@ func (s *Supervisor) reconcileService(ctx context.Context, svc *manifest.Service
 	// (restart_policy, backoff, healthcheck path) take effect without one.
 	if st.handle != nil && execFingerprint(st.svc) != execFingerprint(svc) {
 		s.logf("%s: manifest changed, restarting", svc.Name)
-		s.store.AppendEvent(svc.Name, state.EventRestarted, "manifest changed")
+		s.event(svc.Name, state.EventRestarted, "manifest changed")
 		s.stopInstance(ctx, st, "manifest changed")
 		st.backoff = initialBackoff(svc)
 		st.nextAttempt = time.Time{}
@@ -460,14 +461,14 @@ func (s *Supervisor) reconcileService(ctx context.Context, svc *manifest.Service
 		st.nextAttempt = time.Time{}
 		st.healthFails = 0
 		st.halted = false
-		s.store.AppendEvent(svc.Name, state.EventRestarted, "restart requested")
+		s.event(svc.Name, state.EventRestarted, "restart requested")
 		desired = state.DesiredRunning
 	}
 
 	if desired == state.DesiredStopped {
 		if st.handle != nil {
 			s.stopInstance(ctx, st, "stopped by request")
-			s.store.AppendEvent(svc.Name, state.EventStopped, "stopped by request")
+			s.event(svc.Name, state.EventStopped, "stopped by request")
 		}
 		st.status = runtime.StatusStopped
 		s.persist(st)
@@ -523,7 +524,7 @@ func (s *Supervisor) handleExit(st *svcState) {
 
 	crashed := code != 0
 	msg := fmt.Sprintf("exited with code %d", code)
-	s.store.AppendEvent(st.svc.Name, state.EventExited, msg)
+	s.event(st.svc.Name, state.EventExited, msg)
 	s.logf("%s %s", st.svc.Name, msg)
 
 	if !s.shouldRestart(st.svc, crashed) {
@@ -593,7 +594,7 @@ func (s *Supervisor) maybeStart(ctx context.Context, st *svcState) {
 	st.healthFails = 0
 	st.everHealthy = false
 
-	s.store.AppendEvent(st.svc.Name, state.EventStarted, fmt.Sprintf("started (id %s)", h.ID()))
+	s.event(st.svc.Name, state.EventStarted, fmt.Sprintf("started (id %s)", h.ID()))
 	s.logf("started %s (id %s)", st.svc.Name, h.ID())
 
 	// Join the tailnet once the service is up. A failure here leaves the
@@ -621,7 +622,7 @@ func (s *Supervisor) checkHealth(ctx context.Context, st *svcState) {
 	ok, err := s.runtimeFor(st.svc).Healthy(ctx, st.handle)
 	if ok {
 		if st.healthFails > 0 {
-			s.store.AppendEvent(st.svc.Name, state.EventHealthOK, "healthcheck recovered")
+			s.event(st.svc.Name, state.EventHealthOK, "healthcheck recovered")
 		}
 		st.healthFails = 0
 		st.everHealthy = true
@@ -654,7 +655,7 @@ func (s *Supervisor) checkHealth(ctx context.Context, st *svcState) {
 	if err != nil {
 		reason = err.Error()
 	}
-	s.store.AppendEvent(st.svc.Name, state.EventHealthFail,
+	s.event(st.svc.Name, state.EventHealthFail,
 		fmt.Sprintf("%s (%d/%d)", reason, st.healthFails, s.healthFailThreshold))
 
 	if st.healthFails < s.healthFailThreshold {
@@ -717,14 +718,14 @@ func (s *Supervisor) shutdownLocked(ctx context.Context) error {
 			continue
 		}
 		if s.tailnet != nil {
-			s.tailnet.Detach(ctx, name)
+			_ = s.tailnet.Detach(ctx, name)
 		}
 		if err := s.runtimeFor(st.svc).Stop(ctx, st.handle); err != nil {
 			failures = append(failures, fmt.Sprintf("%s: %v", name, err))
 		}
 		st.handle = nil
 		st.status = runtime.StatusStopped
-		s.store.AppendEvent(name, state.EventStopped, "supervisor shutting down")
+		s.event(name, state.EventStopped, "supervisor shutting down")
 		s.persist(st)
 	}
 	if len(failures) > 0 {
@@ -764,13 +765,22 @@ func (s *Supervisor) halt(st *svcState, reason string) {
 	if err := s.store.SetHalted(st.svc.Name, true); err != nil {
 		s.logf("outpost: %v", err)
 	}
-	s.store.AppendEvent(st.svc.Name, state.EventError, reason)
+	s.event(st.svc.Name, state.EventError, reason)
 	s.logf("%s: %s", st.svc.Name, reason)
+}
+
+// event appends to the activity feed. Recording is best-effort by design: the
+// feed is what `outpost logs --events` and the TUI read, and losing a row must
+// never interrupt supervision. A failed write is logged rather than swallowed.
+func (s *Supervisor) event(service, kind, message string) {
+	if err := s.store.AppendEvent(service, kind, message); err != nil {
+		s.logf("outpost: record %s event for %q: %v", kind, service, err)
+	}
 }
 
 func (s *Supervisor) recordError(service, msg string) {
 	s.logf("%s: %s", service, msg)
-	s.store.AppendEvent(service, state.EventError, msg)
+	s.event(service, state.EventError, msg)
 }
 
 // withinStartGrace reports whether a freshly started service is still inside

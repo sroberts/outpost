@@ -63,7 +63,9 @@ func TestLoad_PartialFileKeepsDefaults(t *testing.T) {
 
 func TestLoad_RejectsMalformedTOML(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
-	os.WriteFile(path, []byte("this is not = valid toml ["), 0o600)
+	if err := os.WriteFile(path, []byte("this is not = valid toml ["), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
 
 	if _, err := Load(path); err == nil {
 		t.Fatal("malformed config was accepted")
@@ -112,7 +114,9 @@ func TestRender_IsCommentedAndParsable(t *testing.T) {
 		t.Error("rendered config has no explanatory comments")
 	}
 	path := filepath.Join(t.TempDir(), "config.toml")
-	os.WriteFile(path, []byte(out), 0o600)
+	if err := os.WriteFile(path, []byte(out), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
 	if _, err := Load(path); err != nil {
 		t.Errorf("rendered config does not parse: %v", err)
 	}

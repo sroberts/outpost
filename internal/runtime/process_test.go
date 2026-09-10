@@ -205,7 +205,7 @@ func TestProcessRuntime_UnhealthyWhenHealthcheckFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	t.Cleanup(func() { r.Stop(context.Background(), h) })
+	t.Cleanup(func() { _ = r.Stop(context.Background(), h) })
 	waitHealthy(t, r, h, 5*time.Second)
 
 	// Flip the service into a failing healthcheck.
@@ -265,7 +265,7 @@ func TestProcessRuntime_InjectsEnvAndStorageDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	t.Cleanup(func() { r.Stop(context.Background(), h) })
+	t.Cleanup(func() { _ = r.Stop(context.Background(), h) })
 	waitHealthy(t, r, h, 5*time.Second)
 
 	get := func(key string) string {
@@ -297,7 +297,7 @@ func TestProcessRuntime_CreatesStorageBeforeStart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	t.Cleanup(func() { r.Stop(context.Background(), h) })
+	t.Cleanup(func() { _ = r.Stop(context.Background(), h) })
 
 	if fi, err := os.Stat(svc.ExpandStorage()); err != nil || !fi.IsDir() {
 		t.Fatalf("storage dir not created before start: err=%v", err)

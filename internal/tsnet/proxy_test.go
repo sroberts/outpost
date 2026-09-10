@@ -19,7 +19,7 @@ func backend(t *testing.T, handler http.HandlerFunc) int {
 		t.Fatal(err)
 	}
 	srv := &http.Server{Handler: handler}
-	go srv.Serve(ln)
+	go func() { _ = srv.Serve(ln) }()
 	t.Cleanup(func() { srv.Close() })
 	return ln.Addr().(*net.TCPAddr).Port
 }

@@ -188,7 +188,7 @@ func TestActions_SendToTheDaemon(t *testing.T) {
 		c := newFakeClient(svc("plumbline", "running"))
 		m := loaded(t, c)
 
-		m, cmd := run(t, m, keyMsg(tc.key))
+		_, cmd := run(t, m, keyMsg(tc.key))
 		if cmd == nil {
 			t.Fatalf("%s: no command issued", tc.key)
 		}

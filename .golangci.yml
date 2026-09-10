@@ -1,0 +1,20 @@
+# Linters for CI. Kept deliberately close to the golangci-lint defaults —
+# errcheck, govet, ineffassign, staticcheck and unused — because the value
+# here is catching real defects, not enforcing house style. gofmt is checked
+# separately in CI so it can exempt one file (see the Makefile's fmt-check).
+version: "2"
+
+issues:
+  # Report everything. The defaults (50 per linter, 3 per message) silently
+  # truncate the list, which makes a CI run look cleaner than the tree is.
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+linters:
+  default: standard
+  exclusions:
+    presets:
+      # The std-error-handling preset covers the conventional unchecked
+      # returns: Close on readers, fmt.Fprint* to stdout/stderr, os.Remove.
+      # Anything errcheck still reports after this is worth a second look.
+      - std-error-handling

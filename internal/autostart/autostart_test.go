@@ -313,7 +313,7 @@ func TestSystemd_SectionOrder(t *testing.T) {
 	if unit < 0 || service < 0 || install < 0 {
 		t.Fatalf("missing a section:\n%s", out)
 	}
-	if !(unit < service && service < install) {
+	if unit >= service || service >= install {
 		t.Errorf("sections out of order: Unit=%d Service=%d Install=%d", unit, service, install)
 	}
 }

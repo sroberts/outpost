@@ -111,7 +111,7 @@ func (s *Server) Close() error {
 // handle serves one request/response exchange.
 func (s *Server) handle(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
-	conn.SetDeadline(time.Now().Add(requestTimeout))
+	_ = conn.SetDeadline(time.Now().Add(requestTimeout))
 
 	body, err := io.ReadAll(io.LimitReader(conn, 1<<20))
 	if err != nil {

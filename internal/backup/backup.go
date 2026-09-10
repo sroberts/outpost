@@ -174,9 +174,13 @@ func Extract(archivePath, storageDir string) error {
 	}
 
 	if err := os.Rename(staging, storageDir); err != nil {
-		// Put the original back rather than leaving nothing behind.
+		// Put the original back rather than leaving nothing behind. If even
+		// that fails the storage directory no longer exists, and saying so is
+		// the difference between a failed restore and silent data loss.
 		if previous != "" {
-			os.Rename(previous, storageDir)
+			if rollback := os.Rename(previous, storageDir); rollback != nil {
+				return fmt.Errorf("install restored data: %w (and the original could not be put back, it is at %s: %v)", err, previous, rollback)
+			}
 		}
 		return fmt.Errorf("install restored data: %w", err)
 	}

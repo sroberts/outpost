@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/sroberts/outpost/internal/autostart"
@@ -190,10 +189,4 @@ func scopeFlag(cfg autostart.Config) string {
 		return " --system"
 	}
 	return ""
-}
-
-// supportedPlatform reports whether autostart works here, for help text.
-func supportedPlatform() bool {
-	_, err := autostart.For(runtime.GOOS)
-	return err == nil
 }

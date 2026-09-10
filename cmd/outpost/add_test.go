@@ -56,7 +56,9 @@ func TestAdd_AllocatesAFreePortWhenNotGiven(t *testing.T) {
 
 func TestAdd_RefusesToClobberWithoutForce(t *testing.T) {
 	home := newHome(t)
-	runCLI(t, home, "add", "demo", "--binary", "/bin/sleep")
+	if _, _, err := runCLI(t, home, "add", "demo", "--binary", "/bin/sleep"); err != nil {
+		t.Fatalf("runCLI: %v", err)
+	}
 
 	if _, _, err := runCLI(t, home, "add", "demo", "--binary", "/bin/echo"); err == nil {
 		t.Fatal("add over an existing manifest: want error, got nil")
@@ -70,7 +72,9 @@ func TestAdd_RefusesToClobberWithoutForce(t *testing.T) {
 // file is written, not at the next apply.
 func TestAdd_RejectsCollisionsBeforeWriting(t *testing.T) {
 	home := newHome(t)
-	runCLI(t, home, "add", "first", "--binary", "/bin/sleep", "--port", "9320")
+	if _, _, err := runCLI(t, home, "add", "first", "--binary", "/bin/sleep", "--port", "9320"); err != nil {
+		t.Fatalf("runCLI: %v", err)
+	}
 
 	_, _, err := runCLI(t, home, "add", "second", "--binary", "/bin/sleep", "--port", "9320")
 	if err == nil {
@@ -141,10 +145,14 @@ func TestAdd_RejectsMalformedEnv(t *testing.T) {
 
 func TestRemove_DeletesTheManifestButKeepsData(t *testing.T) {
 	home := newHome(t)
-	runCLI(t, home, "add", "demo", "--binary", "/bin/sleep")
+	if _, _, err := runCLI(t, home, "add", "demo", "--binary", "/bin/sleep"); err != nil {
+		t.Fatalf("runCLI: %v", err)
+	}
 	svc, _ := manifest.Load(filepath.Join(home, "services", "demo.toml"))
 	storage := svc.ExpandStorage()
-	os.WriteFile(filepath.Join(storage, "data.txt"), []byte("keep me"), 0o600)
+	if err := os.WriteFile(filepath.Join(storage, "data.txt"), []byte("keep me"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
 
 	out, _, err := runCLI(t, home, "remove", "demo")
 	if err != nil {
@@ -164,7 +172,9 @@ func TestRemove_DeletesTheManifestButKeepsData(t *testing.T) {
 
 func TestRemove_PurgeDeletesData(t *testing.T) {
 	home := newHome(t)
-	runCLI(t, home, "add", "demo", "--binary", "/bin/sleep")
+	if _, _, err := runCLI(t, home, "add", "demo", "--binary", "/bin/sleep"); err != nil {
+		t.Fatalf("runCLI: %v", err)
+	}
 	svc, _ := manifest.Load(filepath.Join(home, "services", "demo.toml"))
 	storage := svc.ExpandStorage()
 

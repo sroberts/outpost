@@ -59,7 +59,7 @@ func (s *Supervisor) ReclaimOrphans(ctx context.Context) ([]string, error) {
 			continue
 		}
 
-		s.store.AppendEvent(rec.Name, state.EventStopped,
+		s.event(rec.Name, state.EventStopped,
 			fmt.Sprintf("reclaimed orphan from a previous run (pid %d)", pid))
 		// Clear the stale instance so status stops reporting a dead PID.
 		rec.InstanceID = ""
@@ -136,8 +136,10 @@ func stopPID(pid int, grace time.Duration) error {
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	syscall.Kill(-pid, syscall.SIGKILL)
-	syscall.Kill(pid, syscall.SIGKILL)
+	// Best effort: the process may already have gone between the liveness
+	// check and here, and either way there is nothing left to try.
+	_ = syscall.Kill(-pid, syscall.SIGKILL)
+	_ = syscall.Kill(pid, syscall.SIGKILL)
 
 	deadline = time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {

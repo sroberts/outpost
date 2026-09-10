@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The binary must stay cgo-free: modernc.org/sqlite was chosen over a cgo
+  # driver so the result stays statically linked.
+  CGO_ENABLED: "0"
+
+jobs:
+  test:
+    # Both platforms matter. internal/autostart compiles the launchd and
+    # systemd backends everywhere on purpose, and CI is the only place this
+    # project gets Linux coverage at all.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      # The race detector needs cgo, so it is the one step that opts back in.
+      # It runs separately from the plain suite so a race failure is legible
+      # rather than buried in a rerun of everything.
+      - name: Test (race)
+        run: go test -race ./...
+        env:
+          CGO_ENABLED: "1"
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Not `gofmt -l .`: internal/manifest/manifest_test.go is deliberately
+      # left as originally written, and a blanket check would demand a change
+      # to it forever. The Makefile owns the exemption so local and CI agree.
+      - name: gofmt
+        run: make fmt-check
+
+      - name: go.mod is tidy
+        run: make tidy
+
+      - name: Install golangci-lint
+        run: |
+          curl -sSfL \
+            https://raw.githubusercontent.com/golangci/golangci-lint/v2.11.4/install.sh \
+            | sh -s -- -b "$(go env GOPATH)/bin" v2.11.4
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: golangci-lint
+        run: golangci-lint run ./...
