@@ -14,6 +14,7 @@ import (
 
 	"github.com/sroberts/outpost/internal/backup"
 	"github.com/sroberts/outpost/internal/supervisor"
+	"github.com/sroberts/outpost/internal/version"
 )
 
 // maxSocketPath is the shortest of the platform sockaddr_un limits, so the
@@ -137,7 +138,7 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 func (s *Server) dispatch(ctx context.Context, req Request) Response {
 	switch req.Command {
 	case CmdPing:
-		return Response{OK: true, Message: "pong"}
+		return Response{OK: true, Message: "pong", Version: version.Short()}
 
 	case CmdList:
 		services, err := s.sup.List(ctx)

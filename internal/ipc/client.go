@@ -100,6 +100,12 @@ func (c *Client) do(req Request) (Response, error) {
 	return resp, nil
 }
 
+// DaemonVersion returns the running daemon's build identity.
+func (c *Client) DaemonVersion() (string, error) {
+	resp, err := c.do(Request{Command: CmdPing})
+	return resp.Version, err
+}
+
 // List returns every service the daemon knows about.
 func (c *Client) List() ([]supervisor.ServiceStatus, error) {
 	resp, err := c.do(Request{Command: CmdList})

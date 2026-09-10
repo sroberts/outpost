@@ -66,8 +66,12 @@ type Request struct {
 
 // Response is what the daemon sends back. Error is set iff OK is false.
 type Response struct {
-	OK       bool                       `json:"ok"`
-	Error    string                     `json:"error,omitempty"`
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+	// Version identifies the daemon's build. Only ping sets it, which is
+	// enough to catch the case that matters: a binary upgraded on disk while
+	// the daemon kept running the old one.
+	Version  string                     `json:"version,omitempty"`
 	Services []supervisor.ServiceStatus `json:"services,omitempty"`
 	Status   *supervisor.ServiceStatus  `json:"status,omitempty"`
 	Events   []supervisor.EventRecord   `json:"events,omitempty"`

@@ -17,6 +17,7 @@ import (
 	"github.com/sroberts/outpost/internal/state"
 	"github.com/sroberts/outpost/internal/supervisor"
 	outposttsnet "github.com/sroberts/outpost/internal/tsnet"
+	"github.com/sroberts/outpost/internal/version"
 )
 
 // cmdServe runs the daemon: the reconcile loop plus the Unix socket the CLI
@@ -30,6 +31,10 @@ func (a *app) cmdServe(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+
+	// Before anything else the daemon says, so ~/.outpost/logs opens by
+	// recording which build produced everything underneath it.
+	fmt.Fprintf(a.out, "outpost: %s starting\n", version.Short())
 
 	if err := a.ensureLayout(); err != nil {
 		return err
