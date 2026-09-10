@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/outpost-header.jpg" alt="Outpost — supervise your own services" width="100%">
+</p>
+
 # Outpost
 
 A small Go daemon that runs a declared set of local services as long-lived
@@ -136,7 +140,7 @@ start_grace_seconds = 30
 | Field | Default | Notes |
 |---|---|---|
 | `name` | filename | Must be unique |
-| `runtime` | `process` | `container` is rejected at apply time |
+| `runtime` | `process` | The only valid value; Outpost runs native processes |
 | `port` | — | Required; must be unique across `process` services |
 | `storage` | — | Required; `~` is expanded, created `0700` if missing |
 | `tailscale_name` | — | Required unless `tailscale.enabled = false`; must be unique |
@@ -226,9 +230,6 @@ in that service's manifest instead. The file is optional — Outpost works with 
 configuration at all — and `outpost config --init` writes a commented starter.
 
 ```toml
-# Which container engine backs runtime = "container" services.
-container_engine = "podman"
-
 [tailscale]
 enabled  = true
 # auth_key = "tskey-..."
@@ -236,7 +237,6 @@ enabled  = true
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `container_engine` | `podman` | `podman`, `docker` or `colima` (§9; containers not implemented yet) |
 | `tailscale.enabled` | `true` | Whether services get a Tailscale identity |
 | `tailscale.auth_key` | — | Registers nodes unattended; `TS_AUTHKEY` wins over it |
 
@@ -386,8 +386,28 @@ Archives are plain `tar.gz` and can be unpacked with standard tools. Extraction
 refuses entries that escape the target directory, including absolute paths,
 `../` traversal, and writes through a symlink the archive itself created.
 
-There is no scheduler yet — use cron, or `launchd`. Whether Outpost grows its
-own or delegates to Hermes's is open question 2 in the spec.
+### Scheduling
+
+Outpost has no scheduler of its own. It writes one for the init system instead —
+a launchd calendar job on macOS, a systemd timer on Linux — so the scheduling is
+handled by something already designed for it (spec §10, open question 2).
+
+```sh
+outpost backup --schedule daily --at 03:30      # write the job
+outpost backup --schedule daily --enable        # write it and activate it
+outpost backup --schedule hourly
+outpost backup --schedule weekly --at 04:00
+outpost backup plumbline --schedule daily       # one service rather than all
+outpost backup --unschedule                     # remove it
+```
+
+As with `install`, it writes the file and prints the command that activates it
+rather than running it; `--enable` opts in, and `--system` makes it a boot-time
+job.
+
+The systemd timer is `Persistent=true`, so a backup missed while the machine was
+off runs once it comes back. Both jobs are one-shots — nothing restarts them
+when the backup finishes.
 
 ## Tailscale
 
@@ -417,7 +437,7 @@ service cannot end up silently off the tailnet.
 ## Development
 
 ```sh
-go test ./...           # 218 tests
+go test ./...           # 228 tests
 go test ./... -race
 go vet ./...
 ```
@@ -458,5 +478,14 @@ fsnotify. The daemon hashes the manifest directory each tick and re-applies on
 change, which avoids a dependency; fsnotify would only reduce reload latency
 below one tick.
 
-**`funnel` and containers are rejected, not ignored.** Both are accepted by the
-schema and refused at apply time with an explicit error, per spec §7 and §9.
+**Containers were dropped.** Spec §1 has services as "either a native process
+or an OCI container", and §9 designs a container runtime. Outpost supervises
+native Go processes only, so `image`, `container_args` and `container_engine`
+are gone from the schema and `runtime` accepts only `"process"`. Spec §9 and
+build step 8 no longer apply.
+
+**`funnel` is rejected, not ignored.** It is accepted by the schema and refused
+at apply time with an explicit error, per spec §7.
+
+**Backup scheduling uses the init system.** Spec §10 leaves this open; Outpost
+generates a launchd job or a systemd timer rather than growing a scheduler.

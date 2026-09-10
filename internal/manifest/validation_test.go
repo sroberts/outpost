@@ -22,36 +22,6 @@ func errorsContaining(errs []error, substr string) bool {
 	return false
 }
 
-// §5: exactly one of (binary+args) or image, matching runtime.
-func TestValidate_RejectsBinaryAndImageTogether(t *testing.T) {
-	svc := processSvc()
-	svc.Image = "nginx:latest"
-
-	errs := ValidateAll([]*Service{svc})
-	if !errorsContaining(errs, "image is set but runtime") {
-		t.Errorf("a process service with an image was accepted; got %v", errs)
-	}
-}
-
-func TestValidate_RejectsContainerArgsOnAProcess(t *testing.T) {
-	svc := processSvc()
-	svc.ContainerArgs = []string{"--cap-add", "NET_ADMIN"}
-
-	if errs := ValidateAll([]*Service{svc}); !errorsContaining(errs, "container_args is set") {
-		t.Errorf("container_args on a process service was accepted; got %v", errs)
-	}
-}
-
-func TestValidate_RejectsBinaryOnAContainer(t *testing.T) {
-	svc := &Service{
-		Name: "svc", Runtime: "container", Image: "nginx:latest", Binary: "/usr/bin/true",
-		Port: 8080, Storage: "/tmp/svc", TailscaleName: "svc", Healthcheck: "/up",
-	}
-	if errs := ValidateAll([]*Service{svc}); !errorsContaining(errs, "binary is set but runtime") {
-		t.Errorf("a container service with a binary was accepted; got %v", errs)
-	}
-}
-
 // The port is declared twice; disagreement makes Outpost probe the wrong port
 // and restart a perfectly healthy service forever.
 func TestValidate_CatchesPortDisagreeingWithArgs(t *testing.T) {
@@ -127,6 +97,17 @@ func TestValidate_DuplicateTailscaleNamesStillCollide(t *testing.T) {
 
 	if errs := ValidateWith([]*Service{a, b}, Options{RequireTailscale: false}); !errorsContaining(errs, "duplicate tailscale_name") {
 		t.Errorf("duplicate names were accepted: %v", errs)
+	}
+}
+
+// Outpost supervises native processes only; any other runtime is an error.
+func TestValidate_RejectsNonProcessRuntime(t *testing.T) {
+	svc := processSvc()
+	svc.Runtime = "container"
+
+	errs := ValidateAll([]*Service{svc})
+	if !errorsContaining(errs, "native processes only") {
+		t.Errorf("runtime = container was accepted; got %v", errs)
 	}
 }
 

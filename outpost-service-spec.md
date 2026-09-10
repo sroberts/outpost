@@ -277,8 +277,8 @@ Do not build expecting any of this:
 | Config file management | Read env and flags |
 | Log parsing, metrics, tracing | Logs are captured verbatim and nothing more |
 
-Outpost also currently supports **process services only**. `runtime =
-"container"` is accepted by the schema and rejected at apply time.
+Outpost supervises **native processes only**. There is no container runtime and
+none is planned; `runtime` accepts only `"process"`.
 
 ---
 

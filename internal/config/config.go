@@ -16,9 +16,6 @@ import (
 type Config struct {
 	// Tailscale controls whether services are put on a tailnet at all.
 	Tailscale Tailscale `toml:"tailscale"`
-	// ContainerEngine backs runtime = "container" services (§9). Global rather
-	// than per-service: one engine per machine.
-	ContainerEngine string `toml:"container_engine"`
 }
 
 // Tailscale settings.
@@ -32,16 +29,10 @@ type Tailscale struct {
 	AuthKey string `toml:"auth_key"`
 }
 
-// Valid container engines (§9).
-var validEngines = map[string]bool{"podman": true, "docker": true, "colima": true}
-
 // Defaults returns the configuration used when there is no file.
 func Defaults() Config {
 	enabled := true
-	return Config{
-		Tailscale:       Tailscale{Enabled: &enabled},
-		ContainerEngine: "podman",
-	}
+	return Config{Tailscale: Tailscale{Enabled: &enabled}}
 }
 
 // TailscaleEnabled reports whether services should join a tailnet.
@@ -78,12 +69,7 @@ func Load(path string) (Config, error) {
 }
 
 // Validate checks the settings make sense.
-func (c Config) Validate() error {
-	if c.ContainerEngine != "" && !validEngines[c.ContainerEngine] {
-		return fmt.Errorf("container_engine must be one of podman, docker, colima; got %q", c.ContainerEngine)
-	}
-	return nil
-}
+func (c Config) Validate() error { return nil }
 
 // Save writes the configuration, creating the directory if needed.
 func Save(path string, cfg Config) error {
@@ -102,10 +88,6 @@ func (c Config) Render() string {
 	var b strings.Builder
 	b.WriteString("# Outpost global configuration.\n")
 	b.WriteString("# Per-service settings belong in services/<name>.toml instead.\n\n")
-
-	b.WriteString("# Which container engine backs runtime = \"container\" services.\n")
-	b.WriteString("# One of: podman, docker, colima.\n")
-	fmt.Fprintf(&b, "container_engine = %q\n\n", c.ContainerEngine)
 
 	b.WriteString("[tailscale]\n")
 	b.WriteString("# Whether each service gets its own Tailscale identity.\n")
