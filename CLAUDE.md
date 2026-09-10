@@ -12,13 +12,18 @@ contract a managed service has to satisfy.
 
 ## Commands
 
+`make help` lists everything. `make check` is exactly what CI runs — use it
+before opening a PR.
+
 ```sh
-go build ./...                                   # build everything
-go build -o outpost ./cmd/outpost                # the CLI/daemon binary
-go test ./...                                    # full suite (261 tests)
-go test -race ./...                              # the suite is race-clean; keep it that way
+make build                                       # ./outpost
+make test                                        # full suite (261 tests)
+make test-race                                   # race detector; the suite is clean, keep it that way
+make lint                                        # go vet + golangci-lint
+make fmt-check                                   # gofmt, honouring the one exempt file
+make check                                       # everything CI runs
+
 go test ./internal/supervisor -run TestName -v   # one test
-go vet ./...
 ```
 
 Cross-compiling must stay cgo-free (see below):
@@ -62,8 +67,14 @@ over a 0600 Unix socket) · `tsnet` (per-service Tailscale nodes) · `backup`
 
 **Never run `gofmt -w` on a directory.** `internal/manifest/manifest_test.go` is
 deliberately left unformatted and `gofmt -l .` is expected to report it and
-nothing else. A directory-wide sweep silently reformats it. Format specific
-files you actually edited.
+nothing else. A directory-wide sweep silently reformats it. Use `make fmt`,
+which carries the exemption, or format the specific files you edited.
+
+**The tree is `golangci-lint` clean, errcheck included.** A deliberately
+discarded error is written `_ = f()` at the call site with a comment saying
+why, not left bare. Inside `internal/supervisor`, activity-feed writes go
+through `s.event(...)` rather than `s.store.AppendEvent(...)` — it logs a
+failed write instead of dropping it.
 
 **Tests are not yours to change.** Per the repository owner's standing
 instruction, existing tests may only be modified with explicit authorization.
