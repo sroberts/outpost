@@ -29,6 +29,22 @@ type Service struct {
 	// StartGraceSeconds is how long after a start the healthcheck may fail
 	// without counting against the service, for anything slow to bind its port.
 	StartGraceSeconds uint `toml:"start_grace_seconds"`
+
+	// root is the Outpost home that a relative storage path resolves against.
+	// Unexported so TOML cannot set it: it comes from where the manifest was
+	// loaded, never from the manifest's own contents.
+	root string
+}
+
+// SetRoot records the Outpost home a relative storage path resolves against.
+// Load and LoadDir do this themselves; callers that build a Service by hand
+// need it so `storage = "data/x"` does not depend on the process's working
+// directory.
+func (s *Service) SetRoot(root string) {
+	if abs, err := filepath.Abs(root); err == nil {
+		root = abs
+	}
+	s.root = root
 }
 
 // Load reads and parses a TOML file into a Service.
@@ -38,6 +54,10 @@ func Load(path string) (*Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("decode %s: %w", path, err)
 	}
+	// Manifests live at <root>/services/<name>.toml, so the root is two levels
+	// up. A relative storage path resolves against that rather than against
+	// whatever working directory launchd or systemd happened to hand us.
+	svc.SetRoot(filepath.Dir(filepath.Dir(path)))
 	if svc.Name == "" {
 		// Filename minus extension is the service name unless overridden (§5).
 		base := filepath.Base(path)
@@ -87,6 +107,8 @@ func (s *Service) validateWith(opts Options) []error {
 	}
 	if s.Storage == "" {
 		errs = append(errs, fmt.Errorf("storage is required"))
+	} else if escapesRoot(s.Storage) {
+		errs = append(errs, fmt.Errorf("storage %q climbs above the Outpost root; use an absolute path if that is deliberate", s.Storage))
 	}
 	if opts.RequireTailscale && s.TailscaleName == "" {
 		errs = append(errs, fmt.Errorf("tailscale_name is required (or set tailscale.enabled = false in config.toml)"))
@@ -217,14 +239,33 @@ func (s *Service) setDefault() {
 	}
 }
 
+// escapesRoot reports whether a relative storage path climbs out of the Outpost
+// root with "..". Absolute and ~-rooted paths are the operator saying plainly
+// where they want the data, and are left alone.
+func escapesRoot(path string) bool {
+	if filepath.IsAbs(path) || strings.HasPrefix(path, "~/") {
+		return false
+	}
+	cleaned := filepath.Clean(path)
+	return cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator))
+}
+
 // ExpandStorage expands ~ in the storage path and resolves to an absolute path.
 // It does not modify the manifest.
+//
+// A relative path resolves against the Outpost root recorded at load time, so
+// the same manifest names the same directory however the daemon was started.
+// With no root recorded the path is left relative, which is what a Service
+// built by hand outside a manifest directory should get.
 func (s *Service) ExpandStorage() string {
 	path := s.Storage
 	if strings.HasPrefix(path, "~/") {
 		if home, err := os.UserHomeDir(); err == nil {
 			path = filepath.Join(home, strings.TrimPrefix(path, "~"))
 		}
+	}
+	if !filepath.IsAbs(path) && s.root != "" {
+		path = filepath.Join(s.root, path)
 	}
 	return filepath.Clean(path)
 }

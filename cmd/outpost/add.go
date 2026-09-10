@@ -121,6 +121,9 @@ func (a *app) buildService(name, binary string, port int, storage, tsName, healt
 		RestartPolicy: policy,
 		MCP:           mcp,
 	}
+	// A hand-written --storage may be relative; anchor it to the Outpost root
+	// so it means the same thing here as it will once the daemon loads it.
+	svc.SetRoot(a.home)
 	if argList != "" {
 		svc.Args = splitList(argList)
 	}
