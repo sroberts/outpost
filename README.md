@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/outpost-header.jpg" alt="Outpost — supervise your own services" width="100%">
+</p>
+
 # Outpost
 
 A small Go daemon that runs a declared set of local services as long-lived
@@ -64,6 +68,29 @@ outpost logs plumbline -f
 it exits, so nothing is left orphaned holding a port. To keep it running across
 logins and reboots, see [Running under launchd](#running-under-launchd).
 
+## Adding and removing services
+
+`outpost add` writes the manifest you would otherwise hand-write, allocating a
+free port and filling in the defaults:
+
+```sh
+outpost add plumbline --binary /opt/outpost/bin/plumbline \
+    --args "serve,--port,8081" --port 8081
+outpost add plumbline --binary ... --print   # render it without writing
+```
+
+It validates the result against every other declared service *before* writing,
+so a port or name collision is an error rather than something the next `apply`
+discovers.
+
+```sh
+outpost remove plumbline            # delete the manifest, keep the data
+outpost remove plumbline --purge    # delete its storage and backups too
+```
+
+A running daemon stops a removed service on its next reconcile, because it is no
+longer declared. `--purge` asks for confirmation unless given `--yes`.
+
 ## The service contract
 
 Outpost does not care what a service does internally. It requires that the
@@ -113,10 +140,10 @@ start_grace_seconds = 30
 | Field | Default | Notes |
 |---|---|---|
 | `name` | filename | Must be unique |
-| `runtime` | `process` | `container` is rejected at apply time |
+| `runtime` | `process` | The only valid value; Outpost runs native processes |
 | `port` | — | Required; must be unique across `process` services |
 | `storage` | — | Required; `~` is expanded, created `0700` if missing |
-| `tailscale_name` | — | Required; must be unique |
+| `tailscale_name` | — | Required unless `tailscale.enabled = false`; must be unique |
 | `healthcheck` | `/up` | Must start with `/` |
 | `restart_policy` | `on-failure` | See below |
 | `backoff_seconds` | `5` | Doubles per consecutive restart, capped at 300s |
@@ -158,11 +185,14 @@ The grace covers slow healthchecks, not a process that exits.
 ## CLI
 
 ```
-outpost serve [--tailnet]        run the daemon (reconcile loop + control socket)
+outpost serve [--tailnet=BOOL]   run the daemon (reconcile loop + control socket)
+outpost add <name> --binary ...  declare a new service
+outpost remove <name> [--purge]  undeclare a service, optionally deleting its data
 outpost apply                    validate manifests and reconcile
 outpost list                     table of services and their status
 outpost status <service>         health, restart count and recent events
 outpost logs <service> [-f]      show or follow a service's logs
+outpost logs <service> --events  show the service's recent activity
 outpost start <service>          start a stopped service
 outpost stop <service>           stop a running service
 outpost restart <service>        restart a service
@@ -235,6 +265,47 @@ waiting for the next tick. Status is carried by both colour and a glyph, so it
 reads correctly without colour. With no daemon running it says so and explains
 how to start one, then reconnects on its own once one appears.
 
+## Configuration
+
+Global settings live in `~/.outpost/config.toml`. Everything per-service belongs
+in that service's manifest instead. The file is optional — Outpost works with no
+configuration at all — and `outpost config --init` writes a commented starter.
+
+```toml
+[tailscale]
+enabled  = true
+# auth_key = "tskey-..."
+```
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `tailscale.enabled` | `true` | Whether services get a Tailscale identity |
+| `tailscale.auth_key` | — | Registers nodes unattended; `TS_AUTHKEY` wins over it |
+
+The file may hold an auth key, so it is written `0600`. Prefer `TS_AUTHKEY` in
+the environment, or `outpost install --authkey`, over writing one to disk.
+
+## Running without Tailscale
+
+Tailscale is the default, but it is not required. Set:
+
+```toml
+[tailscale]
+enabled = false
+```
+
+Then `tailscale_name` is no longer required in a manifest, `outpost add` stops
+generating one, and the daemon never contacts Tailscale. Everything else —
+supervision, health checks, restarts, backups, the dashboard — is unchanged, and
+`outpost list` simply shows `-` in the tailnet column.
+
+`outpost serve --tailnet=false` does the same for a single run without editing
+the config; `--tailnet` forces it on.
+
+Services still bind loopback, because that is what the service contract asks
+for. Without Tailscale they are reachable from the machine itself; exposing them
+further is between you and whatever you put in front of them — Outpost has no
+`bind` setting, because it never binds the port itself.
 ## Layout
 
 Everything lives under `~/.outpost` (or `$OUTPOST_HOME`, or `--home`):
@@ -247,6 +318,7 @@ Everything lives under `~/.outpost` (or `$OUTPOST_HOME`, or `--home`):
   backups/<name>/<ts>.tar.gz
   tsnet/<name>/            per-service Tailscale node identity
   state.db                 SQLite observed state and event log
+  config.toml              global settings, mode 0600 (optional)
   outpost.sock             control socket, mode 0600
   outpost.pid              running daemon's PID
   logs/outpost.out.log     the daemon's own output (macOS; journal on Linux)
@@ -355,8 +427,28 @@ Archives are plain `tar.gz` and can be unpacked with standard tools. Extraction
 refuses entries that escape the target directory, including absolute paths,
 `../` traversal, and writes through a symlink the archive itself created.
 
-There is no scheduler yet — use cron, or `launchd`. Whether Outpost grows its
-own or delegates to Hermes's is open question 2 in the spec.
+### Scheduling
+
+Outpost has no scheduler of its own. It writes one for the init system instead —
+a launchd calendar job on macOS, a systemd timer on Linux — so the scheduling is
+handled by something already designed for it (spec §10, open question 2).
+
+```sh
+outpost backup --schedule daily --at 03:30      # write the job
+outpost backup --schedule daily --enable        # write it and activate it
+outpost backup --schedule hourly
+outpost backup --schedule weekly --at 04:00
+outpost backup plumbline --schedule daily       # one service rather than all
+outpost backup --unschedule                     # remove it
+```
+
+As with `install`, it writes the file and prints the command that activates it
+rather than running it; `--enable` opts in, and `--system` makes it a boot-time
+job.
+
+The systemd timer is `Persistent=true`, so a backup missed while the machine was
+off runs once it comes back. Both jobs are one-shots — nothing restarts them
+when the backup finishes.
 
 ## Tailscale
 
@@ -386,7 +478,7 @@ service cannot end up silently off the tailnet.
 ## Development
 
 ```sh
-go test ./...           # 210 tests
+go test ./...           # 253 tests
 go test ./... -race
 go vet ./...
 ```
@@ -427,5 +519,14 @@ fsnotify. The daemon hashes the manifest directory each tick and re-applies on
 change, which avoids a dependency; fsnotify would only reduce reload latency
 below one tick.
 
-**`funnel` and containers are rejected, not ignored.** Both are accepted by the
-schema and refused at apply time with an explicit error, per spec §7 and §9.
+**Containers were dropped.** Spec §1 has services as "either a native process
+or an OCI container", and §9 designs a container runtime. Outpost supervises
+native Go processes only, so `image`, `container_args` and `container_engine`
+are gone from the schema and `runtime` accepts only `"process"`. Spec §9 and
+build step 8 no longer apply.
+
+**`funnel` is rejected, not ignored.** It is accepted by the schema and refused
+at apply time with an explicit error, per spec §7.
+
+**Backup scheduling uses the init system.** Spec §10 leaves this open; Outpost
+generates a launchd job or a systemd timer rather than growing a scheduler.

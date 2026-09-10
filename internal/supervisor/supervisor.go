@@ -57,9 +57,6 @@ type Options struct {
 	Store       *state.Store
 	// ProcessRuntime runs runtime = "process" services.
 	ProcessRuntime runtime.Runtime
-	// ContainerRuntime runs runtime = "container" services; nil until §9 lands,
-	// in which case declaring a container service is a clear error.
-	ContainerRuntime runtime.Runtime
 	// Interval is the reconcile period; defaults to 3s.
 	Interval time.Duration
 	// HealthFailThreshold is how many consecutive failed healthchecks force a
@@ -69,6 +66,9 @@ type Options struct {
 	BackupDir string
 	// Tailnet, when set, gives each running service a Tailscale identity (§7).
 	Tailnet TailnetRouter
+	// ManifestOptions controls validation rules that depend on global config,
+	// such as whether tailscale_name is required.
+	ManifestOptions manifest.Options
 	// Now is injectable so tests can control backoff without sleeping.
 	Now func() time.Time
 	// Logf receives operator-facing progress lines; defaults to discarding.
@@ -78,12 +78,12 @@ type Options struct {
 // Supervisor owns the reconcile loop. It is not safe for concurrent use by
 // multiple goroutines; Run drives it from one.
 type Supervisor struct {
-	servicesDir string
-	backupDir   string
-	store       *state.Store
-	procRT      runtime.Runtime
-	containerRT runtime.Runtime
-	tailnet     TailnetRouter
+	servicesDir  string
+	backupDir    string
+	store        *state.Store
+	procRT       runtime.Runtime
+	tailnet      TailnetRouter
+	manifestOpts manifest.Options
 
 	Interval            time.Duration
 	healthFailThreshold int
@@ -156,8 +156,8 @@ func New(opts Options) (*Supervisor, error) {
 		backupDir:           opts.BackupDir,
 		store:               opts.Store,
 		procRT:              opts.ProcessRuntime,
-		containerRT:         opts.ContainerRuntime,
 		tailnet:             opts.Tailnet,
+		manifestOpts:        opts.ManifestOptions,
 		Interval:            opts.Interval,
 		healthFailThreshold: opts.HealthFailThreshold,
 		now:                 opts.Now,
@@ -188,15 +188,12 @@ func (s *Supervisor) applyLocked(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("load manifests: %w", err)
 	}
-	if errs := manifest.ValidateAll(services); len(errs) > 0 {
+	if errs := manifest.ValidateWith(services, s.manifestOpts); len(errs) > 0 {
 		return fmt.Errorf("invalid manifests:\n%s", indentErrors(errs))
 	}
 
 	next := make(map[string]*manifest.Service, len(services))
 	for _, svc := range services {
-		if svc.Runtime == "container" && s.containerRT == nil {
-			return fmt.Errorf("%s: runtime = \"container\" is not supported yet (spec §9)", svc.Name)
-		}
 		// Fail before starting anything rather than mid-way through the set.
 		if err := svc.EnsureStorage(); err != nil {
 			return err
@@ -736,11 +733,9 @@ func (s *Supervisor) shutdownLocked(ctx context.Context) error {
 	return nil
 }
 
-// runtimeFor selects the runtime backing a service.
+// runtimeFor selects the runtime backing a service. Outpost supervises native
+// processes only, so there is exactly one.
 func (s *Supervisor) runtimeFor(svc *manifest.Service) runtime.Runtime {
-	if svc.Runtime == "container" && s.containerRT != nil {
-		return s.containerRT
-	}
 	return s.procRT
 }
 
@@ -800,13 +795,10 @@ func execFingerprint(svc *manifest.Service) string {
 		return ""
 	}
 	h := sha256.New()
-	fmt.Fprintf(h, "runtime=%s\x00binary=%s\x00image=%s\x00port=%d\x00storage=%s\x00tailscale=%s\x00",
-		svc.Runtime, svc.Binary, svc.Image, svc.Port, svc.ExpandStorage(), svc.TailscaleName)
+	fmt.Fprintf(h, "runtime=%s\x00binary=%s\x00port=%d\x00storage=%s\x00tailscale=%s\x00",
+		svc.Runtime, svc.Binary, svc.Port, svc.ExpandStorage(), svc.TailscaleName)
 	for _, arg := range svc.Args {
 		fmt.Fprintf(h, "arg=%s\x00", arg)
-	}
-	for _, arg := range svc.ContainerArgs {
-		fmt.Fprintf(h, "carg=%s\x00", arg)
 	}
 	// Map iteration order is random, so sort before hashing.
 	keys := make([]string, 0, len(svc.Env))

@@ -24,8 +24,7 @@ const (
 // Handle is a reference to one started service instance. Implementations are
 // safe for concurrent use.
 type Handle interface {
-	// ID identifies the instance uniformly across runtimes: a PID for
-	// processes, a container ID for containers.
+	// ID identifies the running instance: its PID.
 	ID() string
 	PID() int
 	Status() Status
@@ -43,7 +42,8 @@ type Handle interface {
 }
 
 // Runtime is the boundary the supervisor drives. ProcessRuntime implements it
-// with os/exec; ContainerRuntime will implement it over a container engine CLI.
+// with os/exec, and is the only implementation: Outpost supervises native
+// processes, not containers.
 type Runtime interface {
 	Start(ctx context.Context, svc *manifest.Service) (Handle, error)
 	Stop(ctx context.Context, h Handle) error

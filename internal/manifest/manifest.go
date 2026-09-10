@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -16,8 +17,6 @@ type Service struct {
 	Binary         string            `toml:"binary"`
 	Args           []string          `toml:"args"`
 	Env            map[string]string `toml:"env"`
-	Image          string            `toml:"image"`
-	ContainerArgs  []string          `toml:"container_args"`
 	Port           int               `toml:"port"`
 	Storage        string            `toml:"storage"`
 	TailscaleName  string            `toml:"tailscale_name"`
@@ -71,8 +70,11 @@ func LoadDir(dir string) ([]*Service, error) {
 	return services, nil
 }
 
-// validate checks a single Service for schema violations.
-func (s *Service) validate() []error {
+// validate checks a single Service with the default options.
+func (s *Service) validate() []error { return s.validateWith(DefaultOptions()) }
+
+// validateWith checks a single Service for schema violations.
+func (s *Service) validateWith(opts Options) []error {
 	var errs []error
 
 	if s.Name == "" {
@@ -80,8 +82,8 @@ func (s *Service) validate() []error {
 	}
 	if s.Runtime == "" {
 		errs = append(errs, fmt.Errorf("runtime is required"))
-	} else if s.Runtime != "process" && s.Runtime != "container" {
-		errs = append(errs, fmt.Errorf("runtime must be \"process\" or \"container\", got %q", s.Runtime))
+	} else if s.Runtime != "process" {
+		errs = append(errs, fmt.Errorf("runtime must be \"process\", got %q: Outpost supervises native processes only", s.Runtime))
 	}
 	if s.Port <= 0 {
 		errs = append(errs, fmt.Errorf("port is required and must be > 0"))
@@ -89,16 +91,20 @@ func (s *Service) validate() []error {
 	if s.Storage == "" {
 		errs = append(errs, fmt.Errorf("storage is required"))
 	}
-	if s.TailscaleName == "" {
-		errs = append(errs, fmt.Errorf("tailscale_name is required"))
+	if opts.RequireTailscale && s.TailscaleName == "" {
+		errs = append(errs, fmt.Errorf("tailscale_name is required (or set tailscale.enabled = false in config.toml)"))
 	}
 
-	// runtime-specific checks
-	if s.Runtime == "process" && s.Binary == "" {
-		errs = append(errs, fmt.Errorf("binary is required for runtime = \"process\""))
+	if s.Binary == "" {
+		errs = append(errs, fmt.Errorf("binary is required"))
 	}
-	if s.Runtime == "container" && s.Image == "" {
-		errs = append(errs, fmt.Errorf("image is required for runtime = \"container\""))
+
+	// The port is declared once for Outpost and again in whatever way the
+	// service takes it. If those disagree, the service runs fine and Outpost
+	// health-checks a port nothing is listening on, restarting it forever.
+	if argPort, ok := portInArgs(s.Args); ok && s.Port > 0 && argPort != s.Port {
+		errs = append(errs, fmt.Errorf("port = %d but args pass --port %d; the healthcheck would probe a port the service is not listening on",
+			s.Port, argPort))
 	}
 
 	if s.Healthcheck == "" || !strings.HasPrefix(s.Healthcheck, "/") {
@@ -119,8 +125,23 @@ func (s *Service) validate() []error {
 	return errs
 }
 
-// ValidateAll validates a set of services for cross-service constraints.
+// Options controls the validation rules that depend on global configuration.
+type Options struct {
+	// RequireTailscale makes tailscale_name mandatory. False when the
+	// installation is not using Tailscale at all (config.toml).
+	RequireTailscale bool
+}
+
+// DefaultOptions is the strictest set: Tailscale in use.
+func DefaultOptions() Options { return Options{RequireTailscale: true} }
+
+// ValidateAll validates a set of services with the default options.
 func ValidateAll(services []*Service) []error {
+	return ValidateWith(services, DefaultOptions())
+}
+
+// ValidateWith validates a set of services for cross-service constraints.
+func ValidateWith(services []*Service, opts Options) []error {
 	var errs []error
 
 	names := make(map[string]bool)
@@ -129,7 +150,7 @@ func ValidateAll(services []*Service) []error {
 
 	for _, svc := range services {
 		// Per-service validation
-		for _, err := range svc.validate() {
+		for _, err := range svc.validateWith(opts) {
 			errs = append(errs, fmt.Errorf("%s: %w", svc.Name, err))
 		}
 
@@ -139,21 +160,46 @@ func ValidateAll(services []*Service) []error {
 		}
 		names[svc.Name] = true
 
-		// Port uniqueness for process services
-		if svc.Runtime == "process" {
-			if ports[svc.Port] {
-				errs = append(errs, fmt.Errorf("%s: duplicate port %d", svc.Name, svc.Port))
-			}
-			ports[svc.Port] = true
+		if ports[svc.Port] {
+			errs = append(errs, fmt.Errorf("%s: duplicate port %d", svc.Name, svc.Port))
 		}
+		ports[svc.Port] = true
 
-		if tsNames[svc.TailscaleName] {
-			errs = append(errs, fmt.Errorf("%s: duplicate tailscale_name %q", svc.Name, svc.TailscaleName))
+		// An empty name is not a collision; it is simply unset.
+		if svc.TailscaleName != "" {
+			if tsNames[svc.TailscaleName] {
+				errs = append(errs, fmt.Errorf("%s: duplicate tailscale_name %q", svc.Name, svc.TailscaleName))
+			}
+			tsNames[svc.TailscaleName] = true
 		}
-		tsNames[svc.TailscaleName] = true
 	}
 
 	return errs
+}
+
+// portInArgs finds a port passed in args as --port N, -port N or --port=N.
+//
+// A heuristic, deliberately: it only fires on the conventional spellings, and
+// says nothing about a service that takes its port some other way.
+func portInArgs(args []string) (int, bool) {
+	for i, arg := range args {
+		name, value, hasValue := strings.Cut(arg, "=")
+		if name != "--port" && name != "-port" {
+			continue
+		}
+		if !hasValue {
+			if i+1 >= len(args) {
+				return 0, false
+			}
+			value = args[i+1]
+		}
+		port, err := strconv.Atoi(value)
+		if err != nil {
+			return 0, false
+		}
+		return port, true
+	}
+	return 0, false
 }
 
 func (s *Service) setDefault() {
