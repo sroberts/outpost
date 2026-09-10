@@ -29,9 +29,9 @@ func startStray(t *testing.T, marker string) (*exec.Cmd, int) {
 	// init reaps it; here it is, so without this it lingers as a zombie and
 	// still answers signal 0.
 	reaped := make(chan struct{})
-	go func() { cmd.Wait(); close(reaped) }()
+	go func() { _ = cmd.Wait(); close(reaped) }()
 	t.Cleanup(func() {
-		cmd.Process.Kill()
+		_ = cmd.Process.Kill()
 		<-reaped
 	})
 	return cmd, cmd.Process.Pid
@@ -87,10 +87,12 @@ func TestReclaimOrphans_LeavesUnrelatedProcessesAlone(t *testing.T) {
 	h.apply()
 
 	_, pid := startStray(t, "/bin/sleep")
-	h.store.UpsertService(state.ServiceRecord{
+	if err := h.store.UpsertService(state.ServiceRecord{
 		Name: "alpha", Runtime: "process", Status: "running",
 		InstanceID: strconv.Itoa(pid),
-	})
+	}); err != nil {
+		t.Fatalf("UpsertService: %v", err)
+	}
 
 	reclaimed, err := h.sup.ReclaimOrphans(context.Background())
 	if err != nil {
@@ -111,12 +113,16 @@ func TestReclaimOrphans_IgnoresDeadAndEmptyRecords(t *testing.T) {
 	h.apply()
 
 	// A PID that is not running, and a record with no instance at all.
-	h.store.UpsertService(state.ServiceRecord{
+	if err := h.store.UpsertService(state.ServiceRecord{
 		Name: "alpha", Runtime: "process", Status: "running", InstanceID: "999999",
-	})
-	h.store.UpsertService(state.ServiceRecord{
+	}); err != nil {
+		t.Fatalf("UpsertService: %v", err)
+	}
+	if err := h.store.UpsertService(state.ServiceRecord{
 		Name: "beta", Runtime: "process", Status: "stopped", InstanceID: "",
-	})
+	}); err != nil {
+		t.Fatalf("UpsertService: %v", err)
+	}
 
 	reclaimed, err := h.sup.ReclaimOrphans(context.Background())
 	if err != nil {
@@ -135,10 +141,12 @@ func TestReclaimOrphans_ClearsStaleInstanceID(t *testing.T) {
 	h.apply()
 
 	_, pid := startStray(t, "/bin/sleep")
-	h.store.UpsertService(state.ServiceRecord{
+	if err := h.store.UpsertService(state.ServiceRecord{
 		Name: "alpha", Runtime: "process", Status: "running",
 		InstanceID: strconv.Itoa(pid),
-	})
+	}); err != nil {
+		t.Fatalf("UpsertService: %v", err)
+	}
 
 	if _, err := h.sup.ReclaimOrphans(context.Background()); err != nil {
 		t.Fatal(err)
@@ -159,10 +167,12 @@ func TestReclaimOrphans_FreesThePortForARestart(t *testing.T) {
 	h.apply()
 
 	_, pid := startStray(t, "/bin/sleep")
-	h.store.UpsertService(state.ServiceRecord{
+	if err := h.store.UpsertService(state.ServiceRecord{
 		Name: "alpha", Runtime: "process", Status: "running",
 		InstanceID: strconv.Itoa(pid),
-	})
+	}); err != nil {
+		t.Fatalf("UpsertService: %v", err)
+	}
 
 	if _, err := h.sup.ReclaimOrphans(context.Background()); err != nil {
 		t.Fatal(err)
@@ -184,11 +194,15 @@ func TestReclaimOrphans_RecordsAnEvent(t *testing.T) {
 	h.apply()
 
 	_, pid := startStray(t, "/bin/sleep")
-	h.store.UpsertService(state.ServiceRecord{
+	if err := h.store.UpsertService(state.ServiceRecord{
 		Name: "alpha", Runtime: "process", Status: "running",
 		InstanceID: strconv.Itoa(pid),
-	})
-	h.sup.ReclaimOrphans(context.Background())
+	}); err != nil {
+		t.Fatalf("UpsertService: %v", err)
+	}
+	if _, err := h.sup.ReclaimOrphans(context.Background()); err != nil {
+		t.Fatalf("ReclaimOrphans: %v", err)
+	}
 
 	events, err := h.store.Events("alpha", 20)
 	if err != nil {

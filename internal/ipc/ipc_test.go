@@ -65,9 +65,9 @@ tailscale_name = %q
 
 	ctx, cancel := context.WithCancel(context.Background())
 	loopDone := make(chan struct{})
-	go func() { defer close(loopDone); sup.Run(ctx) }()
+	go func() { defer close(loopDone); _ = sup.Run(ctx) }()
 	serveDone := make(chan struct{})
-	go func() { defer close(serveDone); srv.Serve(ctx) }()
+	go func() { defer close(serveDone); _ = srv.Serve(ctx) }()
 
 	t.Cleanup(func() {
 		cancel()
@@ -163,13 +163,13 @@ func TestServer_StopAndStartRoundTrip(t *testing.T) {
 	if _, err := c.Start("alpha"); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	st, err = c.Status("alpha")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if st.Status != string(runtime.StatusRunning) {
-		t.Errorf("status after Start = %q; want running", st.Status)
-	}
+	// Unlike Stop, Start is not complete when it replies: the service comes up
+	// as "starting" and only reaches "running" once a healthcheck succeeds, so
+	// this has to wait for it the same way the top of the test does.
+	waitFor(t, 3*time.Second, func() bool {
+		st, err := c.Status("alpha")
+		return err == nil && st.Status == string(runtime.StatusRunning)
+	})
 }
 
 func TestServer_RestartReplacesInstance(t *testing.T) {
@@ -263,8 +263,8 @@ func TestServer_MalformedRequestGetsAnError(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer conn.Close()
-	conn.Write([]byte("{not json"))
-	conn.(*net.UnixConn).CloseWrite()
+	_, _ = conn.Write([]byte("{not json"))
+	_ = conn.(*net.UnixConn).CloseWrite()
 
 	buf := make([]byte, 4096)
 	n, err := conn.Read(buf)
@@ -313,7 +313,7 @@ func TestListen_RefusesToStealALiveSocket(t *testing.T) {
 	defer first.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go first.Serve(ctx)
+	go func() { _ = first.Serve(ctx) }()
 
 	if _, err := Listen(sockPath, sup, nil); err == nil {
 		t.Fatal("second Listen on a live socket: want error, got nil")

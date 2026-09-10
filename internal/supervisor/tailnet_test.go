@@ -78,7 +78,9 @@ func TestTailnet_DetachedWhenServiceStops(t *testing.T) {
 	h.apply()
 	h.tick()
 
-	h.store.SetDesired("alpha", "stopped")
+	if err := h.store.SetDesired("alpha", "stopped"); err != nil {
+		t.Fatalf("SetDesired: %v", err)
+	}
 	h.tick()
 
 	_, detached, live := tn.counts("alpha")
@@ -232,7 +234,9 @@ func TestTailnet_NotReassertedForStoppedServices(t *testing.T) {
 	h.writeManifest("alpha", "")
 	h.apply()
 	h.tick()
-	h.store.SetDesired("alpha", "stopped")
+	if err := h.store.SetDesired("alpha", "stopped"); err != nil {
+		t.Fatalf("SetDesired: %v", err)
+	}
 	h.tick()
 
 	attachedAfterStop, _, _ := tn.counts("alpha")

@@ -407,10 +407,14 @@ func TestDesiredRunning_StartsAStoppedService(t *testing.T) {
 	h.writeManifest("alpha", "")
 	h.apply()
 	h.tick()
-	h.store.SetDesired("alpha", state.DesiredStopped)
+	if err := h.store.SetDesired("alpha", state.DesiredStopped); err != nil {
+		t.Fatalf("SetDesired: %v", err)
+	}
 	h.tick()
 
-	h.store.SetDesired("alpha", state.DesiredRunning)
+	if err := h.store.SetDesired("alpha", state.DesiredRunning); err != nil {
+		t.Fatalf("SetDesired: %v", err)
+	}
 	h.tick()
 
 	if got := h.rt.startCount("alpha"); got != 2 {
@@ -470,7 +474,9 @@ func TestStateRecovery_ReapplyConvergesAfterStateLoss(t *testing.T) {
 	h.writeManifest("beta", "")
 	h.apply()
 	h.tick()
-	h.sup.Shutdown(context.Background())
+	if err := h.sup.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
 
 	dbPath := filepath.Join(h.dir, "state.db")
 	h.store.Close()

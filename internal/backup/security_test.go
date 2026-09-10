@@ -41,9 +41,15 @@ func TestExtract_RejectsAbsoluteSymlinkTarget(t *testing.T) {
 	body := []byte("pwned")
 
 	writeArchive(t, archive, func(tw *tar.Writer) {
-		tw.WriteHeader(&tar.Header{Name: "link", Typeflag: tar.TypeSymlink, Linkname: outside, Mode: 0o777})
-		tw.WriteHeader(&tar.Header{Name: "link/owned.txt", Typeflag: tar.TypeReg, Size: int64(len(body)), Mode: 0o600})
-		tw.Write(body)
+		if err := tw.WriteHeader(&tar.Header{Name: "link", Typeflag: tar.TypeSymlink, Linkname: outside, Mode: 0o777}); err != nil {
+			t.Fatalf("WriteHeader: %v", err)
+		}
+		if err := tw.WriteHeader(&tar.Header{Name: "link/owned.txt", Typeflag: tar.TypeReg, Size: int64(len(body)), Mode: 0o600}); err != nil {
+			t.Fatalf("WriteHeader: %v", err)
+		}
+		if _, err := tw.Write(body); err != nil {
+			t.Fatalf("Write: %v", err)
+		}
 	})
 
 	err := Extract(archive, filepath.Join(dir, "target"))
@@ -66,9 +72,15 @@ func TestExtract_RejectsRelativeSymlinkEscape(t *testing.T) {
 	body := []byte("pwned")
 
 	writeArchive(t, archive, func(tw *tar.Writer) {
-		tw.WriteHeader(&tar.Header{Name: "link", Typeflag: tar.TypeSymlink, Linkname: "../outside", Mode: 0o777})
-		tw.WriteHeader(&tar.Header{Name: "link/owned.txt", Typeflag: tar.TypeReg, Size: int64(len(body)), Mode: 0o600})
-		tw.Write(body)
+		if err := tw.WriteHeader(&tar.Header{Name: "link", Typeflag: tar.TypeSymlink, Linkname: "../outside", Mode: 0o777}); err != nil {
+			t.Fatalf("WriteHeader: %v", err)
+		}
+		if err := tw.WriteHeader(&tar.Header{Name: "link/owned.txt", Typeflag: tar.TypeReg, Size: int64(len(body)), Mode: 0o600}); err != nil {
+			t.Fatalf("WriteHeader: %v", err)
+		}
+		if _, err := tw.Write(body); err != nil {
+			t.Fatalf("Write: %v", err)
+		}
 	})
 
 	err := Extract(archive, filepath.Join(dir, "target"))
@@ -85,17 +97,25 @@ func TestExtract_RejectsRelativeSymlinkEscape(t *testing.T) {
 func TestExtract_RejectsWritingThroughASymlinkedParent(t *testing.T) {
 	dir := t.TempDir()
 	outside := filepath.Join(dir, "outside")
-	os.MkdirAll(outside, 0o700)
+	if err := os.MkdirAll(outside, 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
 	archive := filepath.Join(dir, "evil.tar.gz")
 	body := []byte("pwned")
 
 	writeArchive(t, archive, func(tw *tar.Writer) {
-		tw.WriteHeader(&tar.Header{Name: "data", Typeflag: tar.TypeSymlink, Linkname: outside, Mode: 0o777})
-		tw.WriteHeader(&tar.Header{Name: "data/nested/owned.txt", Typeflag: tar.TypeReg, Size: int64(len(body)), Mode: 0o600})
-		tw.Write(body)
+		if err := tw.WriteHeader(&tar.Header{Name: "data", Typeflag: tar.TypeSymlink, Linkname: outside, Mode: 0o777}); err != nil {
+			t.Fatalf("WriteHeader: %v", err)
+		}
+		if err := tw.WriteHeader(&tar.Header{Name: "data/nested/owned.txt", Typeflag: tar.TypeReg, Size: int64(len(body)), Mode: 0o600}); err != nil {
+			t.Fatalf("WriteHeader: %v", err)
+		}
+		if _, err := tw.Write(body); err != nil {
+			t.Fatalf("Write: %v", err)
+		}
 	})
 
-	Extract(archive, filepath.Join(dir, "target"))
+	_ = Extract(archive, filepath.Join(dir, "target"))
 	if _, err := os.Stat(filepath.Join(outside, "nested", "owned.txt")); err == nil {
 		t.Fatal("data was written outside the restore target through a symlinked parent")
 	}
@@ -137,13 +157,21 @@ func TestExtract_KeepsContainedSymlinks(t *testing.T) {
 func TestExtract_FailureLeavesExistingDataIntact(t *testing.T) {
 	dir := t.TempDir()
 	storage := filepath.Join(dir, "storage")
-	os.MkdirAll(storage, 0o700)
-	os.WriteFile(filepath.Join(storage, "live.txt"), []byte("live data"), 0o600)
+	if err := os.MkdirAll(storage, 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(storage, "live.txt"), []byte("live data"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
 
 	archive := filepath.Join(dir, "evil.tar.gz")
 	writeArchive(t, archive, func(tw *tar.Writer) {
-		tw.WriteHeader(&tar.Header{Name: "../escape.txt", Typeflag: tar.TypeReg, Size: 1, Mode: 0o600})
-		tw.Write([]byte("x"))
+		if err := tw.WriteHeader(&tar.Header{Name: "../escape.txt", Typeflag: tar.TypeReg, Size: 1, Mode: 0o600}); err != nil {
+			t.Fatalf("WriteHeader: %v", err)
+		}
+		if _, err := tw.Write([]byte("x")); err != nil {
+			t.Fatalf("Write: %v", err)
+		}
 	})
 
 	if err := Extract(archive, storage); err == nil {

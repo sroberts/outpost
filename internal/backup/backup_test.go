@@ -128,7 +128,9 @@ func TestExtract_RejectsPathTraversal(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	tw.Write(body)
+	if _, err := tw.Write(body); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
 	tw.Close()
 	gz.Close()
 	if err := os.WriteFile(archive, buf.Bytes(), 0o600); err != nil {
@@ -156,11 +158,17 @@ func TestExtract_RejectsAbsolutePaths(t *testing.T) {
 	gz := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gz)
 	body := []byte("x")
-	tw.WriteHeader(&tar.Header{Name: "/etc/outpost-pwned", Mode: 0o600, Size: int64(len(body)), Typeflag: tar.TypeReg})
-	tw.Write(body)
+	if err := tw.WriteHeader(&tar.Header{Name: "/etc/outpost-pwned", Mode: 0o600, Size: int64(len(body)), Typeflag: tar.TypeReg}); err != nil {
+		t.Fatalf("WriteHeader: %v", err)
+	}
+	if _, err := tw.Write(body); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
 	tw.Close()
 	gz.Close()
-	os.WriteFile(archive, buf.Bytes(), 0o600)
+	if err := os.WriteFile(archive, buf.Bytes(), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
 
 	if err := Extract(archive, filepath.Join(dir, "target")); err == nil {
 		t.Fatal("Extract of an absolute-path archive: want error, got nil")

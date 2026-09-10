@@ -17,7 +17,7 @@ func runningHarness(t *testing.T) (*harness, context.CancelFunc) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() { defer close(done); h.sup.Run(ctx) }()
+	go func() { defer close(done); _ = h.sup.Run(ctx) }()
 	t.Cleanup(func() { cancel(); <-done })
 	return h, cancel
 }

@@ -25,7 +25,7 @@ func TestSubmit_RacesRunStartup(t *testing.T) {
 		start := make(chan struct{})
 
 		wg.Add(1)
-		go func() { defer wg.Done(); <-start; h.sup.Run(ctx) }()
+		go func() { defer wg.Done(); <-start; _ = h.sup.Run(ctx) }()
 
 		for i := 0; i < 4; i++ {
 			wg.Add(1)
@@ -33,9 +33,9 @@ func TestSubmit_RacesRunStartup(t *testing.T) {
 				defer wg.Done()
 				<-start
 				for j := 0; j < 25; j++ {
-					h.sup.List(context.Background())
+					_, _ = h.sup.List(context.Background())
 					h.sup.Services()
-					h.sup.Status(context.Background(), "alpha")
+					_, _ = h.sup.Status(context.Background(), "alpha")
 				}
 			}()
 		}
