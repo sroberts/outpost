@@ -37,6 +37,7 @@ Commands:
   backup [service]         archive a service's storage (all services if omitted)
   backup --list <service>  list a service's existing backups
   restore <service> [ts]   restore storage from a backup (newest if ts omitted)
+  tui                      launch the dashboard
   config [--init]          show or create the global configuration
   install [--system]       install the launchd/systemd service that keeps
                            the daemon running across reboots
@@ -114,6 +115,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return a.cmdAdd(cmdArgs)
 	case "remove", "rm":
 		return a.cmdRemove(cmdArgs)
+	case "tui":
+		return a.cmdTUI(cmdArgs)
 	case "config":
 		return a.cmdConfig(cmdArgs)
 	case "install":
