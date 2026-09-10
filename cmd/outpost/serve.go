@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/sroberts/outpost/internal/ipc"
+	"github.com/sroberts/outpost/internal/manifest"
 	"github.com/sroberts/outpost/internal/runtime"
 	"github.com/sroberts/outpost/internal/state"
 	"github.com/sroberts/outpost/internal/supervisor"
@@ -24,7 +25,7 @@ func (a *app) cmdServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.SetOutput(a.err)
 	interval := fs.Duration("interval", 3*time.Second, "reconcile interval")
-	tailnet := fs.Bool("tailnet", false, "put each service on the tailnet via tsnet (§7)")
+	tailnet := fs.Bool("tailnet", true, "put each service on the tailnet via tsnet (§7); --tailnet=false to run without it")
 	tsVerbose := fs.Bool("tailnet-verbose", false, "pass tsnet's own logging through")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -43,13 +44,21 @@ func (a *app) cmdServe(args []string) error {
 	}
 	defer store.Close()
 
-	// Tailscale is opt-in: the first run of a node registers it on your tailnet,
-	// which should not happen as a side effect of starting the daemon.
+	// config.toml decides whether the tailnet is used at all; an explicit
+	// --tailnet on the command line overrides it for this run.
+	useTailnet := a.config.TailscaleEnabled()
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "tailnet" {
+			useTailnet = *tailnet
+		}
+	})
+
 	var router supervisor.TailnetRouter
-	if *tailnet {
+	if useTailnet {
+		authKey := a.config.ResolveAuthKey()
 		r, err := outposttsnet.New(outposttsnet.Options{
 			StateDir: a.tsnetDir(),
-			AuthKey:  os.Getenv("TS_AUTHKEY"),
+			AuthKey:  authKey,
 			Verbose:  *tsVerbose,
 			Logf:     func(format string, v ...any) { fmt.Fprintf(a.out, format+"\n", v...) },
 		})
@@ -59,19 +68,23 @@ func (a *app) cmdServe(args []string) error {
 		defer r.Close()
 		router = r
 
-		if os.Getenv("TS_AUTHKEY") == "" {
-			fmt.Fprintln(a.out, "outpost: TS_AUTHKEY is not set; each new service will log a one-time login URL")
+		if authKey == "" {
+			fmt.Fprintln(a.out, "outpost: no Tailscale auth key; each new service will log a one-time login URL")
+			fmt.Fprintln(a.out, "outpost: set TS_AUTHKEY, or run without Tailscale via `outpost config --init` and tailscale.enabled = false")
 		}
+	} else {
+		fmt.Fprintln(a.out, "outpost: Tailscale is disabled; services stay on loopback")
 	}
 
 	sup, err := supervisor.New(supervisor.Options{
-		ServicesDir:    a.servicesDir(),
-		BackupDir:      a.backupsDir(),
-		Tailnet:        router,
-		Store:          store,
-		ProcessRuntime: &runtime.ProcessRuntime{LogDir: a.logsDir()},
-		Interval:       *interval,
-		Logf:           func(format string, v ...any) { fmt.Fprintf(a.out, format+"\n", v...) },
+		ServicesDir:     a.servicesDir(),
+		BackupDir:       a.backupsDir(),
+		Tailnet:         router,
+		ManifestOptions: manifest.Options{RequireTailscale: useTailnet},
+		Store:           store,
+		ProcessRuntime:  &runtime.ProcessRuntime{LogDir: a.logsDir()},
+		Interval:        *interval,
+		Logf:            func(format string, v ...any) { fmt.Fprintf(a.out, format+"\n", v...) },
 	})
 	if err != nil {
 		return err
