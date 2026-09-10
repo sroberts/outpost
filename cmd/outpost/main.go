@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/sroberts/outpost/internal/config"
+	"github.com/sroberts/outpost/internal/version"
 )
 
 const usage = `outpost — supervise a declared set of local services
@@ -38,6 +39,7 @@ Commands:
   backup --list <service>  list a service's existing backups
   restore <service> [ts]   restore storage from a backup (newest if ts omitted)
   tui                      launch the dashboard
+  version                  print the build identity of this binary
   config [--init]          show or create the global configuration
   install [--system]       install the launchd/systemd service that keeps
                            the daemon running across reboots
@@ -45,6 +47,7 @@ Commands:
 
 Flags:
   --home <dir>             Outpost root (default $OUTPOST_HOME or ~/.outpost)
+  --version                print the build identity of this binary
   -h, --help               show this help
 `
 
@@ -70,6 +73,16 @@ type app struct {
 }
 
 func run(args []string, stdout, stderr io.Writer) error {
+	// Answered before the config is read: "which build is this?" has to work
+	// on a machine where something else is broken, which is exactly when it
+	// gets asked.
+	for _, arg := range args {
+		if arg == "--version" || arg == "-version" {
+			fmt.Fprint(stdout, version.Get().Long())
+			return nil
+		}
+	}
+
 	home, rest, err := parseGlobals(args)
 	if err != nil {
 		return err
@@ -123,6 +136,9 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return a.cmdInstall(cmdArgs)
 	case "uninstall":
 		return a.cmdUninstall(cmdArgs)
+	case "version":
+		return a.cmdVersion(cmdArgs)
+
 	case "help", "-h", "--help":
 		fmt.Fprint(stdout, usage)
 		return nil

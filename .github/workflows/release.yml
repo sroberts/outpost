@@ -24,17 +24,22 @@ jobs:
       # statically linked — the property that lets Outpost be dropped onto a
       # box with no toolchain.
       #
-      # No version is stamped into the binary yet; once issue #12 lands, the
-      # -ldflags "-X ..." belongs here.
+      # The tag is stamped in so a released binary reports its own version
+      # rather than the pseudo-version the toolchain derives.
       - name: Build
         run: |
           mkdir -p dist
+          V=github.com/sroberts/outpost/internal/version
+          LDFLAGS="-X $V.Version=${GITHUB_REF_NAME}"
+          LDFLAGS="$LDFLAGS -X $V.Commit=${GITHUB_SHA}"
+          LDFLAGS="$LDFLAGS -X $V.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64; do
             os="${target%/*}"; arch="${target#*/}"
             echo "building $os/$arch"
-            GOOS="$os" GOARCH="$arch" go build -trimpath \
+            GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags "$LDFLAGS" \
               -o "dist/outpost-${os}-${arch}" ./cmd/outpost
           done
+          ./dist/outpost-linux-amd64 --version || true
           cd dist && sha256sum outpost-* > SHA256SUMS && cat SHA256SUMS
 
       - name: Upload to the release

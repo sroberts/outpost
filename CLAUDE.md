@@ -22,6 +22,7 @@ make test-race                                   # race detector; the suite is c
 make lint                                        # go vet + golangci-lint
 make fmt-check                                   # gofmt, honouring the one exempt file
 make check                                       # everything CI runs
+make version                                     # the stamp a build would carry
 
 go test ./internal/supervisor -run TestName -v   # one test
 ```
@@ -104,6 +105,11 @@ must not wedge the reconcile loop or the CLI.
 never `len()`, on anything user-visible. This package has had three separate
 bugs of exactly this shape (`pad`, `truncate`, `columnWidths`); grep for `len(`
 before adding to it.
+
+**Build the binary with `make build`, not bare `go build`.** The Makefile
+stamps `internal/version` via `-ldflags`. A plain `go build` still identifies
+itself from the toolchain's own VCS stamp, but reports a pseudo-version rather
+than the tag.
 
 **`spec.md` belongs to the repository owner.** Read it, don't edit it.
 
