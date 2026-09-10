@@ -16,16 +16,11 @@ func TestLoad_MissingFileUsesDefaults(t *testing.T) {
 	if !cfg.TailscaleEnabled() {
 		t.Error("Tailscale should default to enabled")
 	}
-	if cfg.ContainerEngine != "podman" {
-		t.Errorf("ContainerEngine = %q; want podman", cfg.ContainerEngine)
-	}
 }
 
 func TestLoad_ReadsSettings(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
 	body := `
-container_engine = "docker"
-
 [tailscale]
 enabled = false
 auth_key = "tskey-abc"
@@ -41,9 +36,6 @@ auth_key = "tskey-abc"
 	if cfg.TailscaleEnabled() {
 		t.Error("enabled = false was not honoured")
 	}
-	if cfg.ContainerEngine != "docker" {
-		t.Errorf("ContainerEngine = %q; want docker", cfg.ContainerEngine)
-	}
 	if cfg.Tailscale.AuthKey != "tskey-abc" {
 		t.Errorf("AuthKey = %q", cfg.Tailscale.AuthKey)
 	}
@@ -52,7 +44,8 @@ auth_key = "tskey-abc"
 // An absent key keeps its default rather than becoming the zero value.
 func TestLoad_PartialFileKeepsDefaults(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
-	if err := os.WriteFile(path, []byte("container_engine = \"colima\"\n"), 0o600); err != nil {
+	body := "[tailscale]\nauth_key = \"tskey-a\"\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -63,17 +56,8 @@ func TestLoad_PartialFileKeepsDefaults(t *testing.T) {
 	if !cfg.TailscaleEnabled() {
 		t.Error("Tailscale should stay enabled when the file does not mention it")
 	}
-	if cfg.ContainerEngine != "colima" {
-		t.Errorf("ContainerEngine = %q; want colima", cfg.ContainerEngine)
-	}
-}
-
-func TestLoad_RejectsUnknownEngine(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.toml")
-	os.WriteFile(path, []byte(`container_engine = "kubernetes"`), 0o600)
-
-	if _, err := Load(path); err == nil {
-		t.Fatal("unknown container engine was accepted")
+	if cfg.Tailscale.AuthKey != "tskey-a" {
+		t.Errorf("AuthKey = %q", cfg.Tailscale.AuthKey)
 	}
 }
 
@@ -90,10 +74,7 @@ func TestLoad_RejectsMalformedTOML(t *testing.T) {
 func TestSaveLoad_RoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "config.toml")
 	disabled := false
-	cfg := Config{
-		Tailscale:       Tailscale{Enabled: &disabled, AuthKey: "tskey-xyz"},
-		ContainerEngine: "docker",
-	}
+	cfg := Config{Tailscale: Tailscale{Enabled: &disabled, AuthKey: "tskey-xyz"}}
 	if err := Save(path, cfg); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -105,7 +86,7 @@ func TestSaveLoad_RoundTrip(t *testing.T) {
 	if back.TailscaleEnabled() {
 		t.Error("enabled = false did not survive the round trip")
 	}
-	if back.ContainerEngine != "docker" || back.Tailscale.AuthKey != "tskey-xyz" {
+	if back.Tailscale.AuthKey != "tskey-xyz" {
 		t.Errorf("round trip lost settings: %+v", back)
 	}
 }

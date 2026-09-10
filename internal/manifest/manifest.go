@@ -17,8 +17,6 @@ type Service struct {
 	Binary         string            `toml:"binary"`
 	Args           []string          `toml:"args"`
 	Env            map[string]string `toml:"env"`
-	Image          string            `toml:"image"`
-	ContainerArgs  []string          `toml:"container_args"`
 	Port           int               `toml:"port"`
 	Storage        string            `toml:"storage"`
 	TailscaleName  string            `toml:"tailscale_name"`
@@ -84,8 +82,8 @@ func (s *Service) validateWith(opts Options) []error {
 	}
 	if s.Runtime == "" {
 		errs = append(errs, fmt.Errorf("runtime is required"))
-	} else if s.Runtime != "process" && s.Runtime != "container" {
-		errs = append(errs, fmt.Errorf("runtime must be \"process\" or \"container\", got %q", s.Runtime))
+	} else if s.Runtime != "process" {
+		errs = append(errs, fmt.Errorf("runtime must be \"process\", got %q: Outpost supervises native processes only", s.Runtime))
 	}
 	if s.Port <= 0 {
 		errs = append(errs, fmt.Errorf("port is required and must be > 0"))
@@ -97,26 +95,8 @@ func (s *Service) validateWith(opts Options) []error {
 		errs = append(errs, fmt.Errorf("tailscale_name is required (or set tailscale.enabled = false in config.toml)"))
 	}
 
-	// Exactly one of (binary+args) or image, matching runtime (§5). Accepting
-	// both would let a half-converted manifest run as the wrong thing silently.
-	switch s.Runtime {
-	case "process":
-		if s.Binary == "" {
-			errs = append(errs, fmt.Errorf("binary is required for runtime = \"process\""))
-		}
-		if s.Image != "" {
-			errs = append(errs, fmt.Errorf("image is set but runtime = \"process\"; set runtime = \"container\" or remove image"))
-		}
-		if len(s.ContainerArgs) > 0 {
-			errs = append(errs, fmt.Errorf("container_args is set but runtime = \"process\""))
-		}
-	case "container":
-		if s.Image == "" {
-			errs = append(errs, fmt.Errorf("image is required for runtime = \"container\""))
-		}
-		if s.Binary != "" {
-			errs = append(errs, fmt.Errorf("binary is set but runtime = \"container\"; set runtime = \"process\" or remove binary"))
-		}
+	if s.Binary == "" {
+		errs = append(errs, fmt.Errorf("binary is required"))
 	}
 
 	// The port is declared once for Outpost and again in whatever way the
@@ -180,13 +160,10 @@ func ValidateWith(services []*Service, opts Options) []error {
 		}
 		names[svc.Name] = true
 
-		// Port uniqueness for process services
-		if svc.Runtime == "process" {
-			if ports[svc.Port] {
-				errs = append(errs, fmt.Errorf("%s: duplicate port %d", svc.Name, svc.Port))
-			}
-			ports[svc.Port] = true
+		if ports[svc.Port] {
+			errs = append(errs, fmt.Errorf("%s: duplicate port %d", svc.Name, svc.Port))
 		}
+		ports[svc.Port] = true
 
 		// An empty name is not a collision; it is simply unset.
 		if svc.TailscaleName != "" {
