@@ -49,7 +49,8 @@ func (c *Client) SelectAsset(rel *Release, d *Descriptor) (Asset, error) {
 				// binary would chmod +x a tarball and fail at exec time with
 				// an error naming neither the archive nor the descriptor.
 				if hasArchiveExt(strings.ToLower(a.Name)) {
-					return Asset{}, fmt.Errorf("%s names %q, which is an archive; Outpost installs a bare binary and does not unpack archives",
+					return Asset{}, fmt.Errorf("%s names %q, which is an archive or a signature, not a binary; "+
+						"Outpost installs a bare binary and does not unpack archives",
 						DescriptorName, a.Name)
 				}
 				return a, nil
@@ -225,7 +226,13 @@ func (c *Client) downloadLimit(ctx context.Context, url string, w io.Writer, max
 // list this asset falls through to the per-asset one rather than reporting
 // "no checksums" while a usable "<name>.sha256" sits in the same release.
 func (c *Client) expectedSum(ctx context.Context, rel *Release, assetName string) (string, bool, error) {
-	var candidates []*Asset
+	// perAsset travels with each candidate: a lone hash means "this asset"
+	// only in a "<asset>.sha256", never in a release-wide manifest.
+	type candidate struct {
+		asset    *Asset
+		perAsset bool
+	}
+	var candidates []candidate
 	// Several checksumNames entries differ only in case, so the same asset can
 	// answer more than one of them; seen keeps it from being fetched twice.
 	seen := map[int]bool{}
@@ -234,7 +241,7 @@ func (c *Client) expectedSum(ctx context.Context, rel *Release, assetName string
 			if strings.EqualFold(a.Name, want) {
 				if !seen[i] {
 					seen[i] = true
-					candidates = append(candidates, &rel.Assets[i])
+					candidates = append(candidates, candidate{&rel.Assets[i], false})
 				}
 				break
 			}
@@ -248,29 +255,40 @@ func (c *Client) expectedSum(ctx context.Context, rel *Release, assetName string
 			if strings.EqualFold(a.Name, assetName+suffix) {
 				if !seen[i] {
 					seen[i] = true
-					candidates = append(candidates, &rel.Assets[i])
+					candidates = append(candidates, candidate{&rel.Assets[i], true})
 				}
 				break
 			}
 		}
 	}
 
-	for _, manifest := range candidates {
+	for _, cand := range candidates {
 		var buf strings.Builder
-		if _, err := c.downloadText(ctx, manifest.downloadURL(), &buf); err != nil {
-			return "", true, fmt.Errorf("fetch %s: %w", manifest.Name, err)
+		if _, err := c.downloadText(ctx, cand.asset.downloadURL(), &buf); err != nil {
+			return "", true, fmt.Errorf("fetch %s: %w", cand.asset.Name, err)
 		}
-		if sum := parseChecksums(buf.String(), assetName); sum != "" {
+		if sum := parseChecksumsScoped(buf.String(), assetName, cand.perAsset); sum != "" {
 			return sum, true, nil
 		}
 	}
 	return "", len(candidates) > 0, nil
 }
 
-// parseChecksums reads `sha256sum` output: "<hex>  <name>" per line. A
-// single-entry file with no name is treated as being about the asset itself,
-// which is what a "<asset>.sha256" usually contains.
+// parseChecksums reads a per-asset checksum file, where a lone hash with no
+// filename means this asset.
 func parseChecksums(body, assetName string) string {
+	return parseChecksumsScoped(body, assetName, true)
+}
+
+// parseChecksumsScoped reads `sha256sum` output: "<hex>  <name>" per line.
+//
+// perAsset says whether a lone hash with no filename may be taken as this
+// asset's. That is true of a "<asset>.sha256", which is what `sha256sum <
+// file` produces. It is not true of a release-wide SHA256SUMS: a single bare
+// hash there belongs to whatever the publisher was checksumming, and reading
+// it as this asset's would refuse a perfectly good binary for a mismatch
+// against an unrelated artifact.
+func parseChecksumsScoped(body, assetName string, perAsset bool) string {
 	var loneHash string
 	var lines int
 	for _, line := range strings.Split(body, "\n") {
@@ -289,7 +307,7 @@ func parseChecksums(body, assetName string) string {
 			return fields[0]
 		}
 	}
-	if lines == 1 && loneHash != "" {
+	if perAsset && lines == 1 && loneHash != "" {
 		return loneHash
 	}
 	return ""

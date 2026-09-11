@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -40,7 +41,20 @@ type Client struct {
 // CLI's token when one is available.
 func NewClient() *Client {
 	return &Client{
-		HTTP:    &http.Client{Timeout: 5 * time.Minute},
+		// No blanket Client.Timeout: it bounds the whole exchange including
+		// the body, so a large asset on a slow link would be cut off mid
+		// download with no way to extend it, contradicting both the 512 MiB
+		// allowance and the caller's own deadline. The per-operation context
+		// addFromRepo sets is the real bound; these cover the parts that
+		// should be quick regardless of how big the download is.
+		HTTP: &http.Client{
+			Transport: &http.Transport{
+				Proxy:                 http.ProxyFromEnvironment,
+				DialContext:           (&net.Dialer{Timeout: 10 * time.Second}).DialContext,
+				TLSHandshakeTimeout:   10 * time.Second,
+				ResponseHeaderTimeout: 30 * time.Second,
+			},
+		},
 		BaseURL: DefaultBaseURL,
 		Token:   ghToken(),
 		GOOS:    runtime.GOOS,

@@ -103,3 +103,34 @@ func TestParseChecksums(t *testing.T) {
 		t.Errorf("got %q; want no match", got)
 	}
 }
+
+// A descriptor's start grace suppresses healthcheck failures, and no flag
+// overrides it, so an unbounded value from a third-party repository would mean
+// a service whose failures never count.
+func TestParseDescriptor_BoundsStartGrace(t *testing.T) {
+	if _, err := ParseDescriptor([]byte("start_grace_seconds = 999999999")); err == nil {
+		t.Fatal("an unbounded start_grace_seconds was accepted")
+	}
+	if _, err := ParseDescriptor([]byte("start_grace_seconds = 60")); err != nil {
+		t.Errorf("a reasonable start_grace_seconds was rejected: %v", err)
+	}
+}
+
+// A lone hash means "this asset" only in a per-asset file. In a release-wide
+// manifest it belongs to whatever the publisher was checksumming, and reading
+// it as this asset's would refuse a good binary over an unrelated artifact.
+func TestParseChecksums_LoneHashOnlyCountsPerAsset(t *testing.T) {
+	if got := parseChecksumsScoped("abc123\n", "svc-linux-amd64", true); got != "abc123" {
+		t.Errorf("per-asset lone hash = %q; want abc123", got)
+	}
+	if got := parseChecksumsScoped("abc123\n", "svc-linux-amd64", false); got != "" {
+		t.Errorf("release-wide lone hash = %q; want no match", got)
+	}
+	// A named entry is still read either way.
+	const named = "abc123  svc-linux-amd64\n"
+	for _, perAsset := range []bool{true, false} {
+		if got := parseChecksumsScoped(named, "svc-linux-amd64", perAsset); got != "abc123" {
+			t.Errorf("perAsset=%v: named entry = %q; want abc123", perAsset, got)
+		}
+	}
+}

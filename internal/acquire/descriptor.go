@@ -11,6 +11,11 @@ import (
 // DescriptorName is the file a service publishes to describe how to run it.
 const DescriptorName = "outpost.toml"
 
+// maxStartGraceSeconds caps what a descriptor may ask for. Ten minutes is far
+// longer than anything Outpost supervises should need to bind a port, and
+// short enough that a wedged service is still noticed the same day.
+const maxStartGraceSeconds = 600
+
 // Descriptor is a service declaring its own defaults, so `outpost add` can
 // generate a correct manifest instead of guessing. Every field is optional;
 // an absent one falls back to the same default a hand-written `add` would get.
@@ -60,6 +65,15 @@ func (d *Descriptor) validate() error {
 	}
 	if d.Healthcheck != "" && !strings.HasPrefix(d.Healthcheck, "/") {
 		return fmt.Errorf("%s: healthcheck %q must start with /", DescriptorName, d.Healthcheck)
+	}
+	// A grace period suppresses healthcheck failures, and unlike healthcheck,
+	// args and env there is no flag to override what a descriptor asks for.
+	// An unbounded one from a third-party repository would mean a service
+	// whose failures never count, recoverable only by hand-editing the
+	// generated manifest.
+	if d.StartGraceSeconds > maxStartGraceSeconds {
+		return fmt.Errorf("%s: start_grace_seconds %d is longer than the %d-second maximum",
+			DescriptorName, d.StartGraceSeconds, maxStartGraceSeconds)
 	}
 	switch d.RestartPolicy {
 	case "", "on-failure", "always", "never":

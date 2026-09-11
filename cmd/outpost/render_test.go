@@ -92,3 +92,44 @@ func TestValidServiceName_RejectsAwkwardCharacters(t *testing.T) {
 		}
 	}
 }
+
+// fmt's %q is Go quoting, not TOML's: it spells control characters as \a, \v
+// or \x07, none of which TOML defines. Args and env values come from a
+// repository's outpost.toml, and a manifest that does not parse breaks
+// LoadDir — so one bad descriptor takes down `list`, `apply` and `serve` for
+// every service, not just its own.
+func TestRenderManifest_ControlCharactersStayParsable(t *testing.T) {
+	nasty := []string{"bell\a", "vtab\v", "\x07\x1b", "quote\"x", "back\\slash",
+		"tab\there", "newline\nhere", "ünïcode"}
+
+	for _, v := range nasty {
+		svc := &manifest.Service{
+			Name: "hello", Runtime: "process", Binary: "/opt/hello",
+			Port: 8080, Storage: "/tmp/hello", TailscaleName: "hello",
+			Healthcheck: "/up", RestartPolicy: "on-failure",
+			Args: []string{v},
+			Env:  map[string]string{"K": v, v: "1"},
+		}
+
+		path := filepath.Join(t.TempDir(), "hello.toml")
+		body := renderManifest(svc)
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		got, err := manifest.Load(path)
+		if err != nil {
+			t.Errorf("value %q produced an unparsable manifest: %v\n%s", v, err, body)
+			continue
+		}
+		if len(got.Args) != 1 || got.Args[0] != v {
+			t.Errorf("value %q did not survive: args = %q", v, got.Args)
+		}
+		if got.Env["K"] != v {
+			t.Errorf("value %q did not survive as an env value: %q", v, got.Env["K"])
+		}
+		if _, ok := got.Env[v]; !ok {
+			t.Errorf("value %q did not survive as an env key: %v", v, got.Env)
+		}
+	}
+}
