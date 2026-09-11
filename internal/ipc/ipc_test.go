@@ -106,19 +106,22 @@ func TestClient_NoDaemon(t *testing.T) {
 func TestServer_ListReportsDeclaredServices(t *testing.T) {
 	c, _ := testDaemon(t, "alpha", "beta")
 
-	// The loop starts services on its first tick.
-	waitFor(t, 3*time.Second, func() bool {
+	// The loop starts services on its first tick. Waiting for both to report
+	// "running" would be waiting for two independent blips to coincide: the
+	// fixture listens on nothing, so that status lasts only from a start until
+	// the first failed healthcheck. Having been started is the durable fact.
+	waitFor(t, 10*time.Second, func() bool {
 		services, err := c.List()
 		if err != nil {
 			return false
 		}
-		running := 0
+		started := 0
 		for _, s := range services {
-			if s.Status == string(runtime.StatusRunning) {
-				running++
+			if s.InstanceID != "" {
+				started++
 			}
 		}
-		return running == 2
+		return started == 2
 	})
 
 	services, err := c.List()
@@ -140,10 +143,20 @@ func TestServer_ListReportsDeclaredServices(t *testing.T) {
 
 func TestServer_StopAndStartRoundTrip(t *testing.T) {
 	c, _ := testDaemon(t, "alpha")
-	waitFor(t, 3*time.Second, func() bool {
+	// The fixture is /bin/sleep, which listens on nothing, so it never settles
+	// on "running" -- that status is a blip between a start and the first
+	// failed healthcheck, observed in roughly three samples out of ninety.
+	// Waiting for it is racing a window; what this test is actually about is
+	// that stop and start take effect, so it asserts on desired state and on
+	// the instance being replaced.
+	waitFor(t, 10*time.Second, func() bool {
 		st, err := c.Status("alpha")
-		return err == nil && st.Status == string(runtime.StatusRunning)
+		return err == nil && st.InstanceID != ""
 	})
+	first, err := c.Status("alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if _, err := c.Stop("alpha"); err != nil {
 		t.Fatalf("Stop: %v", err)
@@ -163,20 +176,29 @@ func TestServer_StopAndStartRoundTrip(t *testing.T) {
 	if _, err := c.Start("alpha"); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	// Unlike Stop, Start is not complete when it replies: the service comes up
-	// as "starting" and only reaches "running" once a healthcheck succeeds, so
-	// this has to wait for it the same way the top of the test does.
-	waitFor(t, 3*time.Second, func() bool {
-		st, err := c.Status("alpha")
-		return err == nil && st.Status == string(runtime.StatusRunning)
-	})
+	st, err = c.Status("alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Desired != "running" {
+		t.Errorf("desired after Start = %q; want running", st.Desired)
+	}
+	if st.Status == string(runtime.StatusStopped) {
+		t.Errorf("status after Start = %q; want it up again", st.Status)
+	}
+	// A new process, not the one Stop killed.
+	if st.InstanceID == "" || st.InstanceID == first.InstanceID {
+		t.Errorf("instance after Start = %q; want a new one (was %q)", st.InstanceID, first.InstanceID)
+	}
 }
 
 func TestServer_RestartReplacesInstance(t *testing.T) {
 	c, _ := testDaemon(t, "alpha")
-	waitFor(t, 3*time.Second, func() bool {
+	// Having an instance is durable; "running" is not, for a fixture that
+	// serves no healthcheck.
+	waitFor(t, 10*time.Second, func() bool {
 		st, err := c.Status("alpha")
-		return err == nil && st.Status == string(runtime.StatusRunning)
+		return err == nil && st.InstanceID != ""
 	})
 
 	before, err := c.Status("alpha")

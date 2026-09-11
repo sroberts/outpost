@@ -25,7 +25,8 @@ Usage:
 
 Commands:
   serve [--tailnet=BOOL]   run the daemon (reconcile loop + control socket)
-  add <service> --binary   declare a new service
+  add <service> --binary   declare a new service from a local binary
+  add <github-url>         install a service from its latest GitHub release
   remove <service>         undeclare a service (--purge deletes its data)
   apply                    validate manifests and reconcile
   list                     table of services and their status
