@@ -45,6 +45,13 @@ func (c *Client) SelectAsset(rel *Release, d *Descriptor) (Asset, error) {
 	if want := d.assetName(c.GOOS, c.GOARCH); want != "" {
 		for _, a := range rel.Assets {
 			if a.Name == want {
+				// Nothing here unpacks an archive, so installing one as the
+				// binary would chmod +x a tarball and fail at exec time with
+				// an error naming neither the archive nor the descriptor.
+				if hasArchiveExt(strings.ToLower(a.Name)) {
+					return Asset{}, fmt.Errorf("%s names %q, which is an archive; Outpost installs a bare binary and does not unpack archives",
+						DescriptorName, a.Name)
+				}
 				return a, nil
 			}
 		}
@@ -219,10 +226,16 @@ func (c *Client) downloadLimit(ctx context.Context, url string, w io.Writer, max
 // "no checksums" while a usable "<name>.sha256" sits in the same release.
 func (c *Client) expectedSum(ctx context.Context, rel *Release, assetName string) (string, bool, error) {
 	var candidates []*Asset
+	// Several checksumNames entries differ only in case, so the same asset can
+	// answer more than one of them; seen keeps it from being fetched twice.
+	seen := map[int]bool{}
 	for _, want := range checksumNames {
 		for i, a := range rel.Assets {
 			if strings.EqualFold(a.Name, want) {
-				candidates = append(candidates, &rel.Assets[i])
+				if !seen[i] {
+					seen[i] = true
+					candidates = append(candidates, &rel.Assets[i])
+				}
 				break
 			}
 		}
@@ -233,7 +246,10 @@ func (c *Client) expectedSum(ctx context.Context, rel *Release, assetName string
 	for _, suffix := range []string{".sha256", ".sha256sum"} {
 		for i, a := range rel.Assets {
 			if strings.EqualFold(a.Name, assetName+suffix) {
-				candidates = append(candidates, &rel.Assets[i])
+				if !seen[i] {
+					seen[i] = true
+					candidates = append(candidates, &rel.Assets[i])
+				}
 				break
 			}
 		}

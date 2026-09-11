@@ -63,7 +63,9 @@ func (a *app) addFromRepo(ref string, opts addOptions) error {
 	defer cancel()
 
 	client := acquireClient()
-	fmt.Fprintf(a.out, "looking for the latest release of %s…\n", repo)
+	// Progress goes to stderr so that --print puts nothing but the manifest
+	// on stdout, the way the --binary path does.
+	fmt.Fprintf(a.err, "looking for the latest release of %s…\n", repo)
 	rel, err := client.LatestRelease(ctx, repo)
 	if err != nil {
 		return err
@@ -106,7 +108,14 @@ func (a *app) addFromRepo(ref string, opts addOptions) error {
 		}
 	}
 
+	// Absolute, like the --binary path's: the manifest's binary is resolved by
+	// the daemon, which runs from launchd's working directory rather than the
+	// operator's, so a relative --home (or OUTPOST_HOME) must not leak a
+	// relative path into the manifest.
 	dest := filepath.Join(a.home, "bin", name)
+	if abs, err := filepath.Abs(dest); err == nil {
+		dest = abs
+	}
 
 	// Built and validated before anything is downloaded: a manifest the
 	// declared set rejects — a port collision, or descriptor args naming a
@@ -122,12 +131,12 @@ func (a *app) addFromRepo(ref string, opts addOptions) error {
 
 	body := renderManifest(svc)
 	if opts.dryRun {
-		fmt.Fprintf(a.out, "would install %s from release %s to %s\n", asset.Name, rel.Tag, dest)
+		fmt.Fprintf(a.err, "would install %s from release %s to %s\n", asset.Name, rel.Tag, dest)
 		fmt.Fprint(a.out, body)
 		return nil
 	}
 
-	fmt.Fprintf(a.out, "downloading %s from release %s…\n", asset.Name, rel.Tag)
+	fmt.Fprintf(a.err, "downloading %s from release %s…\n", asset.Name, rel.Tag)
 	res, err := client.Install(ctx, rel, asset, dest)
 	if err != nil {
 		return err

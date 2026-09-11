@@ -184,7 +184,7 @@ func (c *Client) Descriptor(ctx context.Context, repo Repo, rel *Release) (*Desc
 		return nil, fmt.Errorf("fetch %s: GitHub returned %s", DescriptorName, resp.Status)
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxTextBytes))
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", DescriptorName, err)
 	}

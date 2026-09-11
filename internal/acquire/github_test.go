@@ -489,3 +489,20 @@ func TestInstall_PrefersTheAPIAssetURL(t *testing.T) {
 		t.Errorf("Asset = %q", res.Asset)
 	}
 }
+
+// Nothing here unpacks archives, so a descriptor naming one must be refused
+// rather than chmod +x'd and installed as the binary — that failure surfaces
+// much later as an exec error naming neither the archive nor outpost.toml.
+func TestSelectAsset_DescriptorNamingAnArchiveIsRefused(t *testing.T) {
+	h := newFakeHub(t)
+	h.release = &Release{Tag: "v1"}
+	h.addAsset("svc-linux-amd64.tar.gz", []byte("tarball"))
+
+	_, err := h.client().SelectAsset(h.release, &Descriptor{Asset: "svc-${GOOS}-${GOARCH}.tar.gz"})
+	if err == nil {
+		t.Fatal("a descriptor naming an archive was accepted")
+	}
+	if !strings.Contains(err.Error(), "archive") {
+		t.Errorf("error = %v; want it to say the asset is an archive", err)
+	}
+}

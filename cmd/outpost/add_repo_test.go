@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/sroberts/outpost/internal/acquire"
+	"github.com/sroberts/outpost/internal/manifest"
 )
 
 // fakeGitHub serves one release, its assets and an outpost.toml, so `outpost
@@ -337,5 +338,48 @@ func TestAdd_DescriptorOutpostPortIsNotOverwritten(t *testing.T) {
 	body, _ := os.ReadFile(filepath.Join(home, "services", "hello.toml"))
 	if !strings.Contains(string(body), `OUTPOST_PORT = "fixed"`) {
 		t.Errorf("the descriptor's own OUTPOST_PORT was overwritten:\n%s", body)
+	}
+}
+
+// --print must emit a manifest and nothing else, so it can be redirected into
+// a file the way the --binary path's can. Progress belongs on stderr.
+func TestAdd_PrintEmitsOnlyTheManifest(t *testing.T) {
+	useFakeGitHub(t, fakeGitHub(t, []byte("binary"), helloDescriptor, true))
+
+	stdout, _, err := runCLI(t, t.TempDir(), "add", "https://github.com/o/r", "--print")
+	if err != nil {
+		t.Fatalf("add --print: %v", err)
+	}
+	if strings.Contains(stdout, "looking for") || strings.Contains(stdout, "would install") {
+		t.Errorf("progress leaked onto stdout:\n%s", stdout)
+	}
+
+	path := filepath.Join(t.TempDir(), "printed.toml")
+	if err := os.WriteFile(path, []byte(stdout), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manifest.Load(path); err != nil {
+		t.Errorf("`--print > file` does not parse as a manifest: %v\n%s", err, stdout)
+	}
+}
+
+// The daemon runs from launchd's working directory, not the operator's, so a
+// relative --home must not leak a relative binary path into the manifest.
+func TestAdd_BinaryPathIsAbsoluteWithARelativeHome(t *testing.T) {
+	useFakeGitHub(t, fakeGitHub(t, []byte("binary"), helloDescriptor, true))
+
+	parent := t.TempDir()
+	t.Chdir(parent)
+
+	if _, stderr, err := runCLI(t, "./op", "add", "https://github.com/o/r"); err != nil {
+		t.Fatalf("add: %v\nstderr: %s", err, stderr)
+	}
+
+	svc, err := manifest.Load(filepath.Join(parent, "op", "services", "hello.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !filepath.IsAbs(svc.Binary) {
+		t.Errorf("binary = %q; want an absolute path", svc.Binary)
 	}
 }

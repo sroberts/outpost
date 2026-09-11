@@ -125,6 +125,13 @@ func (s *Service) validateWith(opts Options) []error {
 		errs = append(errs, fmt.Errorf("port = %d but args pass --port %d; the healthcheck would probe a port the service is not listening on",
 			s.Port, argPort))
 	}
+	// Same failure through a second door. `outpost add` writes OUTPOST_PORT
+	// into every manifest it generates, so editing `port` by hand afterwards
+	// and leaving the environment behind is an easy mistake to make.
+	if envPort, ok := portInEnv(s.Env); ok && s.Port > 0 && envPort != s.Port {
+		errs = append(errs, fmt.Errorf("port = %d but env sets OUTPOST_PORT = %d; the healthcheck would probe a port the service is not listening on",
+			s.Port, envPort))
+	}
 
 	if s.Healthcheck == "" || !strings.HasPrefix(s.Healthcheck, "/") {
 		errs = append(errs, fmt.Errorf("healthcheck must start with \"/\""))
@@ -194,6 +201,22 @@ func ValidateWith(services []*Service, opts Options) []error {
 	}
 
 	return errs
+}
+
+// portInEnv finds the port a service is told through OUTPOST_PORT.
+//
+// Like portInArgs, it stays quiet about anything it cannot read as a port: a
+// value that is not a number is the service's business, not a disagreement.
+func portInEnv(env map[string]string) (int, bool) {
+	raw, ok := env["OUTPOST_PORT"]
+	if !ok {
+		return 0, false
+	}
+	port, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || port <= 0 {
+		return 0, false
+	}
+	return port, true
 }
 
 // portInArgs finds a port passed in args as --port N, -port N or --port=N.
