@@ -22,6 +22,7 @@ import (
 	"github.com/sroberts/outpost/internal/manifest"
 	"github.com/sroberts/outpost/internal/runtime"
 	"github.com/sroberts/outpost/internal/state"
+	"github.com/sroberts/outpost/internal/tailnet"
 )
 
 const (
@@ -48,6 +49,29 @@ const (
 type TailnetRouter interface {
 	Attach(ctx context.Context, svc *manifest.Service) error
 	Detach(ctx context.Context, name string) error
+}
+
+// asTailnetReporter returns the router's reporting half if it has one. A
+// router that cannot report is not an error: the state stays unknown and every
+// renderer falls back to what it printed before.
+func asTailnetReporter(r TailnetRouter) TailnetReporter {
+	if r == nil {
+		return nil
+	}
+	rep, _ := r.(TailnetReporter)
+	return rep
+}
+
+// TailnetReporter is an optional extension of TailnetRouter: a router that can
+// also say what it observed, rather than only being told what to do.
+//
+// Separate rather than folded into TailnetRouter on purpose. Reporting is not
+// required in order to supervise, and the supervisor's own test router does
+// not implement it — widening TailnetRouter would break the existing tailnet
+// tests, which are not ours to edit. A router that cannot report leaves the
+// state unknown, and every renderer falls back to what it printed before.
+type TailnetReporter interface {
+	NodeStatus(service string) (tailnet.NodeStatus, bool)
 }
 
 // Options configures a Supervisor.
@@ -78,12 +102,15 @@ type Options struct {
 // Supervisor owns the reconcile loop. It is not safe for concurrent use by
 // multiple goroutines; Run drives it from one.
 type Supervisor struct {
-	servicesDir  string
-	backupDir    string
-	store        *state.Store
-	procRT       runtime.Runtime
-	tailnet      TailnetRouter
-	manifestOpts manifest.Options
+	servicesDir string
+	backupDir   string
+	store       *state.Store
+	procRT      runtime.Runtime
+	tailnet     TailnetRouter
+	// tailnetStatus is tailnet's reporting half when it has one, resolved once
+	// at construction rather than type-asserted on every status call.
+	tailnetStatus TailnetReporter
+	manifestOpts  manifest.Options
 
 	Interval            time.Duration
 	healthFailThreshold int
@@ -121,11 +148,16 @@ type svcState struct {
 	handle runtime.Handle
 	status runtime.Status
 
-	healthFails  int
-	restartCount int
-	backoff      time.Duration
-	nextAttempt  time.Time
-	startedAt    time.Time
+	healthFails int
+
+	// tailnetState and tailnetDetail are the last presence reported to the
+	// activity feed, so a repeat of the same state is not recorded twice.
+	tailnetState  tailnet.State
+	tailnetDetail string
+	restartCount  int
+	backoff       time.Duration
+	nextAttempt   time.Time
+	startedAt     time.Time
 	// lastRestartEpoch is the restart request this supervisor has already acted on.
 	lastRestartEpoch int64
 	// reaped guards against handling the same exit twice.
@@ -157,6 +189,7 @@ func New(opts Options) (*Supervisor, error) {
 		store:               opts.Store,
 		procRT:              opts.ProcessRuntime,
 		tailnet:             opts.Tailnet,
+		tailnetStatus:       asTailnetReporter(opts.Tailnet),
 		manifestOpts:        opts.ManifestOptions,
 		Interval:            opts.Interval,
 		healthFailThreshold: opts.HealthFailThreshold,
@@ -604,19 +637,57 @@ func (s *Supervisor) maybeStart(ctx context.Context, st *svcState) {
 	// Join the tailnet once the service is up. A failure here leaves the
 	// service running and reachable on loopback rather than tearing it down:
 	// losing tailnet exposure is not a reason to take a working service off.
-	s.attachToTailnet(ctx, st.svc)
+	s.attachToTailnet(ctx, st)
 	s.persist(st)
 }
 
 // attachToTailnet asks the router to put a service on the tailnet. The router
 // returns immediately and retries in the background, so this is safe to call
 // from the reconcile loop on every tick.
-func (s *Supervisor) attachToTailnet(ctx context.Context, svc *manifest.Service) {
+func (s *Supervisor) attachToTailnet(ctx context.Context, st *svcState) {
 	if s.tailnet == nil {
 		return
 	}
-	if err := s.tailnet.Attach(ctx, svc); err != nil {
-		s.recordError(svc.Name, fmt.Sprintf("tailnet: %v", err))
+	if err := s.tailnet.Attach(ctx, st.svc); err != nil {
+		s.recordError(st.svc.Name, fmt.Sprintf("tailnet: %v", err))
+	}
+	// Attach is non-blocking, so what it just started has not resolved yet;
+	// the state worth reporting is whatever the previous attempt left behind.
+	s.noteTailnetState(st)
+}
+
+// noteTailnetState records a change in a service's tailnet presence worth an
+// operator's attention, so the login URL reaches the activity feed that
+// `outpost logs --events` and the dashboard already read.
+//
+// Only transitions into needing authorisation or failing are recorded, and
+// only when the detail actually changed. The attached case is deliberately
+// silent: a crash-looping service already writes started and exited rows, and
+// two more per restart would drown the feed it is meant to make readable.
+func (s *Supervisor) noteTailnetState(st *svcState) {
+	if s.tailnetStatus == nil {
+		return
+	}
+	ns, ok := s.tailnetStatus.NodeStatus(st.svc.Name)
+	if !ok {
+		return
+	}
+
+	detail := ns.LoginURL
+	if ns.State == tailnet.StateFailed {
+		detail = ns.Detail
+	}
+	if ns.State == st.tailnetState && detail == st.tailnetDetail {
+		return
+	}
+	st.tailnetState, st.tailnetDetail = ns.State, detail
+
+	switch ns.State {
+	case tailnet.StateNeedsLogin:
+		s.event(st.svc.Name, state.EventTailnet,
+			"tailnet needs authorisation: "+ns.LoginURL)
+	case tailnet.StateFailed:
+		s.event(st.svc.Name, state.EventTailnet, "tailnet attach failed: "+ns.Detail)
 	}
 }
 
@@ -635,7 +706,7 @@ func (s *Supervisor) checkHealth(ctx context.Context, st *svcState) {
 		// Re-assert tailnet membership for a running service. Attach is a
 		// cheap no-op once a node is up, and without this an attach that failed
 		// at start time would never be retried at the supervisor level.
-		s.attachToTailnet(ctx, st.svc)
+		s.attachToTailnet(ctx, st)
 		// A service that has stayed up is no longer in a crash loop.
 		if !st.startedAt.IsZero() && s.now().Sub(st.startedAt) >= stableAfter {
 			st.backoff = initialBackoff(st.svc)

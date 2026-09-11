@@ -27,9 +27,11 @@ import (
 	"sync"
 	"time"
 
+	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/tsnet"
 
 	"github.com/sroberts/outpost/internal/manifest"
+	"github.com/sroberts/outpost/internal/tailnet"
 )
 
 const (
@@ -65,6 +67,14 @@ type tailnetNode interface {
 	Close() error
 }
 
+// nodeAddrs is an optional extra a tailnetNode may implement: what the node
+// ended up with on the tailnet, which only the real backend knows. Keeping it
+// off tailnetNode means the test fakes need not grow a method they have
+// nothing to say through.
+type nodeAddrs interface {
+	TailnetAddrs() (addr, dnsName string)
+}
+
 // nodeConfig is everything needed to bring one node up.
 type nodeConfig struct {
 	Service  string
@@ -72,6 +82,12 @@ type nodeConfig struct {
 	Dir      string
 	AuthKey  string
 	Verbose  bool
+	// OnLoginURL receives a login URL parsed out of the backend's own logging
+	// and reports whether it is worth a log line. It is bound to the specific
+	// node this config was built for, so a server left running by an earlier
+	// attach cannot write onto the node that replaced it. Nil in tests, which
+	// swap out startNode entirely.
+	OnLoginURL func(url string) bool
 }
 
 // Router owns one tsnet node per attached service.
@@ -87,6 +103,10 @@ type Router struct {
 	retryInitial  time.Duration
 	retryMax      time.Duration
 	shutdownGrace time.Duration
+
+	// now is time.Now, swapped out in tests so the login-reminder throttle can
+	// be exercised without sleeping through it.
+	now func() time.Time
 
 	mu    sync.Mutex
 	nodes map[string]*node
@@ -104,10 +124,19 @@ type node struct {
 	done   chan struct{}
 
 	// mu guards the fields below, which the attach goroutine fills in.
-	mu       sync.Mutex
-	live     tailnetNode
-	http     *http.Server
-	attached bool
+	mu   sync.Mutex
+	live tailnetNode
+	http *http.Server
+
+	// state and friends are what the router has observed, as opposed to what
+	// was configured: the node's own account of itself, for NodeStatus.
+	state       tailnet.State
+	loginURL    string
+	loginLogged time.Time // when loginURL was last written to the log
+	detail      string
+	addr        string
+	dnsName     string
+	since       time.Time
 }
 
 // New builds a Router. It does not contact Tailscale until Attach is called.
@@ -131,6 +160,7 @@ func New(opts Options) (*Router, error) {
 		retryInitial:  defaultRetryInitial,
 		retryMax:      defaultRetryMax,
 		shutdownGrace: defaultShutdownGrace,
+		now:           time.Now,
 		nodes:         map[string]*node{},
 	}
 	r.startNode = r.startTsnetNode
@@ -151,7 +181,7 @@ func (r *Router) Attached() []string {
 	out := make([]string, 0, len(r.nodes))
 	for name, n := range r.nodes {
 		n.mu.Lock()
-		live := n.attached
+		live := n.state == tailnet.StateAttached
 		n.mu.Unlock()
 		if live {
 			out = append(out, name)
@@ -217,12 +247,22 @@ func (r *Router) Attach(ctx context.Context, svc *manifest.Service) error {
 func (r *Router) bringUp(ctx context.Context, n *node) {
 	defer close(n.done)
 
+	n.mu.Lock()
+	n.state, n.since = tailnet.StateStarting, r.now()
+	n.mu.Unlock()
+
+	// Every input here is fixed for the life of the node: the router's auth key
+	// and verbosity are set once in New, and the node's name and hostname never
+	// change (a changed hostname gets a fresh node). OnLoginURL is bound to this
+	// node rather than to its name, so a backend still logging after the node
+	// was replaced cannot report onto its successor.
 	cfg := nodeConfig{
-		Service:  n.name,
-		Hostname: n.hostname,
-		Dir:      r.StateDirFor(n.name),
-		AuthKey:  r.authKey,
-		Verbose:  r.verbose,
+		Service:    n.name,
+		Hostname:   n.hostname,
+		Dir:        r.StateDirFor(n.name),
+		AuthKey:    r.authKey,
+		Verbose:    r.verbose,
+		OnLoginURL: func(url string) bool { return r.noteLoginURLFor(n, url) },
 	}
 
 	backoff := r.retryInitial
@@ -244,6 +284,14 @@ func (r *Router) bringUp(ctx context.Context, n *node) {
 		if ctx.Err() != nil {
 			return
 		}
+		n.mu.Lock()
+		n.state, n.detail, n.since = tailnet.StateFailed, err.Error(), r.now()
+		// The attempt that was waiting on authorisation is over, so its URL is
+		// spent; offering a stale login link is worse than offering none. The
+		// next attempt reinstates one if the node is still unauthorised.
+		n.loginURL, n.loginLogged = "", time.Time{}
+		n.mu.Unlock()
+
 		// A service that cannot reach the tailnet keeps running on loopback;
 		// losing tailnet exposure is not a reason to take it down (§7).
 		r.logf("%s: tailnet attach failed (attempt %d): %v; retrying in %s", n.name, attempt, err, backoff)
@@ -280,10 +328,22 @@ func (r *Router) serve(ctx context.Context, n *node, live tailnetNode) bool {
 		ReadHeaderTimeout: 30 * time.Second,
 	}
 
+	// Only the real backend knows what the tailnet handed the node; a fake
+	// that says nothing simply leaves the address unknown.
+	var addr, dnsName string
+	if a, ok := live.(nodeAddrs); ok {
+		addr, dnsName = a.TailnetAddrs()
+	}
+
 	n.mu.Lock()
 	n.live = live
 	n.http = srv
-	n.attached = true
+	n.state, n.since = tailnet.StateAttached, r.now()
+	n.addr, n.dnsName = addr, dnsName
+	// Authorisation is done with, so the URL and its throttle go: offering a
+	// spent login link is worse than offering none.
+	n.loginURL, n.detail = "", ""
+	n.loginLogged = time.Time{}
 	n.mu.Unlock()
 
 	r.logf("%s: on the tailnet as %s -> 127.0.0.1:%d", n.name, n.hostname, n.port)
@@ -352,7 +412,9 @@ func (r *Router) shutdownNode(n *node) error {
 
 	n.mu.Lock()
 	srv, live := n.http, n.live
-	n.http, n.live, n.attached = nil, nil, false
+	n.http, n.live = nil, nil
+	n.state, n.addr, n.dnsName = tailnet.StateOffline, "", ""
+	n.loginURL, n.loginLogged, n.detail = "", time.Time{}, ""
 	n.mu.Unlock()
 
 	if srv != nil {
@@ -383,7 +445,23 @@ func (r *Router) startTsnetNode(ctx context.Context, cfg nodeConfig) (tailnetNod
 		Ephemeral: false,
 		Logf:      r.tsnetLogf(cfg.Service),
 		UserLogf: func(format string, args ...any) {
-			r.logf("%s: "+format, append([]any{cfg.Service}, args...)...)
+			// Formatted here and passed as a value: tsnet's text is not ours,
+			// so it must never be spliced into a format string.
+			line := fmt.Sprintf(format, args...)
+			url, isLogin := parseLoginURL(line)
+			if !isLogin {
+				r.logf("%s: %s", cfg.Service, line)
+				return
+			}
+			// tsnet repeats this every five seconds for as long as nobody
+			// authorises the node; noteLoginURL decides when that is news.
+			note := cfg.OnLoginURL
+			if note == nil {
+				note = func(u string) bool { return r.noteLoginURL(cfg.Service, u) }
+			}
+			if note(url) {
+				r.logf("%s: waiting to be authorised onto the tailnet: approve it at %s, or set a Tailscale auth key and restart", cfg.Service, url)
+			}
 		},
 	}
 
@@ -393,7 +471,8 @@ func (r *Router) startTsnetNode(ctx context.Context, cfg nodeConfig) (tailnetNod
 	}
 	// Block until the node is actually usable, so a node that never registers
 	// is retried rather than reported as attached.
-	if _, err := server.Up(ctx); err != nil {
+	st, err := server.Up(ctx)
+	if err != nil {
 		server.Close()
 		return nil, fmt.Errorf("tsnet node %q did not come up: %w", cfg.Hostname, err)
 	}
@@ -403,16 +482,41 @@ func (r *Router) startTsnetNode(ctx context.Context, cfg nodeConfig) (tailnetNod
 		server.Close()
 		return nil, fmt.Errorf("listen on tailnet: %w", err)
 	}
-	return &tsnetNode{server: server, ln: ln}, nil
+	addr, dnsName := tailnetAddrs(st)
+	return &tsnetNode{server: server, ln: ln, addr: addr, dnsName: dnsName}, nil
+}
+
+// tailnetAddrs reads the address and registered name out of the status Up
+// already returned, which is where they arrive for free. Either may be empty:
+// a node can be up before control has told it everything.
+func tailnetAddrs(st *ipnstate.Status) (addr, dnsName string) {
+	if st == nil {
+		return "", ""
+	}
+	if len(st.TailscaleIPs) > 0 {
+		addr = st.TailscaleIPs[0].String()
+	}
+	if st.Self != nil {
+		// DNSName is an FQDN and ends with a dot; operators do not read it
+		// that way.
+		dnsName = strings.TrimSuffix(st.Self.DNSName, ".")
+	}
+	return addr, dnsName
 }
 
 // tsnetNode adapts tsnet.Server to tailnetNode.
 type tsnetNode struct {
-	server *tsnet.Server
-	ln     net.Listener
+	server  *tsnet.Server
+	ln      net.Listener
+	addr    string
+	dnsName string
 }
 
 func (n *tsnetNode) Listener() net.Listener { return n.ln }
+
+// TailnetAddrs satisfies nodeAddrs: values captured when the node came up, so
+// reading them does no I/O.
+func (n *tsnetNode) TailnetAddrs() (string, string) { return n.addr, n.dnsName }
 
 func (n *tsnetNode) Close() error {
 	n.ln.Close()
@@ -427,6 +531,9 @@ func (r *Router) tsnetLogf(service string) func(string, ...any) {
 		return func(string, ...any) {}
 	}
 	return func(format string, args ...any) {
-		r.logf("%s: "+format, append([]any{service}, args...)...)
+		// Formatted here rather than spliced into the format string: the text
+		// comes from tsnet, and a stray %s in it would otherwise be read as a
+		// verb. Same reason UserLogf does it this way.
+		r.logf("%s: %s", service, fmt.Sprintf(format, args...))
 	}
 }

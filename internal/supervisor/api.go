@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/sroberts/outpost/internal/tailnet"
 )
 
 // This file is the Supervisor's public API — the one code path the CLI, the
@@ -27,10 +29,16 @@ type ServiceStatus struct {
 	LastStartedAt time.Time `json:"last_started_at"`
 	Port          int       `json:"port"`
 	TailscaleName string    `json:"tailscale_name"`
-	Healthcheck   string    `json:"healthcheck"`
-	Storage       string    `json:"storage"`
-	RestartPolicy string    `json:"restart_policy"`
-	Backoff       int       `json:"backoff_seconds"`
+	// Tailnet is what was actually observed on the tailnet, as distinct from
+	// TailscaleName above (the configured identity). A value rather than a
+	// pointer, so its zero value is StateUnknown and callers need no nil
+	// check; omitzero keeps an unpopulated field off the wire in both
+	// directions until something reports into it.
+	Tailnet       tailnet.NodeStatus `json:"tailnet,omitzero"`
+	Healthcheck   string             `json:"healthcheck"`
+	Storage       string             `json:"storage"`
+	RestartPolicy string             `json:"restart_policy"`
+	Backoff       int                `json:"backoff_seconds"`
 	// NextAttempt is set while a service is waiting out its restart backoff.
 	NextAttempt time.Time `json:"next_attempt,omitempty"`
 }
@@ -149,6 +157,26 @@ func (s *Supervisor) Status(ctx context.Context, name string) (ServiceStatus, er
 	return v.(ServiceStatus), nil
 }
 
+// tailnetStatusOf reports what the router observed, as opposed to what the
+// manifest asked for. Those were the same field until now, which is why a node
+// waiting on authorisation was indistinguishable from one genuinely reachable.
+func (s *Supervisor) tailnetStatusOf(name, configured string) tailnet.NodeStatus {
+	switch {
+	case s.tailnet == nil || configured == "":
+		return tailnet.NodeStatus{State: tailnet.StateDisabled}
+	case s.tailnetStatus == nil:
+		// A router that supervises but cannot report. Left unknown so every
+		// renderer falls back to the configured name rather than inventing a
+		// state nobody observed.
+		return tailnet.NodeStatus{}
+	}
+	if ns, ok := s.tailnetStatus.NodeStatus(name); ok {
+		return ns
+	}
+	// Declared, but the router holds no node — the service is not running.
+	return tailnet.NodeStatus{State: tailnet.StateOffline, Hostname: configured}
+}
+
 // statusOf merges the manifest, the in-memory supervision state and the store.
 // Reconcile-loop goroutine only.
 func (s *Supervisor) statusOf(name string) ServiceStatus {
@@ -162,6 +190,7 @@ func (s *Supervisor) statusOf(name string) ServiceStatus {
 		st.Storage = svc.ExpandStorage()
 		st.RestartPolicy = svc.RestartPolicy
 		st.Backoff = int(svc.BackoffSeconds)
+		st.Tailnet = s.tailnetStatusOf(name, svc.TailscaleName)
 	}
 	if rec, found, err := s.store.GetService(name); err == nil && found {
 		st.Status = rec.Status

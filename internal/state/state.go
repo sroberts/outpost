@@ -35,6 +35,11 @@ const (
 	EventApply      = "apply"
 	EventBackup     = "backup"
 	EventRestore    = "restore"
+	// EventTailnet records a change in a service's Tailscale presence worth
+	// an operator's attention — needing authorisation, or failing to attach.
+	// Not the ordinary attached case: a crash-looping service already writes
+	// started and exited rows, and two more per restart would drown the feed.
+	EventTailnet = "tailnet"
 )
 
 // ServiceRecord is one row of observed service state.

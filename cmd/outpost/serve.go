@@ -74,8 +74,9 @@ func (a *app) cmdServe(args []string) error {
 		router = r
 
 		if authKey == "" {
-			fmt.Fprintln(a.out, "outpost: no Tailscale auth key; each new service will log a one-time login URL")
-			fmt.Fprintln(a.out, "outpost: set TS_AUTHKEY, or run without Tailscale via `outpost config --init` and tailscale.enabled = false")
+			fmt.Fprintln(a.out, "outpost: no Tailscale auth key; each new service needs one-time authorisation")
+			fmt.Fprintln(a.out, "outpost: `outpost status <service>` shows the login URL for a service waiting on one")
+			fmt.Fprintln(a.out, "outpost: set TS_AUTHKEY to skip that, or run without Tailscale via `outpost config --init` and tailscale.enabled = false")
 		}
 	} else {
 		fmt.Fprintln(a.out, "outpost: Tailscale is disabled; services stay on loopback")

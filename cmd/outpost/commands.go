@@ -14,6 +14,7 @@ import (
 	"github.com/sroberts/outpost/internal/ipc"
 	"github.com/sroberts/outpost/internal/manifest"
 	"github.com/sroberts/outpost/internal/supervisor"
+	"github.com/sroberts/outpost/internal/tailnet"
 )
 
 // client returns an IPC client for this Outpost root.
@@ -134,9 +135,21 @@ func writeTable(w io.Writer, services []supervisor.ServiceStatus) error {
 			status += " (halted)"
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%s\n",
-			s.Name, orDash(s.Runtime), status, uptime(s), s.RestartCount, orDash(s.TailscaleName))
+			s.Name, orDash(s.Runtime), status, uptime(s), s.RestartCount, tailnet.Column(s.Tailnet, s.TailscaleName))
 	}
 	return tw.Flush()
+}
+
+// writeTailnetDetail writes the `outpost status` tailscale line, plus — only
+// while the node awaits authorisation — the login URL and a reminder of the
+// other way to unblock it. Every other state gains nothing here, because
+// tailnet.Line already says what happened.
+func writeTailnetDetail(w io.Writer, st supervisor.ServiceStatus) {
+	fmt.Fprintf(w, "  tailscale:     %s\n", tailnet.Line(st.Tailnet, st.TailscaleName))
+	if st.Tailnet.State == tailnet.StateNeedsLogin {
+		fmt.Fprintf(w, "                 %s\n", st.Tailnet.LoginURL)
+		fmt.Fprintln(w, "                 authorise the node at that URL, or set an auth key")
+	}
 }
 
 // cmdStatus prints the detail view for one service.
@@ -171,7 +184,7 @@ func (a *app) cmdStatus(args []string) error {
 		fmt.Fprintf(a.out, "  port:          %d\n", st.Port)
 		fmt.Fprintf(a.out, "  healthcheck:   %s\n", st.Healthcheck)
 		fmt.Fprintf(a.out, "  storage:       %s\n", st.Storage)
-		fmt.Fprintf(a.out, "  tailscale:     %s\n", st.TailscaleName)
+		writeTailnetDetail(a.out, st)
 		fmt.Fprintf(a.out, "  restart:       %s (backoff %ds)\n", st.RestartPolicy, st.Backoff)
 	} else {
 		fmt.Fprintln(a.out, "  (no manifest: this service is no longer declared)")

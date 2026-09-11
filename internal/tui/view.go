@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/sroberts/outpost/internal/supervisor"
+	"github.com/sroberts/outpost/internal/tailnet"
 )
 
 // minViewHeight is the shortest the dashboard can be: the title, a blank line,
@@ -261,7 +262,19 @@ func (m Model) detail() string {
 		}
 		b.WriteString("  " + labelStyle.Render(pad(k, 10)) + valueStyle.Render(v) + "\n")
 	}
-	kv("tailscale", s.TailscaleName)
+	// A service that asked for no tailnet identity gets no row at all, as it
+	// did before this pane learned about observed state: "-" is an answer to a
+	// question nobody asked.
+	if s.TailscaleName != "" || s.Tailnet.State != tailnet.StateDisabled {
+		// Truncated like the login row below: a failed attach carries the raw
+		// error from the router, which is longer than the pane is wide.
+		kv("tailscale", truncate(tailnet.Line(s.Tailnet, s.TailscaleName), m.width-12))
+	}
+	if s.Tailnet.State == tailnet.StateNeedsLogin {
+		// The login URL can run well past the pane width; truncate it like
+		// any other user-visible text rather than letting it wrap the layout.
+		kv("login", truncate(s.Tailnet.LoginURL, m.width-12))
+	}
 	kv("storage", s.Storage)
 	kv("instance", s.InstanceID)
 	if s.Desired != "" && s.Desired != "running" {
