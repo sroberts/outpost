@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -17,6 +18,9 @@ type Result struct {
 	Tag   string
 	Asset string
 	Path  string
+	// Member is the file taken out of an archive, empty when the asset was
+	// already a bare binary.
+	Member string
 	// Verified reports that the asset's SHA-256 matched a checksum the release
 	// published. False means the release published none — see Warning.
 	Verified bool
@@ -45,12 +49,12 @@ func (c *Client) SelectAsset(rel *Release, d *Descriptor) (Asset, error) {
 	if want := d.assetName(c.GOOS, c.GOARCH); want != "" {
 		for _, a := range rel.Assets {
 			if a.Name == want {
-				// Nothing here unpacks an archive, so installing one as the
-				// binary would chmod +x a tarball and fail at exec time with
-				// an error naming neither the archive nor the descriptor.
-				if hasArchiveExt(strings.ToLower(a.Name)) || isChecksumName(a.Name) {
-					return Asset{}, fmt.Errorf("%s names %q, which is an archive or a signature, not a binary; "+
-						"Outpost installs a bare binary and does not unpack archives",
+				// A .tar.gz or .zip is unpacked; anything else that is not a
+				// binary would be chmod +x'd and fail later at exec time with
+				// an error naming neither the file nor the descriptor.
+				if isChecksumName(a.Name) || isSignature(a.Name) || isUnsupportedArchive(a.Name) {
+					return Asset{}, fmt.Errorf("%s names %q, which is not a binary and not an archive Outpost can open "+
+						"(.tar.gz and .zip are); name the binary or a supported archive",
 						DescriptorName, a.Name)
 				}
 				return a, nil
@@ -59,15 +63,26 @@ func (c *Client) SelectAsset(rel *Release, d *Descriptor) (Asset, error) {
 		return Asset{}, fmt.Errorf("release %s publishes no asset named %q (from %s)", rel.Tag, want, DescriptorName)
 	}
 
-	var matches []Asset
+	var matches, archives []Asset
 	for _, a := range rel.Assets {
 		name := strings.ToLower(a.Name)
-		if isChecksumName(a.Name) || hasArchiveExt(name) {
+		if isChecksumName(a.Name) || isSignature(a.Name) || isUnsupportedArchive(a.Name) {
 			continue
 		}
-		if strings.Contains(name, c.GOOS) && matchesArch(name, c.GOARCH) {
-			matches = append(matches, a)
+		if !matchesOS(name, c.GOOS) || !matchesArch(name, c.GOARCH) {
+			continue
 		}
+		if archiveKind(a.Name) != archiveNone {
+			archives = append(archives, a)
+			continue
+		}
+		matches = append(matches, a)
+	}
+	// A bare binary is preferred, but an archive is not a dead end: most
+	// releases ship only archives, and refusing them made `outpost add <url>`
+	// fail for the majority of real repositories.
+	if len(matches) == 0 {
+		matches = archives
 	}
 	switch len(matches) {
 	case 1:
@@ -76,41 +91,133 @@ func (c *Client) SelectAsset(rel *Release, d *Descriptor) (Asset, error) {
 		return Asset{}, fmt.Errorf("release %s publishes no asset for %s/%s; "+
 			"name one with `asset = \"...${GOOS}-${GOARCH}\"` in %s, or use --binary",
 			rel.Tag, c.GOOS, c.GOARCH, DescriptorName)
-	default:
-		names := make([]string, 0, len(matches))
-		for _, a := range matches {
-			names = append(names, a.Name)
-		}
-		return Asset{}, fmt.Errorf("release %s publishes %d assets matching %s/%s (%s); "+
-			"name the right one with `asset = \"...\"` in %s",
-			rel.Tag, len(matches), c.GOOS, c.GOARCH, strings.Join(names, ", "), DescriptorName)
 	}
+
+	// Releases routinely ship variants beside the plain build -- a _gui, a
+	// -static, a -musl. They are the same platform, so the platform match
+	// cannot separate them, and failing would turn an ordinary release into a
+	// dead end.
+	if plain, others, ok := plainest(matches); ok {
+		c.logf("release %s also publishes %s; taking the plain build %s",
+			rel.Tag, strings.Join(others, ", "), plain.Name)
+		return plain, nil
+	}
+
+	names := make([]string, 0, len(matches))
+	for _, a := range matches {
+		names = append(names, a.Name)
+	}
+	return Asset{}, fmt.Errorf("release %s publishes %d assets matching %s/%s (%s); "+
+		"name the right one with `asset = \"...\"` in %s",
+		rel.Tag, len(matches), c.GOOS, c.GOARCH, strings.Join(names, ", "), DescriptorName)
 }
 
-// archOverlaps lists, for each GOARCH that is a prefix of another, the names
-// whose presence means the asset is for the wider architecture rather than
-// this one. "arm64" contains "arm", so a plain Contains would hand a 32-bit
-// ARM host an arm64 binary that cannot exec at all; ppc64/ppc64le and the
-// mips family have the same shape.
+// plainest picks the base build out of a set of variants, and reports which
+// ones it passed over.
+//
+// The test is a prefix, not merely a shorter name. "yarr_darwin_arm64" is a
+// prefix of "yarr_darwin_arm64_gui", so the second is the first with a
+// qualifier bolted on -- a variant. "svc-linux-amd64" is not a prefix of
+// "svc-server-linux-amd64", which is a differently named program that happens
+// to share a platform, and choosing between those two is not something to
+// guess at. Length alone would have conflated them.
+func plainest(matches []Asset) (Asset, []string, bool) {
+	best := matches[0]
+	for _, a := range matches[1:] {
+		if len(a.Name) < len(best.Name) {
+			best = a
+		}
+	}
+	stem := strings.ToLower(stripArchiveExt(best.Name))
+
+	others := make([]string, 0, len(matches)-1)
+	for _, a := range matches {
+		if a.Name == best.Name {
+			continue
+		}
+		if !strings.HasPrefix(strings.ToLower(stripArchiveExt(a.Name)), stem) {
+			return Asset{}, nil, false
+		}
+		others = append(others, a.Name)
+	}
+	if len(others) == 0 {
+		return Asset{}, nil, false
+	}
+	sort.Strings(others)
+	return best, others, true
+}
+
+// stripArchiveExt drops a recognised archive suffix so two names can be
+// compared on what they actually say.
+func stripArchiveExt(name string) string {
+	lower := strings.ToLower(name)
+	for _, ext := range []string{".tar.gz", ".tgz", ".zip"} {
+		if strings.HasSuffix(lower, ext) {
+			return name[:len(name)-len(ext)]
+		}
+	}
+	return name
+}
+
+// archOverlaps lists, for each architecture that is a prefix or narrower
+// relative of another, the names whose presence means the asset is for the
+// wider one. "arm64" contains "arm", so a plain Contains would hand a 32-bit
+// ARM host an arm64 binary that cannot exec at all; ppc64/ppc64le, the mips
+// family and x86/x86_64 have the same shape.
 var archOverlaps = map[string][]string{
 	"arm":    {"arm64", "armv8", "aarch64"},
 	"mips":   {"mips64", "mips64le", "mipsle"},
 	"mips64": {"mips64le"},
 	"ppc64":  {"ppc64le"},
+	"386":    {"x86_64", "amd64"},
 }
 
-// matchesArch is a substring match that refuses names belonging to a wider
-// architecture whose GOARCH this one is a prefix of.
-func matchesArch(lowerName, goarch string) bool {
-	if !strings.Contains(lowerName, goarch) {
-		return false
+// goosAliases and goarchAliases are the spellings releases use that are not
+// Go's. Plenty of projects ship "macos" or "x86_64"; refusing those made
+// `outpost add <url>` fail on naming alone, with an error blaming the platform
+// rather than the vocabulary.
+var goosAliases = map[string][]string{
+	"darwin":  {"macos", "osx", "apple", "mac"},
+	"windows": {"win"},
+}
+
+var goarchAliases = map[string][]string{
+	"amd64": {"x86_64", "x64"},
+	"arm64": {"aarch64", "armv8"},
+	"386":   {"i386", "x86"},
+	"arm":   {"armv7", "armv6", "armhf"},
+}
+
+// matchesOS is a substring match over GOOS and the spellings that mean it.
+func matchesOS(lowerName, goos string) bool {
+	if strings.Contains(lowerName, goos) {
+		return true
 	}
+	for _, alias := range goosAliases[goos] {
+		if strings.Contains(lowerName, alias) {
+			return true
+		}
+	}
+	return false
+}
+
+// matchesArch is the same over GOARCH, refusing names that belong to a wider
+// architecture this one is merely a substring of.
+func matchesArch(lowerName, goarch string) bool {
 	for _, wider := range archOverlaps[goarch] {
 		if strings.Contains(lowerName, wider) {
 			return false
 		}
 	}
-	return true
+	if strings.Contains(lowerName, goarch) {
+		return true
+	}
+	for _, alias := range goarchAliases[goarch] {
+		if strings.Contains(lowerName, alias) {
+			return true
+		}
+	}
+	return false
 }
 
 func isChecksumName(name string) bool {
@@ -121,15 +228,6 @@ func isChecksumName(name string) bool {
 		}
 	}
 	return strings.HasSuffix(lower, ".sha256") || strings.HasSuffix(lower, ".sha256sum")
-}
-
-func hasArchiveExt(lower string) bool {
-	for _, ext := range []string{".tar.gz", ".tgz", ".zip", ".tar.xz", ".tar.bz2", ".deb", ".rpm", ".sig", ".pem", ".asc"} {
-		if strings.HasSuffix(lower, ext) {
-			return true
-		}
-	}
-	return false
 }
 
 // Install downloads the asset to dest, verifying it against the release's
@@ -186,10 +284,31 @@ func (c *Client) Install(ctx context.Context, rel *Release, asset Asset, dest st
 		res.Verified = true
 	}
 
-	if err := os.Chmod(tmpName, 0o755); err != nil {
-		return res, fmt.Errorf("chmod %s: %w", tmpName, err)
+	// The checksum above covers what the release published. For an archive
+	// that is the archive itself, which is the right thing to verify: the
+	// binary is only trusted because the container it came out of was.
+	install := tmpName
+	if kind := archiveKind(asset.Name); kind != archiveNone {
+		extracted, err := os.CreateTemp(filepath.Dir(dest), ".outpost-extract-*")
+		if err != nil {
+			return res, fmt.Errorf("create a temporary file next to %s: %w", dest, err)
+		}
+		extractedName := extracted.Name()
+		extracted.Close()
+		defer os.Remove(extractedName)
+
+		member, err := extractBinary(tmpName, extractedName, filepath.Base(dest), kind)
+		if err != nil {
+			return res, fmt.Errorf("%s: %w", asset.Name, err)
+		}
+		res.Member = member
+		install = extractedName
 	}
-	if err := os.Rename(tmpName, dest); err != nil {
+
+	if err := os.Chmod(install, 0o755); err != nil {
+		return res, fmt.Errorf("chmod %s: %w", install, err)
+	}
+	if err := os.Rename(install, dest); err != nil {
 		return res, fmt.Errorf("install %s: %w", dest, err)
 	}
 	return res, nil

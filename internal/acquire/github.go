@@ -36,6 +36,15 @@ type Client struct {
 	// GOOS and GOARCH select the asset; overridable so the selection logic is
 	// testable for platforms other than the one running the tests.
 	GOOS, GOARCH string
+	// Logf reports a choice the operator did not make explicitly, such as
+	// picking the plain build over a variant. Nil discards.
+	Logf func(format string, args ...any)
+}
+
+func (c *Client) logf(format string, args ...any) {
+	if c.Logf != nil {
+		c.Logf(format, args...)
+	}
 }
 
 // NewClient returns a client for the host platform, authenticated with the gh

@@ -494,20 +494,33 @@ func TestInstall_PrefersTheAPIAssetURL(t *testing.T) {
 	}
 }
 
-// Nothing here unpacks archives, so a descriptor naming one must be refused
-// rather than chmod +x'd and installed as the binary — that failure surfaces
-// much later as an exec error naming neither the archive nor outpost.toml.
-func TestSelectAsset_DescriptorNamingAnArchiveIsRefused(t *testing.T) {
+// A descriptor may name a .tar.gz or .zip: those are unpacked. What it must
+// not name is something Outpost cannot open, which would otherwise be chmod
+// +x'd and fail much later at exec time with an error naming neither the file
+// nor outpost.toml.
+func TestSelectAsset_DescriptorMayNameASupportedArchive(t *testing.T) {
 	h := newFakeHub(t)
 	h.release = &Release{Tag: "v1"}
 	h.addAsset("svc-linux-amd64.tar.gz", []byte("tarball"))
 
-	_, err := h.client().SelectAsset(h.release, &Descriptor{Asset: "svc-${GOOS}-${GOARCH}.tar.gz"})
-	if err == nil {
-		t.Fatal("a descriptor naming an archive was accepted")
+	got, err := h.client().SelectAsset(h.release, &Descriptor{Asset: "svc-${GOOS}-${GOARCH}.tar.gz"})
+	if err != nil {
+		t.Fatalf("a descriptor naming a .tar.gz was refused: %v", err)
 	}
-	if !strings.Contains(err.Error(), "archive") {
-		t.Errorf("error = %v; want it to say the asset is an archive", err)
+	if got.Name != "svc-linux-amd64.tar.gz" {
+		t.Errorf("selected %q", got.Name)
+	}
+}
+
+func TestSelectAsset_DescriptorNamingAnUnopenableFileIsRefused(t *testing.T) {
+	for _, name := range []string{"svc-linux-amd64.tar.xz", "svc-linux-amd64.deb", "svc-linux-amd64.sig"} {
+		h := newFakeHub(t)
+		h.release = &Release{Tag: "v1"}
+		h.addAsset(name, []byte("x"))
+
+		if _, err := h.client().SelectAsset(h.release, &Descriptor{Asset: name}); err == nil {
+			t.Errorf("a descriptor naming %q was accepted", name)
+		}
 	}
 }
 
@@ -575,5 +588,97 @@ func TestDescriptor_TagIsEscapedInTheRefQuery(t *testing.T) {
 	}
 	if sawRef != h.release.Tag {
 		t.Errorf("ref = %q; want the whole tag %q", sawRef, h.release.Tag)
+	}
+}
+
+// yarr's shape: a plain build and a _gui variant for the same platform. The
+// platform match cannot separate them, and failing turns an ordinary release
+// into a dead end.
+func TestSelectAsset_VariantsResolveToThePlainBuild(t *testing.T) {
+	h := newFakeHub(t)
+	h.release = &Release{Tag: "v2.43s"}
+	h.addAsset("yarr_darwin_arm64_gui.zip", []byte("gui"))
+	h.addAsset("yarr_darwin_arm64.zip", []byte("plain"))
+
+	var logged string
+	c := h.client()
+	c.GOOS, c.GOARCH = "darwin", "arm64"
+	c.Logf = func(f string, a ...any) { logged = fmt.Sprintf(f, a...) }
+
+	got, err := c.SelectAsset(h.release, &Descriptor{})
+	if err != nil {
+		t.Fatalf("SelectAsset: %v", err)
+	}
+	if got.Name != "yarr_darwin_arm64.zip" {
+		t.Errorf("selected %q; want the plain build", got.Name)
+	}
+	// A choice the operator did not make should not be silent.
+	if !strings.Contains(logged, "yarr_darwin_arm64_gui.zip") {
+		t.Errorf("the skipped variant was not reported: %q", logged)
+	}
+}
+
+// Two differently named programs that share a platform are not variants, and
+// picking between them is not something to guess at. A shorter-name rule would
+// have conflated this with the variant case.
+func TestSelectAsset_DifferentProgramsAreStillAmbiguous(t *testing.T) {
+	h := newFakeHub(t)
+	h.release = &Release{Tag: "v1"}
+	h.addAsset("svc-linux-amd64", []byte("a"))
+	h.addAsset("svc-server-linux-amd64", []byte("b"))
+
+	if _, err := h.client().SelectAsset(h.release, &Descriptor{}); err == nil {
+		t.Fatal("two differently named programs: want an error, not a guess")
+	}
+}
+
+// Plenty of releases spell the platform in something other than Go's
+// vocabulary. Refusing those failed on naming alone, with an error that blamed
+// the platform rather than the spelling.
+func TestSelectAsset_AcceptsCommonPlatformSpellings(t *testing.T) {
+	for _, tc := range []struct{ goos, goarch, asset string }{
+		{"darwin", "arm64", "svc-macos-aarch64.tar.gz"},
+		{"darwin", "amd64", "svc_osx_x86_64.zip"},
+		{"darwin", "arm64", "svc-apple-arm64"},
+		{"linux", "amd64", "svc-linux-x86_64"},
+		{"linux", "arm64", "svc-linux-aarch64"},
+		{"windows", "amd64", "svc-win-x64.zip"},
+		{"linux", "arm", "svc-linux-armv7"},
+	} {
+		h := newFakeHub(t)
+		h.release = &Release{Tag: "v1"}
+		h.addAsset(tc.asset, []byte("x"))
+
+		c := h.client()
+		c.GOOS, c.GOARCH = tc.goos, tc.goarch
+		got, err := c.SelectAsset(h.release, &Descriptor{})
+		if err != nil {
+			t.Errorf("%s/%s did not match %q: %v", tc.goos, tc.goarch, tc.asset, err)
+			continue
+		}
+		if got.Name != tc.asset {
+			t.Errorf("%s/%s selected %q", tc.goos, tc.goarch, got.Name)
+		}
+	}
+}
+
+// The aliases must not reintroduce the overlap problem: x86 is a substring of
+// x86_64, so a 386 host must not be handed a 64-bit binary.
+func TestSelectAsset_AliasesDoNotCollide(t *testing.T) {
+	h := newFakeHub(t)
+	h.release = &Release{Tag: "v1"}
+	h.addAsset("svc-linux-x86_64", []byte("64-bit"))
+
+	c := h.client()
+	c.GOOS, c.GOARCH = "linux", "386"
+	if got, err := c.SelectAsset(h.release, &Descriptor{}); err == nil {
+		t.Errorf("GOARCH=386 selected %q; want no match against an x86_64 asset", got.Name)
+	}
+
+	// And amd64 still finds it.
+	c2 := h.client()
+	c2.GOOS, c2.GOARCH = "linux", "amd64"
+	if got, err := c2.SelectAsset(h.release, &Descriptor{}); err != nil || got.Name != "svc-linux-x86_64" {
+		t.Errorf("GOARCH=amd64 got %q, %v; want the x86_64 asset", got.Name, err)
 	}
 }

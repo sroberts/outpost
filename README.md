@@ -86,15 +86,18 @@ outpost add https://github.com/sroberts/plumbline
 outpost add sroberts/plumbline --name pl     # shorthand, with a chosen name
 ```
 
-This fetches the latest release, picks the asset matching your platform,
-verifies it against the release's checksums when it publishes any (and refuses
-to install on a mismatch), and installs it under `~/.outpost/bin/`. If the
+This fetches the latest release, picks the asset matching your platform —
+unpacking a `.tar.gz` or `.zip` if that is how the release ships, and
+understanding the usual spellings like `macos` and `x86_64` — verifies it
+against the release's checksums when it publishes any (and refuses to install
+on a mismatch), and installs it under `~/.outpost/bin/`. If the
 repository ships an `outpost.toml`, its declared args, healthcheck and so on
 become the manifest's defaults — see [outpost-service-spec.md](outpost-service-spec.md)
 §14 for what a service can declare. Flags you pass override it.
 
-Outpost never builds from source. A repository with no usable release gets a
-clear error pointing back at `--binary`. Private repositories work if you have
+Outpost never builds from source; it only ever unpacks what the release
+published. A repository with no usable release gets a clear error pointing back
+at `--binary`. Private repositories work if you have
 the `gh` CLI authenticated or `GITHUB_TOKEN` set; Outpost stores no credentials
 of its own.
 
