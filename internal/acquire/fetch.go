@@ -48,7 +48,7 @@ func (c *Client) SelectAsset(rel *Release, d *Descriptor) (Asset, error) {
 				// Nothing here unpacks an archive, so installing one as the
 				// binary would chmod +x a tarball and fail at exec time with
 				// an error naming neither the archive nor the descriptor.
-				if hasArchiveExt(strings.ToLower(a.Name)) {
+				if hasArchiveExt(strings.ToLower(a.Name)) || isChecksumName(a.Name) {
 					return Asset{}, fmt.Errorf("%s names %q, which is an archive or a signature, not a binary; "+
 						"Outpost installs a bare binary and does not unpack archives",
 						DescriptorName, a.Name)
@@ -87,16 +87,28 @@ func (c *Client) SelectAsset(rel *Release, d *Descriptor) (Asset, error) {
 	}
 }
 
-// matchesArch is a substring match with the one overlap that matters spelled
-// out: "arm64" contains "arm", so a plain Contains would hand a 32-bit ARM
-// host (GOARCH=arm) an arm64 binary that cannot exec at all. Every other
-// GOARCH value is a prefix of nothing else Go emits.
+// archOverlaps lists, for each GOARCH that is a prefix of another, the names
+// whose presence means the asset is for the wider architecture rather than
+// this one. "arm64" contains "arm", so a plain Contains would hand a 32-bit
+// ARM host an arm64 binary that cannot exec at all; ppc64/ppc64le and the
+// mips family have the same shape.
+var archOverlaps = map[string][]string{
+	"arm":    {"arm64", "armv8", "aarch64"},
+	"mips":   {"mips64", "mips64le", "mipsle"},
+	"mips64": {"mips64le"},
+	"ppc64":  {"ppc64le"},
+}
+
+// matchesArch is a substring match that refuses names belonging to a wider
+// architecture whose GOARCH this one is a prefix of.
 func matchesArch(lowerName, goarch string) bool {
 	if !strings.Contains(lowerName, goarch) {
 		return false
 	}
-	if goarch == "arm" {
-		return !strings.Contains(lowerName, "arm64") && !strings.Contains(lowerName, "armv8")
+	for _, wider := range archOverlaps[goarch] {
+		if strings.Contains(lowerName, wider) {
+			return false
+		}
 	}
 	return true
 }

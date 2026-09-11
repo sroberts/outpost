@@ -129,6 +129,18 @@ func (a *app) buildService(name, binary string, port int, storage, tsName, healt
 		}
 	}
 
+	env, err := parseEnv(splitList(envList))
+	if err != nil {
+		return nil, err
+	}
+	if port == 0 {
+		// OUTPOST_PORT is how a service is told its port, so an operator who
+		// pins it has named the port. Allocating a different one instead would
+		// guarantee the validation error that mismatch exists to raise.
+		if pinned, ok := manifest.PortInEnv(env); ok {
+			port = pinned
+		}
+	}
 	if port == 0 {
 		free, err := allocatePort()
 		if err != nil {
@@ -161,21 +173,17 @@ func (a *app) buildService(name, binary string, port int, storage, tsName, healt
 	if argList != "" {
 		svc.Args = splitList(argList)
 	}
-	if envList != "" {
-		env, err := parseEnv(splitList(envList))
-		if err != nil {
-			return nil, err
-		}
-		svc.Env = env
-	}
-	svc.Env = withOutpostPort(svc.Env, port)
+	svc.Env = withOutpostPort(env, port)
 	return svc, nil
 }
 
 // withOutpostPort adds OUTPOST_PORT to a generated manifest. The service spec
 // has told service authors to support it since §1 was written; until now
-// nothing set it, so a service that took the advice got nothing. An explicit
-// value already in env wins — the operator or the descriptor said it on purpose.
+// nothing set it, so a service that took the advice got nothing.
+//
+// An explicit value already in env is left alone rather than overwritten, so
+// that a disagreement with the chosen port surfaces as a validation error
+// naming both numbers instead of being silently papered over.
 func withOutpostPort(env map[string]string, port int) map[string]string {
 	if _, ok := env["OUTPOST_PORT"]; ok {
 		return env

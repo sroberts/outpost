@@ -129,8 +129,9 @@ func (s *Service) validateWith(opts Options) []error {
 	// into every manifest it generates, so editing `port` by hand afterwards
 	// and leaving the environment behind is an easy mistake to make.
 	if envPort, ok := portInEnv(s.Env); ok && s.Port > 0 && envPort != s.Port {
-		errs = append(errs, fmt.Errorf("port = %d but env sets OUTPOST_PORT = %d; the healthcheck would probe a port the service is not listening on",
-			s.Port, envPort))
+		errs = append(errs, fmt.Errorf("port = %d but env sets OUTPOST_PORT = %d; the healthcheck would probe a port the service is not listening on "+
+			"(pass --port %d to `outpost add`, or drop OUTPOST_PORT and let it be generated)",
+			s.Port, envPort, envPort))
 	}
 
 	if s.Healthcheck == "" || !strings.HasPrefix(s.Healthcheck, "/") {
@@ -202,6 +203,11 @@ func ValidateWith(services []*Service, opts Options) []error {
 
 	return errs
 }
+
+// PortInEnv reports the port a manifest's environment pins through
+// OUTPOST_PORT, so `outpost add` can adopt it rather than allocate a port that
+// would then contradict it.
+func PortInEnv(env map[string]string) (int, bool) { return portInEnv(env) }
 
 // portInEnv finds the port a service is told through OUTPOST_PORT.
 //

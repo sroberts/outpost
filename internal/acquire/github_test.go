@@ -24,6 +24,7 @@ type fakeHub struct {
 	descriptor []byte            // served from the tagged tree; nil means 404
 	status     int               // overrides the release response status
 	authSeen   string
+	onContents func(*http.Request)
 }
 
 func newFakeHub(t *testing.T) *fakeHub {
@@ -40,6 +41,9 @@ func newFakeHub(t *testing.T) *fakeHub {
 		_ = json.NewEncoder(w).Encode(h.release)
 	})
 	mux.HandleFunc("/repos/o/r/contents/outpost.toml", func(w http.ResponseWriter, r *http.Request) {
+		if h.onContents != nil {
+			h.onContents(r)
+		}
 		if h.descriptor == nil {
 			w.WriteHeader(http.StatusNotFound)
 			return
@@ -504,5 +508,72 @@ func TestSelectAsset_DescriptorNamingAnArchiveIsRefused(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "archive") {
 		t.Errorf("error = %v; want it to say the asset is an archive", err)
+	}
+}
+
+// Several GOARCH values are prefixes of another. A plain substring match hands
+// the host a binary for a different architecture, which cannot exec at all.
+func TestSelectAsset_ArchPrefixesDoNotCollide(t *testing.T) {
+	for _, tc := range []struct {
+		goarch string
+		assets []string
+		want   string
+	}{
+		{"ppc64", []string{"svc-linux-ppc64le", "svc-linux-ppc64"}, "svc-linux-ppc64"},
+		{"ppc64le", []string{"svc-linux-ppc64le", "svc-linux-ppc64"}, "svc-linux-ppc64le"},
+		{"mips", []string{"svc-linux-mips64le", "svc-linux-mipsle", "svc-linux-mips"}, "svc-linux-mips"},
+		{"mips64", []string{"svc-linux-mips64le", "svc-linux-mips64"}, "svc-linux-mips64"},
+		{"arm", []string{"svc-linux-aarch64", "svc-linux-arm"}, "svc-linux-arm"},
+	} {
+		h := newFakeHub(t)
+		h.release = &Release{Tag: "v1"}
+		for _, name := range tc.assets {
+			h.addAsset(name, []byte(name))
+		}
+		c := h.client()
+		c.GOOS, c.GOARCH = "linux", tc.goarch
+
+		got, err := c.SelectAsset(h.release, &Descriptor{})
+		if err != nil {
+			t.Errorf("GOARCH=%s: SelectAsset: %v", tc.goarch, err)
+			continue
+		}
+		if got.Name != tc.want {
+			t.Errorf("GOARCH=%s selected %q; want %q", tc.goarch, got.Name, tc.want)
+		}
+	}
+}
+
+// A descriptor naming the checksum manifest would install it as the binary.
+func TestSelectAsset_DescriptorNamingAChecksumFileIsRefused(t *testing.T) {
+	h := newFakeHub(t)
+	h.release = &Release{Tag: "v1"}
+	h.addAsset("SHA256SUMS", []byte("hashes"))
+
+	if _, err := h.client().SelectAsset(h.release, &Descriptor{Asset: "SHA256SUMS"}); err == nil {
+		t.Fatal("a descriptor naming a checksum file was accepted")
+	}
+}
+
+// The tagged tree is fetched so the descriptor matches the binary being
+// installed. A tag carrying a query character would truncate ?ref= and serve
+// the default branch instead — the exact drift the fallback exists to avoid.
+func TestDescriptor_TagIsEscapedInTheRefQuery(t *testing.T) {
+	h := newFakeHub(t)
+	h.release = &Release{Tag: "release/2026?x=1&y=2"}
+	h.descriptor = []byte(`name = "from-tagged-tree"`)
+
+	var sawRef string
+	h.onContents = func(r *http.Request) { sawRef = r.URL.Query().Get("ref") }
+
+	d, err := h.client().Descriptor(context.Background(), repo, h.release)
+	if err != nil {
+		t.Fatalf("Descriptor: %v", err)
+	}
+	if d == nil || d.Name != "from-tagged-tree" {
+		t.Fatalf("Descriptor = %+v; want the tagged tree's", d)
+	}
+	if sawRef != h.release.Tag {
+		t.Errorf("ref = %q; want the whole tag %q", sawRef, h.release.Tag)
 	}
 }

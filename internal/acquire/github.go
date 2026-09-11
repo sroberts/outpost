@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"os/exec"
 	"runtime"
@@ -182,8 +183,11 @@ func (c *Client) Descriptor(ctx context.Context, repo Repo, rel *Release) (*Desc
 	}
 
 	// Fall back to the tagged tree, which is still the code that was released.
+	// The tag is escaped: a git tag may hold "#", "?", "&" or a space, and
+	// interpolating one raw would truncate the query and silently fetch the
+	// default branch's descriptor — exactly the drift this fallback avoids.
 	url := fmt.Sprintf("%s/repos/%s/%s/contents/%s?ref=%s",
-		strings.TrimSuffix(c.BaseURL, "/"), repo.Owner, repo.Name, DescriptorName, rel.Tag)
+		strings.TrimSuffix(c.BaseURL, "/"), repo.Owner, repo.Name, DescriptorName, neturl.QueryEscape(rel.Tag))
 	resp, err := c.get(ctx, url, "application/vnd.github.raw")
 	if err != nil {
 		return nil, fmt.Errorf("fetch %s: %w", DescriptorName, err)

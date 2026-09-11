@@ -383,3 +383,54 @@ func TestAdd_BinaryPathIsAbsoluteWithARelativeHome(t *testing.T) {
 		t.Errorf("binary = %q; want an absolute path", svc.Binary)
 	}
 }
+
+// OUTPOST_PORT is how a service is told its port, so pinning it names the
+// port. Allocating a different one instead guaranteed the very validation
+// error that mismatch exists to raise, which made the flag unusable.
+func TestAdd_EnvOutpostPortSettlesThePort(t *testing.T) {
+	home := t.TempDir()
+	if _, stderr, err := runCLI(t, home, "add", "svc",
+		"--binary", "/bin/ls", "--env", "OUTPOST_PORT=8731"); err != nil {
+		t.Fatalf("add: %v\nstderr: %s", err, stderr)
+	}
+	svc, err := manifest.Load(filepath.Join(home, "services", "svc.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if svc.Port != 8731 {
+		t.Errorf("port = %d; want the pinned 8731", svc.Port)
+	}
+}
+
+// The same for a descriptor: pinning a numeric OUTPOST_PORT made the whole
+// repository uninstallable, and only went unnoticed because the first test
+// written for it used a non-numeric value.
+func TestAdd_DescriptorOutpostPortSettlesThePort(t *testing.T) {
+	home := t.TempDir()
+	useFakeGitHub(t, fakeGitHub(t, []byte("binary"),
+		"name = \"hello\"\nenv = { OUTPOST_PORT = \"8732\" }\n", true))
+
+	if _, stderr, err := runCLI(t, home, "add", "https://github.com/o/r"); err != nil {
+		t.Fatalf("add: %v\nstderr: %s", err, stderr)
+	}
+	svc, err := manifest.Load(filepath.Join(home, "services", "hello.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if svc.Port != 8732 {
+		t.Errorf("port = %d; want the descriptor's pinned 8732", svc.Port)
+	}
+}
+
+// An operator naming both, differently, is a genuine disagreement and must
+// still be refused — with the recourse spelled out.
+func TestAdd_ExplicitPortDisagreeingWithEnvIsStillRefused(t *testing.T) {
+	_, _, err := runCLI(t, t.TempDir(), "add", "svc",
+		"--binary", "/bin/ls", "--env", "OUTPOST_PORT=8731", "--port", "9000")
+	if err == nil {
+		t.Fatal("a port disagreeing with OUTPOST_PORT was accepted")
+	}
+	if !strings.Contains(err.Error(), "pass --port 8731") {
+		t.Errorf("error = %v; want it to name the recourse", err)
+	}
+}

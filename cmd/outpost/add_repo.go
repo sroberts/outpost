@@ -103,9 +103,28 @@ func (a *app) addFromRepo(ref string, opts addOptions) error {
 		port = desc.Port
 	}
 	if port == 0 {
+		// A descriptor pinning OUTPOST_PORT to a literal has named the port as
+		// surely as `port` would; allocating a different one would make the
+		// descriptor unusable.
+		if pinned, ok := manifest.PortInEnv(desc.Env); ok {
+			port = pinned
+		}
+	}
+	if port == 0 {
 		if port, err = allocatePort(); err != nil {
 			return err
 		}
+	}
+	// A descriptor's `port` is the port the service insists on listening on.
+	// An explicit flag still wins — that is the documented rule — but if the
+	// descriptor never templates ${PORT} into its args or env, the service has
+	// no way to learn the flag's value, and Outpost would health-check a port
+	// nothing is listening on. The arg and env spellings of the same mistake
+	// are both caught by validation; this one is invisible without a word.
+	if desc.Port != 0 && port != desc.Port && !desc.TemplatesPort() {
+		fmt.Fprintf(a.err, "outpost: %s asks for port %d and has no ${PORT} in its args or env, "+
+			"but --port %d was given; the service will most likely listen on %d\n",
+			acquire.DescriptorName, desc.Port, port, desc.Port)
 	}
 
 	// Absolute, like the --binary path's: the manifest's binary is resolved by

@@ -100,6 +100,22 @@ func (d *Descriptor) Expand(port int) (args []string, env map[string]string) {
 	return args, env
 }
 
+// TemplatesPort reports whether the descriptor passes the assigned port on to
+// the service, through either args or env.
+func (d *Descriptor) TemplatesPort() bool {
+	for _, a := range d.Args {
+		if strings.Contains(a, "${PORT}") {
+			return true
+		}
+	}
+	for _, v := range d.Env {
+		if strings.Contains(v, "${PORT}") {
+			return true
+		}
+	}
+	return false
+}
+
 // assetName is the release asset to look for on this platform.
 func (d *Descriptor) assetName(goos, goarch string) string {
 	if d == nil || d.Asset == "" {
