@@ -1,6 +1,8 @@
 package main
 
 import (
+	"archive/zip"
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -23,12 +25,21 @@ func fakeGitHub(t *testing.T, binary []byte, descriptor string, withChecksums bo
 	return fakeGitHubWithSum(t, binary, descriptor, withChecksums, "")
 }
 
+// fakeGitHubNamed publishes a single asset under a chosen name.
+func fakeGitHubNamed(t *testing.T, binary []byte, descriptor, assetName string) *httptest.Server {
+	return fakeGitHubFull(t, binary, descriptor, true, "", assetName)
+}
+
 // fakeGitHubWithSum lets a test publish a checksum that does not match the
 // asset, which is the case the verification exists for.
 func fakeGitHubWithSum(t *testing.T, binary []byte, descriptor string, withChecksums bool, forceSum string) *httptest.Server {
+	return fakeGitHubFull(t, binary, descriptor, withChecksums, forceSum,
+		fmt.Sprintf("svc-%s-%s", runtime.GOOS, runtime.GOARCH))
+}
+
+func fakeGitHubFull(t *testing.T, binary []byte, descriptor string, withChecksums bool, forceSum, assetName string) *httptest.Server {
 	t.Helper()
 
-	assetName := fmt.Sprintf("svc-%s-%s", runtime.GOOS, runtime.GOARCH)
 	files := map[string][]byte{assetName: binary}
 	assets := []map[string]any{}
 
@@ -432,5 +443,76 @@ func TestAdd_ExplicitPortDisagreeingWithEnvIsStillRefused(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "pass --port 8731") {
 		t.Errorf("error = %v; want it to name the recourse", err)
+	}
+}
+
+// helloZip is the shape most real releases use: the binary inside an archive,
+// with the usual clutter beside it. yarr, the first repository this was tried
+// against, ships exactly this and nothing else.
+func helloZip(t *testing.T, body string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for _, e := range []struct {
+		name string
+		body string
+		mode os.FileMode
+	}{
+		{"LICENSE", "MIT", 0o644},
+		{"README.md", "# hello", 0o644},
+		{"hello", body, 0o755},
+	} {
+		h := &zip.FileHeader{Name: e.name, Method: zip.Deflate}
+		h.SetMode(e.mode)
+		w, err := zw.CreateHeader(h)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Write([]byte(e.body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+// The case that started this: a release shipping only archives used to fail
+// with "publishes no asset for <platform>", which was not even true.
+func TestAdd_FromAReleaseThatShipsOnlyArchives(t *testing.T) {
+	home := t.TempDir()
+	asset := fmt.Sprintf("hello_%s_%s.zip", runtime.GOOS, runtime.GOARCH)
+	useFakeGitHub(t, fakeGitHubNamed(t, helloZip(t, "#!/bin/sh\nexit 0\n"), "name = \"hello\"\n", asset))
+
+	stdout, stderr, err := runCLI(t, home, "add", "https://github.com/o/r")
+	if err != nil {
+		t.Fatalf("add from an archive release: %v\nstderr: %s", err, stderr)
+	}
+
+	installed := filepath.Join(home, "bin", "hello")
+	got, err := os.ReadFile(installed)
+	if err != nil {
+		t.Fatalf("binary not installed: %v", err)
+	}
+	if string(got) != "#!/bin/sh\nexit 0\n" {
+		t.Errorf("installed the wrong file: %q", got)
+	}
+	fi, err := os.Stat(installed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm()&0o100 == 0 {
+		t.Errorf("installed binary is not executable (%#o)", fi.Mode().Perm())
+	}
+	if !strings.Contains(stdout, "unpacked hello from "+asset) {
+		t.Errorf("stdout does not report the unpacking:\n%s", stdout)
+	}
+	// The archive is what the release checksummed, so verification still holds.
+	if !strings.Contains(stdout, "checksum verified") {
+		t.Errorf("stdout does not report verification:\n%s", stdout)
+	}
+	if _, err := manifest.Load(filepath.Join(home, "services", "hello.toml")); err != nil {
+		t.Errorf("manifest: %v", err)
 	}
 }

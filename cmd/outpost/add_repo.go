@@ -63,6 +63,11 @@ func (a *app) addFromRepo(ref string, opts addOptions) error {
 	defer cancel()
 
 	client := acquireClient()
+	// A choice the operator did not make explicitly belongs on stderr, where
+	// --print's stdout stays clean but the decision is still visible.
+	client.Logf = func(format string, args ...any) {
+		fmt.Fprintf(a.err, "outpost: "+format+"\n", args...)
+	}
 	// Progress goes to stderr so that --print puts nothing but the manifest
 	// on stdout, the way the --binary path does.
 	fmt.Fprintf(a.err, "looking for the latest release of %s…\n", repo)
@@ -166,6 +171,11 @@ func (a *app) addFromRepo(ref string, opts addOptions) error {
 	verified := "unverified"
 	if res.Verified {
 		verified = "checksum verified"
+	}
+	// Worth saying: the operator named a repository, and what landed on disk
+	// came out of an archive rather than being the asset itself.
+	if res.Member != "" {
+		fmt.Fprintf(a.out, "unpacked %s from %s\n", res.Member, asset.Name)
 	}
 	fmt.Fprintf(a.out, "installed %s (%s)\n", dest, verified)
 

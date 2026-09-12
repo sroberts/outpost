@@ -523,7 +523,7 @@ repository's build scripts is a much larger trust decision than downloading a
 binary its author published, and Outpost does not make it on the operator's
 behalf.
 
-Name the asset so it contains the Go `GOOS` and `GOARCH`:
+Name the asset so it contains the platform:
 
 ```
 yourservice-linux-amd64
@@ -531,12 +531,19 @@ yourservice-linux-arm64
 yourservice-darwin-arm64
 ```
 
-That is what `go build` users produce anyway, and it is what Outpost's own
-release workflow does. If your names differ, say so in the descriptor's `asset`
-field below rather than renaming them.
+Go's `GOOS`/`GOARCH` spellings are preferred, but the common alternatives are
+understood too — `macos`, `osx` and `apple` for darwin, `x86_64` and `x64` for
+amd64, `aarch64` for arm64, `i386` for 386, `win` for windows.
 
-Archives (`.tar.gz`, `.zip`) are skipped, not unpacked — publish the bare
-binary alongside them if you also ship archives.
+**Archives are unpacked.** A `.tar.gz` or `.zip` is fine — Outpost takes the
+binary out of it, choosing the file named after the service, or the only
+executable if there is exactly one. A bare binary is preferred when you publish
+both. `.tar.xz`, `.deb`, `.rpm` and friends are not opened.
+
+If your release ships variants for the same platform — a `_gui` build beside
+the plain one — Outpost takes the plainest name, and says which it passed over.
+That only applies when one name is a prefix of the other, so two genuinely
+different programs sharing a platform are still an error rather than a guess.
 
 ### Publish checksums
 
