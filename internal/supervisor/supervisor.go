@@ -660,10 +660,17 @@ func (s *Supervisor) attachToTailnet(ctx context.Context, st *svcState) {
 // operator's attention, so the login URL reaches the activity feed that
 // `outpost logs --events` and the dashboard already read.
 //
-// Only transitions into needing authorisation or failing are recorded, and
-// only when the detail actually changed. The attached case is deliberately
-// silent: a crash-looping service already writes started and exited rows, and
-// two more per restart would drown the feed it is meant to make readable.
+// Only transitions into needing authorisation or failing are recorded. The
+// attached case is deliberately silent: a crash-looping service already writes
+// started and exited rows, and two more per restart would drown the feed it is
+// meant to make readable.
+//
+// A restart must not re-arm the event either. Every restart detaches the node
+// and builds a fresh one, which passes through starting before it settles and
+// may be issued a new login URL. So the transient states are not allowed to
+// overwrite what was recorded, and needing authorisation is compared by state
+// alone: an unauthorised service stuck in a restart loop writes one row, not
+// one per cycle. `outpost status` always has the current URL.
 func (s *Supervisor) noteTailnetState(st *svcState) {
 	if s.tailnetStatus == nil {
 		return
@@ -673,7 +680,10 @@ func (s *Supervisor) noteTailnetState(st *svcState) {
 		return
 	}
 
-	detail := ns.LoginURL
+	if ns.State == tailnet.StateStarting || ns.State == tailnet.StateUnknown {
+		return
+	}
+	var detail string
 	if ns.State == tailnet.StateFailed {
 		detail = ns.Detail
 	}

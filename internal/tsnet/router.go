@@ -226,7 +226,9 @@ func (r *Router) Attach(ctx context.Context, svc *manifest.Service) error {
 
 	// The entry is registered before any slow work starts, so concurrent
 	// callers see it and return rather than building a second node against the
-	// same state directory.
+	// same state directory. It is registered already starting: a node with no
+	// state reads as unknown, which every renderer shows as the configured name,
+	// so an unset state here would briefly pass for an attached node.
 	nodeCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	n := &node{
 		name:     svc.Name,
@@ -234,6 +236,8 @@ func (r *Router) Attach(ctx context.Context, svc *manifest.Service) error {
 		port:     svc.Port,
 		cancel:   cancel,
 		done:     make(chan struct{}),
+		state:    tailnet.StateStarting,
+		since:    r.now(),
 	}
 	r.nodes[svc.Name] = n
 	r.mu.Unlock()
@@ -246,10 +250,6 @@ func (r *Router) Attach(ctx context.Context, svc *manifest.Service) error {
 // node's context is cancelled by Detach or Close.
 func (r *Router) bringUp(ctx context.Context, n *node) {
 	defer close(n.done)
-
-	n.mu.Lock()
-	n.state, n.since = tailnet.StateStarting, r.now()
-	n.mu.Unlock()
 
 	// Every input here is fixed for the life of the node: the router's auth key
 	// and verbosity are set once in New, and the node's name and hostname never

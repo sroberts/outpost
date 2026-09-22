@@ -50,7 +50,10 @@ func waitingRouter(t *testing.T, name string, port int) (*Router, *stubClock, ch
 	t.Helper()
 	clock := newStubClock()
 	deliver := make(chan tailnetNode, 1)
+	entered := make(chan struct{})
+	var enterOnce sync.Once
 	r := testRouter(t, func(ctx context.Context, cfg nodeConfig) (tailnetNode, error) {
+		enterOnce.Do(func() { close(entered) })
 		select {
 		case n := <-deliver:
 			return n, nil
@@ -63,10 +66,13 @@ func waitingRouter(t *testing.T, name string, port int) (*Router, *stubClock, ch
 		t.Fatalf("Attach: %v", err)
 	}
 	// Wait for the attach goroutine to be inside startNode, where tsnet's own
-	// logging happens: a login URL cannot arrive before then.
-	waitFor(t, 2*time.Second, "the attach to start", func() bool {
-		return nodeState(t, r, name) == tailnet.StateStarting
-	})
+	// logging happens: a login URL cannot arrive before then. The node reads as
+	// starting from the moment Attach returns, so its state cannot say this.
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the attach never reached startNode")
+	}
 	return r, clock, deliver
 }
 
