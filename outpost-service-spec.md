@@ -532,13 +532,19 @@ yourservice-darwin-arm64
 ```
 
 Go's `GOOS`/`GOARCH` spellings are preferred, but the common alternatives are
-understood too — `macos`, `osx` and `apple` for darwin, `x86_64` and `x64` for
-amd64, `aarch64` for arm64, `i386` for 386, `win` for windows.
+understood too — `macos`, `osx`, `apple` and `mac` for darwin, `x86_64`,
+`x86-64` and `x64` for amd64, `aarch64` for arm64, `i386`, `i686` and `x86`
+for 386, `armv7`/`armv6`/`armhf` for arm, `win` for windows. They match as
+whole words between `-`, `_` and `.`, so `hmac-proxy` does not read as a mac
+build.
 
 **Archives are unpacked.** A `.tar.gz` or `.zip` is fine — Outpost takes the
-binary out of it, choosing the file named after the service, or the only
+binary out of it, choosing the executable named after the service (or after
+the program the asset is named for, so `--name` does not hide it), or the only
 executable if there is exactly one. A bare binary is preferred when you publish
-both. `.tar.xz`, `.deb`, `.rpm` and friends are not opened.
+both. Only those shapes are installed: a bare name with no extension, or one of
+those two archives. `.tar.xz`, `.gz`, `.deb`, `.apk`, checksums and signatures
+are never taken for the binary.
 
 If your release ships variants for the same platform — a `_gui` build beside
 the plain one — Outpost takes the plainest name, and says which it passed over.

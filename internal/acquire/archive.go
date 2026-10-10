@@ -4,12 +4,16 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"path"
-	"sort"
+	"runtime"
+	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // Archive kinds Outpost can take a binary out of. Most GitHub releases ship
@@ -21,72 +25,179 @@ const (
 	archiveZip
 )
 
+// archiveExts is the one table of suffixes Outpost unpacks. Classifying and
+// stripping both read it, so adding a format cannot update one and not the
+// other.
+var archiveExts = []struct {
+	ext  string
+	kind int
+}{
+	{".tar.gz", archiveTarGz},
+	{".tgz", archiveTarGz},
+	{".zip", archiveZip},
+}
+
+// splitArchiveExt separates a supported archive suffix from the name before it.
+func splitArchiveExt(name string) (string, int) {
+	lower := strings.ToLower(name)
+	for _, a := range archiveExts {
+		if strings.HasSuffix(lower, a.ext) {
+			return name[:len(name)-len(a.ext)], a.kind
+		}
+	}
+	return name, archiveNone
+}
+
 // archiveKind classifies an asset name.
 func archiveKind(name string) int {
-	lower := strings.ToLower(name)
-	switch {
-	case strings.HasSuffix(lower, ".tar.gz"), strings.HasSuffix(lower, ".tgz"):
-		return archiveTarGz
-	case strings.HasSuffix(lower, ".zip"):
-		return archiveZip
-	}
-	return archiveNone
+	_, kind := splitArchiveExt(name)
+	return kind
 }
 
-// unsupportedArchiveExts are archives Outpost will not open: they need tooling
-// it does not carry, or they are package formats with their own installer.
-var unsupportedArchiveExts = []string{".tar.xz", ".tar.bz2", ".tar.zst", ".7z", ".deb", ".rpm", ".pkg", ".dmg", ".msi"}
-
-// signatureExts are never installable under any circumstances.
-var signatureExts = []string{".sig", ".asc", ".pem", ".pub", ".minisig", ".sbom", ".json", ".txt", ".md"}
-
-func hasSuffixAny(lower string, exts []string) bool {
-	for _, ext := range exts {
-		if strings.HasSuffix(lower, ext) {
-			return true
-		}
-	}
-	return false
+// stripArchiveExt drops a recognised archive suffix so two names can be
+// compared on what they actually say.
+func stripArchiveExt(name string) string {
+	stem, _ := splitArchiveExt(name)
+	return stem
 }
 
-// isSignature reports an asset that accompanies a release rather than being
-// part of it.
-func isSignature(name string) bool { return hasSuffixAny(strings.ToLower(name), signatureExts) }
-
-// isUnsupportedArchive reports an archive Outpost cannot open.
-func isUnsupportedArchive(name string) bool {
-	return hasSuffixAny(strings.ToLower(name), unsupportedArchiveExts)
+// installable reports whether an asset has the shape of something Outpost can
+// install: an archive it unpacks, or a bare executable.
+//
+// It is an allowlist on purpose. The denylist it replaced (.sig, .tar.xz, .deb,
+// …) was never complete, and every gap — a .tar.gz.sha512, a .gz, an .apk —
+// was chmod +x'd and installed as the service, failing only at exec time.
+func installable(name, goos string) bool {
+	return archiveKind(name) != archiveNone || isBareExecutable(name, goos)
 }
 
-// skipInArchive are files that sit beside a binary in a release archive and
-// are never the binary.
-func skipInArchive(name string) bool {
-	base := strings.ToLower(path.Base(name))
-	if strings.HasPrefix(base, ".") || strings.HasPrefix(base, "._") {
+// isBareExecutable reports a name with no file extension, which is how
+// executables are named everywhere but Windows, or a ".bin" that some
+// projects add to say exactly that. A final dot segment holding a
+// separator or only digits is a version ("svc_1.2.3_linux_amd64",
+// "svc-1.2.5"), not an extension.
+func isBareExecutable(name, goos string) bool {
+	base := path.Base(name)
+	i := strings.LastIndexByte(base, '.')
+	if i < 0 {
 		return true
 	}
-	for _, prefix := range []string{"license", "licence", "readme", "changelog", "notice", "copying", "authors", "contributing"} {
-		if strings.HasPrefix(base, prefix) {
-			return true
+	ext := strings.ToLower(base[i+1:])
+	switch {
+	case ext == "exe":
+		return goos == "windows"
+	case ext == "bin":
+		return true
+	case ext == "":
+		return false
+	case strings.ContainsAny(ext, "-_"):
+		return true
+	}
+	for _, r := range ext {
+		if r < '0' || r > '9' {
+			return false
 		}
 	}
-	for _, ext := range []string{".md", ".txt", ".html", ".1", ".5", ".yml", ".yaml", ".json", ".toml", ".service", ".sh", ".bash", ".zsh", ".fish", ".ps1"} {
-		if strings.HasSuffix(base, ext) {
+	return true
+}
+
+// Printable returns s unchanged, or Go-quoted when it holds anything that is
+// not printable. Archive member names are arbitrary bytes chosen by whoever
+// built the archive — unlike asset names, which GitHub sanitises — and an
+// escape sequence printed verbatim can rewrite the operator's terminal,
+// including the line saying whether the download was verified.
+func Printable(s string) string {
+	if !utf8.ValidString(s) {
+		return strconv.Quote(s)
+	}
+	for _, r := range s {
+		if !unicode.IsPrint(r) {
+			return strconv.Quote(s)
+		}
+	}
+	return s
+}
+
+// Listing an archive decompresses all of it, and a small tar.gz of empty
+// headers can expand by orders of magnitude. These bound that work; the
+// chosen member is separately bounded by maxAssetBytes.
+const (
+	maxArchiveEntries = 100_000
+	maxUnpackedBytes  = 4 * maxAssetBytes
+)
+
+// unpackLimitError reports a stream that ran past its byte limit.
+type unpackLimitError int64
+
+func (e unpackLimitError) Error() string {
+	return fmt.Sprintf("larger than the %d MiB limit", int64(e)>>20)
+}
+
+// boundedReader stops at a byte limit and when ctx is done, so unpacking is
+// covered by the same deadline as the download that preceded it.
+type boundedReader struct {
+	ctx   context.Context
+	r     io.Reader
+	limit int64
+	left  int64 // bytes still allowed, plus one
+}
+
+func newBoundedReader(ctx context.Context, r io.Reader, limit int64) *boundedReader {
+	return &boundedReader{ctx: ctx, r: r, limit: limit, left: limit + 1}
+}
+
+func (b *boundedReader) Read(p []byte) (int, error) {
+	if err := b.ctx.Err(); err != nil {
+		return 0, err
+	}
+	if b.left <= 0 {
+		return 0, unpackLimitError(b.limit)
+	}
+	if int64(len(p)) > b.left {
+		p = p[:b.left]
+	}
+	n, err := b.r.Read(p)
+	b.left -= int64(n)
+	if b.left <= 0 {
+		return n, unpackLimitError(b.limit)
+	}
+	return n, err
+}
+
+// docNames ship beside a binary and are never it. They match as a whole word
+// ("LICENSE", "LICENSE-MIT"), not as a prefix, so a binary called "licensed"
+// or "noticeboard" is not thrown away.
+var docNames = []string{"license", "licence", "readme", "changelog", "notice", "copying", "authors", "contributing"}
+
+func isDocName(base string) bool {
+	lower := strings.ToLower(base)
+	for _, d := range docNames {
+		if lower == d || (strings.HasPrefix(lower, d) && strings.ContainsRune("-_.", rune(lower[len(d)]))) {
 			return true
 		}
 	}
 	return false
 }
 
-// member is one candidate file inside an archive.
+// member is one regular file inside an archive.
 type member struct {
-	name       string // full path within the archive
+	name  string // full path within the archive
+	index int    // entry position, so the copy opens exactly the entry judged
+	// executable is false only when the archive records a mode and it has no
+	// execute bit. Zips written on Windows record none, and treating those as
+	// non-executable would make their binaries unfindable.
 	executable bool
-	size       int64
 }
 
-// extractBinary copies the service's executable out of the archive at src into
-// dest, and reports which member it took.
+// extractBinary is extractMember for the host platform, with no deadline and a
+// single name to look for.
+func extractBinary(src, dest, wantName string, kind int) (string, error) {
+	return extractMember(context.Background(), src, dest, kind, runtime.GOOS, []string{wantName})
+}
+
+// extractMember copies the service's executable out of the archive at src
+// into dest, and reports which member it took. wantNames are the names the
+// binary may go by, most preferred first.
 //
 // It never writes the archive's own paths. Only one file is produced, at a
 // location the caller chose, so a "zip slip" entry named "../../etc/cron.d/x"
@@ -94,225 +205,242 @@ type member struct {
 // place one. Symlinks and directories are ignored for the same reason: a
 // binary is a regular file, and anything else in there is not what we came
 // for.
-func extractBinary(src, dest, wantName string, kind int) (string, error) {
-	members, err := listMembers(src, kind)
-	if err != nil {
-		return "", err
-	}
-	chosen, err := chooseMember(members, wantName)
-	if err != nil {
-		return "", err
-	}
-	if err := copyMember(src, dest, chosen, kind); err != nil {
-		return "", err
-	}
-	return chosen, nil
-}
-
-// listMembers enumerates the regular files in an archive.
-func listMembers(src string, kind int) ([]member, error) {
+func extractMember(ctx context.Context, src, dest string, kind int, goos string, wantNames []string) (string, error) {
 	switch kind {
 	case archiveTarGz:
-		return listTarGz(src)
+		members, err := listTarGz(ctx, src)
+		if err != nil {
+			return "", err
+		}
+		chosen, err := chooseMember(members, wantNames, goos)
+		if err != nil {
+			return "", err
+		}
+		// A second pass over the stream: gzip cannot seek, and spooling every
+		// candidate to disk during the first pass to avoid it would cost more
+		// than decompressing twice.
+		err = walkTarGz(ctx, src, func(i int, _ *tar.Header, r io.Reader) (bool, error) {
+			if i != chosen.index {
+				return false, nil
+			}
+			return true, writeMember(ctx, r, dest, chosen.name)
+		})
+		return chosen.name, err
+
 	case archiveZip:
-		return listZip(src)
+		zr, err := zip.OpenReader(src)
+		if err != nil {
+			return "", fmt.Errorf("read zip: %w", err)
+		}
+		defer zr.Close()
+		if len(zr.File) > maxArchiveEntries {
+			return "", fmt.Errorf("the archive holds more than %d entries", maxArchiveEntries)
+		}
+		chosen, err := chooseMember(zipMembers(zr), wantNames, goos)
+		if err != nil {
+			return "", err
+		}
+		rc, err := zr.File[chosen.index].Open()
+		if err != nil {
+			return "", fmt.Errorf("extract %s: %w", Printable(chosen.name), err)
+		}
+		defer rc.Close()
+		return chosen.name, writeMember(ctx, rc, dest, chosen.name)
 	}
-	return nil, fmt.Errorf("unsupported archive")
+	return "", fmt.Errorf("unsupported archive")
 }
 
-func listTarGz(src string) ([]member, error) {
+// walkTarGz calls fn for each entry until fn reports it is done, bounded in
+// entries, decompressed bytes and time.
+func walkTarGz(ctx context.Context, src string, fn func(i int, h *tar.Header, r io.Reader) (bool, error)) error {
 	f, err := os.Open(src)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer f.Close()
 	gz, err := gzip.NewReader(f)
 	if err != nil {
-		return nil, fmt.Errorf("read gzip: %w", err)
+		return fmt.Errorf("read gzip: %w", err)
 	}
 	defer gz.Close()
 
-	var out []member
-	tr := tar.NewReader(gz)
-	for {
+	tr := tar.NewReader(newBoundedReader(ctx, gz, maxUnpackedBytes))
+	for i := 0; ; i++ {
+		if i >= maxArchiveEntries {
+			return fmt.Errorf("the archive holds more than %d entries", maxArchiveEntries)
+		}
 		h, err := tr.Next()
 		if err == io.EOF {
-			break
+			return nil
 		}
 		if err != nil {
-			return nil, fmt.Errorf("read tar: %w", err)
+			return fmt.Errorf("read tar: %w", err)
 		}
-		if h.Typeflag != tar.TypeReg {
-			continue
+		done, err := fn(i, h, tr)
+		if err != nil || done {
+			return err
 		}
-		out = append(out, member{
-			name:       h.Name,
-			executable: h.FileInfo().Mode().Perm()&0o111 != 0,
-			size:       h.Size,
-		})
 	}
-	return out, nil
 }
 
-func listZip(src string) ([]member, error) {
-	zr, err := zip.OpenReader(src)
-	if err != nil {
-		return nil, fmt.Errorf("read zip: %w", err)
-	}
-	defer zr.Close()
-
+// listTarGz enumerates the regular files in a tar.gz. A name that appears
+// twice keeps only its last entry, which is the one tar itself would extract.
+func listTarGz(ctx context.Context, src string) ([]member, error) {
 	var out []member
-	for _, f := range zr.File {
-		if f.FileInfo().IsDir() || !f.Mode().IsRegular() {
-			continue
+	seen := map[string]int{}
+	err := walkTarGz(ctx, src, func(i int, h *tar.Header, _ io.Reader) (bool, error) {
+		if h.Typeflag != tar.TypeReg {
+			return false, nil
 		}
-		out = append(out, member{
-			name:       f.Name,
-			executable: f.Mode().Perm()&0o111 != 0,
-			size:       int64(f.UncompressedSize64),
-		})
-	}
-	return out, nil
+		m := member{name: h.Name, index: i, executable: h.FileInfo().Mode().Perm()&0o111 != 0}
+		if at, ok := seen[h.Name]; ok {
+			out[at] = m
+			return false, nil
+		}
+		seen[h.Name] = len(out)
+		out = append(out, m)
+		return false, nil
+	})
+	return out, err
 }
 
-// chooseMember picks the binary. A file named after the service wins outright;
-// otherwise the sole executable does. Anything else is ambiguous and is an
-// error naming what was found, because guessing wrong installs the wrong file
-// and the failure surfaces much later as an exec error.
-func chooseMember(members []member, wantName string) (string, error) {
-	var usable []member
+// zipMembers enumerates the regular files in a zip, with the same
+// last-entry-wins rule for repeated names as listTarGz.
+func zipMembers(zr *zip.ReadCloser) []member {
+	var out []member
+	seen := map[string]int{}
+	for i, f := range zr.File {
+		if !f.Mode().IsRegular() {
+			continue
+		}
+		// Only Unix and macOS creators record a mode worth reading.
+		creator := f.CreatorVersion >> 8
+		modeKnown := creator == 3 || creator == 19
+		m := member{name: f.Name, index: i, executable: !modeKnown || f.Mode().Perm()&0o111 != 0}
+		if at, ok := seen[f.Name]; ok {
+			out[at] = m
+			continue
+		}
+		seen[f.Name] = len(out)
+		out = append(out, m)
+	}
+	return out
+}
+
+// chooseMember picks the binary. An executable named for the service — or for
+// the program the asset is named after — wins; otherwise the sole executable
+// does. Anything else is an error naming what was found, because guessing
+// wrong installs the wrong file and the failure surfaces much later as an
+// exec error.
+func chooseMember(members []member, wantNames []string, goos string) (member, error) {
+	var shaped []member
+	sawExe := false
 	for _, m := range members {
-		if skipInArchive(m.name) || isSignature(m.name) {
+		base := path.Base(m.name)
+		if strings.HasPrefix(base, ".") {
 			continue
 		}
-		usable = append(usable, m)
-	}
-	if len(usable) == 0 {
-		return "", fmt.Errorf("the archive holds no file that looks like a binary")
+		// The same shape test as for release assets: no extension means no
+		// nested archive, script, man page or data file installed as the
+		// binary.
+		if !isBareExecutable(base, goos) {
+			sawExe = sawExe || strings.EqualFold(path.Ext(base), ".exe")
+			continue
+		}
+		shaped = append(shaped, m)
 	}
 
-	for _, m := range usable {
-		if strings.EqualFold(path.Base(m.name), wantName) {
-			return m.name, nil
+	named := func(from []member, want string) []member {
+		var out []member
+		for _, m := range from {
+			base := path.Base(m.name)
+			if strings.EqualFold(base, want) || (goos == "windows" && strings.EqualFold(base, want+".exe")) {
+				out = append(out, m)
+			}
 		}
+		return out
 	}
-	// A Windows-style name is still the right binary on the wrong platform;
-	// matching it keeps the error honest rather than reporting ambiguity.
-	for _, m := range usable {
-		if strings.EqualFold(strings.TrimSuffix(path.Base(m.name), ".exe"), wantName) {
-			return m.name, nil
+
+	// A name match beats everything, but only an executable one: a
+	// completion script or doc page sharing the service's name is not it.
+	for _, want := range wantNames {
+		switch execs := executables(named(shaped, want)); len(execs) {
+		case 0:
+			continue
+		case 1:
+			return execs[0], nil
+		default:
+			return member{}, fmt.Errorf("the archive holds %d executables named %q (%s); "+
+				"which one is the service cannot be told from the archive, so nothing was installed",
+				len(execs), want, quotedNames(execs))
 		}
 	}
 
-	var executables []member
-	for _, m := range usable {
-		if m.executable {
-			executables = append(executables, m)
+	var usable []member
+	for _, m := range shaped {
+		if !isDocName(path.Base(m.name)) {
+			usable = append(usable, m)
 		}
 	}
-	if len(executables) == 1 {
-		return executables[0].name, nil
+	execs := executables(usable)
+	if len(execs) == 1 {
+		return execs[0], nil
 	}
-	if len(usable) == 1 {
-		return usable[0].name, nil
+	if len(execs) == 0 {
+		// Some archivers drop execute bits altogether. A file named for the
+		// service is then the best evidence left, but only when it is the
+		// only one.
+		for _, want := range wantNames {
+			if n := named(shaped, want); len(n) == 1 {
+				return n[0], nil
+			}
+		}
+		if sawExe && len(usable) == 0 {
+			return member{}, fmt.Errorf("the archive holds only Windows executables (.exe), which cannot run on %s", goos)
+		}
+		if len(usable) == 0 {
+			return member{}, fmt.Errorf("the archive holds no file that looks like a binary")
+		}
+		execs = usable
 	}
 
-	names := make([]string, 0, len(usable))
-	for _, m := range usable {
-		names = append(names, m.name)
-	}
-	sort.Strings(names)
-	return "", fmt.Errorf("the archive holds %d candidate files (%s) and none is named %q; "+
+	return member{}, fmt.Errorf("the archive holds %d candidate files (%s) and none is named %q; "+
 		"name the service with --name, or the repository can set `name` in %s",
-		len(names), strings.Join(names, ", "), wantName, DescriptorName)
+		len(execs), quotedNames(execs), wantNames[0], DescriptorName)
 }
 
-// copyMember writes one member of the archive to dest.
-func copyMember(src, dest, want string, kind int) error {
+func executables(members []member) []member {
+	var out []member
+	for _, m := range members {
+		if m.executable {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// quotedNames lists member names for an error, quoted because they come from
+// the archive and may hold anything.
+func quotedNames(members []member) string {
+	names := make([]string, 0, len(members))
+	for _, m := range members {
+		names = append(names, strconv.Quote(m.name))
+	}
+	return strings.Join(names, ", ")
+}
+
+// writeMember copies one member's contents to dest.
+func writeMember(ctx context.Context, r io.Reader, dest, name string) error {
 	out, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o755)
 	if err != nil {
 		return err
 	}
 	defer out.Close()
 
-	var rc io.ReadCloser
-	switch kind {
-	case archiveTarGz:
-		rc, err = openTarMember(src, want)
-	case archiveZip:
-		rc, err = openZipMember(src, want)
-	default:
-		return fmt.Errorf("unsupported archive")
-	}
-	if err != nil {
-		return err
-	}
-	defer rc.Close()
-
 	// Bounded like any other download: an archive can claim a far larger
 	// uncompressed size than it occupies.
-	n, err := io.Copy(out, io.LimitReader(rc, maxAssetBytes+1))
-	if err != nil {
-		return fmt.Errorf("extract %s: %w", want, err)
-	}
-	if n > maxAssetBytes {
-		return fmt.Errorf("extract %s: larger than the %d MiB limit", want, maxAssetBytes>>20)
+	if _, err := io.Copy(out, newBoundedReader(ctx, r, maxAssetBytes)); err != nil {
+		return fmt.Errorf("extract %s: %w", Printable(name), err)
 	}
 	return out.Close()
-}
-
-// tarMember pairs the entry reader with the files that must outlive it.
-type tarMember struct {
-	io.Reader
-	closers []io.Closer
-}
-
-func (t *tarMember) Close() error {
-	for _, c := range t.closers {
-		_ = c.Close()
-	}
-	return nil
-}
-
-func openTarMember(src, want string) (io.ReadCloser, error) {
-	f, err := os.Open(src)
-	if err != nil {
-		return nil, err
-	}
-	gz, err := gzip.NewReader(f)
-	if err != nil {
-		f.Close()
-		return nil, err
-	}
-	tr := tar.NewReader(gz)
-	for {
-		h, err := tr.Next()
-		if err != nil {
-			gz.Close()
-			f.Close()
-			return nil, fmt.Errorf("%s not found in the archive", want)
-		}
-		if h.Typeflag == tar.TypeReg && h.Name == want {
-			return &tarMember{Reader: tr, closers: []io.Closer{gz, f}}, nil
-		}
-	}
-}
-
-func openZipMember(src, want string) (io.ReadCloser, error) {
-	zr, err := zip.OpenReader(src)
-	if err != nil {
-		return nil, err
-	}
-	for _, f := range zr.File {
-		if f.Name == want {
-			rc, err := f.Open()
-			if err != nil {
-				zr.Close()
-				return nil, err
-			}
-			return &tarMember{Reader: rc, closers: []io.Closer{rc, zr}}, nil
-		}
-	}
-	zr.Close()
-	return nil, fmt.Errorf("%s not found in the archive", want)
 }

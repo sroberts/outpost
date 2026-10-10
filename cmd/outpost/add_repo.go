@@ -175,7 +175,7 @@ func (a *app) addFromRepo(ref string, opts addOptions) error {
 	// Worth saying: the operator named a repository, and what landed on disk
 	// came out of an archive rather than being the asset itself.
 	if res.Member != "" {
-		fmt.Fprintf(a.out, "unpacked %s from %s\n", res.Member, asset.Name)
+		fmt.Fprintf(a.out, "unpacked %s from %s\n", acquire.Printable(res.Member), asset.Name)
 	}
 	fmt.Fprintf(a.out, "installed %s (%s)\n", dest, verified)
 

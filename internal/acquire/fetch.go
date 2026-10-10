@@ -40,10 +40,11 @@ var checksumNames = []string{"SHA256SUMS", "sha256sums.txt", "checksums.txt", "S
 
 // SelectAsset picks the release asset holding the binary for this platform.
 //
-// A descriptor's asset template wins outright; otherwise the name has to
-// mention both GOOS and GOARCH, which is what a conventional Go release
-// already produces. Checksum manifests and archives are skipped: this installs
-// a binary, and silently handing someone a .tar.gz named as one would fail
+// A descriptor's asset template wins outright; otherwise the name has to name
+// the platform, in Go's spelling or a common alternative (see matchesPlatform).
+// Only something Outpost can install is considered: a bare binary, preferred,
+// or a .tar.gz or .zip it unpacks. Checksums, signatures and every other
+// format are skipped rather than installed as the binary, which would fail
 // later and less clearly.
 func (c *Client) SelectAsset(rel *Release, d *Descriptor) (Asset, error) {
 	if want := d.assetName(c.GOOS, c.GOARCH); want != "" {
@@ -52,7 +53,7 @@ func (c *Client) SelectAsset(rel *Release, d *Descriptor) (Asset, error) {
 				// A .tar.gz or .zip is unpacked; anything else that is not a
 				// binary would be chmod +x'd and fail later at exec time with
 				// an error naming neither the file nor the descriptor.
-				if isChecksumName(a.Name) || isSignature(a.Name) || isUnsupportedArchive(a.Name) {
+				if isChecksumName(a.Name) || !installable(a.Name, c.GOOS) {
 					return Asset{}, fmt.Errorf("%s names %q, which is not a binary and not an archive Outpost can open "+
 						"(.tar.gz and .zip are); name the binary or a supported archive",
 						DescriptorName, a.Name)
@@ -65,11 +66,7 @@ func (c *Client) SelectAsset(rel *Release, d *Descriptor) (Asset, error) {
 
 	var matches, archives []Asset
 	for _, a := range rel.Assets {
-		name := strings.ToLower(a.Name)
-		if isChecksumName(a.Name) || isSignature(a.Name) || isUnsupportedArchive(a.Name) {
-			continue
-		}
-		if !matchesOS(name, c.GOOS) || !matchesArch(name, c.GOARCH) {
+		if isChecksumName(a.Name) || !installable(a.Name, c.GOOS) || !matchesPlatform(a.Name, c.GOOS, c.GOARCH) {
 			continue
 		}
 		if archiveKind(a.Name) != archiveNone {
@@ -98,7 +95,7 @@ func (c *Client) SelectAsset(rel *Release, d *Descriptor) (Asset, error) {
 	// cannot separate them, and failing would turn an ordinary release into a
 	// dead end.
 	if plain, others, ok := plainest(matches); ok {
-		c.logf("release %s also publishes %s; taking the plain build %s",
+		c.logf("release %s also publishes %s; taking %s",
 			rel.Tag, strings.Join(others, ", "), plain.Name)
 		return plain, nil
 	}
@@ -122,20 +119,24 @@ func (c *Client) SelectAsset(rel *Release, d *Descriptor) (Asset, error) {
 // to share a platform, and choosing between those two is not something to
 // guess at. Length alone would have conflated them.
 func plainest(matches []Asset) (Asset, []string, bool) {
+	stemOf := func(a Asset) string { return strings.ToLower(stripArchiveExt(a.Name)) }
+	// Compared on the stem: the extension says nothing about which build is
+	// plainer, and ".zip" being shorter than ".tar.gz" once made a variant the
+	// base. Ties go to the lexically first name so asset order cannot decide.
 	best := matches[0]
 	for _, a := range matches[1:] {
-		if len(a.Name) < len(best.Name) {
+		if s, b := stemOf(a), stemOf(best); len(s) < len(b) || (len(s) == len(b) && a.Name < best.Name) {
 			best = a
 		}
 	}
-	stem := strings.ToLower(stripArchiveExt(best.Name))
+	stem := stemOf(best)
 
 	others := make([]string, 0, len(matches)-1)
 	for _, a := range matches {
 		if a.Name == best.Name {
 			continue
 		}
-		if !strings.HasPrefix(strings.ToLower(stripArchiveExt(a.Name)), stem) {
+		if !strings.HasPrefix(stemOf(a), stem) {
 			return Asset{}, nil, false
 		}
 		others = append(others, a.Name)
@@ -147,77 +148,111 @@ func plainest(matches []Asset) (Asset, []string, bool) {
 	return best, others, true
 }
 
-// stripArchiveExt drops a recognised archive suffix so two names can be
-// compared on what they actually say.
-func stripArchiveExt(name string) string {
-	lower := strings.ToLower(name)
-	for _, ext := range []string{".tar.gz", ".tgz", ".zip"} {
-		if strings.HasSuffix(lower, ext) {
-			return name[:len(name)-len(ext)]
+// goosSpellings and goarchSpellings are the words releases use for a
+// platform, Go's own first. Plenty of projects ship "macos" or "x86_64";
+// refusing those made `outpost add <url>` fail on naming alone.
+var goosSpellings = map[string][]string{
+	"darwin":  {"darwin", "macos", "osx", "apple", "mac"},
+	"windows": {"windows", "win"},
+}
+
+var goarchSpellings = map[string][]string{
+	"amd64": {"amd64", "x86_64", "x64"},
+	"arm64": {"arm64", "aarch64", "armv8"},
+	"386":   {"386", "i386", "i686", "x86"},
+	"arm":   {"arm", "armv7", "armv7l", "armv6", "armv6l", "armhf"},
+}
+
+func spellings(table map[string][]string, goName string) []string {
+	if s, ok := table[goName]; ok {
+		return s
+	}
+	return []string{goName}
+}
+
+// nameWords splits an asset name into the lowercased words it is built from.
+// x86_64 and x86-64 are one word that the separators would split in two.
+func nameWords(name string) []string {
+	fields := strings.FieldsFunc(strings.ToLower(name), isNameSeparator)
+	words := make([]string, 0, len(fields))
+	for i := 0; i < len(fields); i++ {
+		if fields[i] == "x86" && i+1 < len(fields) && fields[i+1] == "64" {
+			words = append(words, "x86_64")
+			i++
+			continue
 		}
+		words = append(words, fields[i])
 	}
-	return name
+	return words
 }
 
-// archOverlaps lists, for each architecture that is a prefix or narrower
-// relative of another, the names whose presence means the asset is for the
-// wider one. "arm64" contains "arm", so a plain Contains would hand a 32-bit
-// ARM host an arm64 binary that cannot exec at all; ppc64/ppc64le, the mips
-// family and x86/x86_64 have the same shape.
-var archOverlaps = map[string][]string{
-	"arm":    {"arm64", "armv8", "aarch64"},
-	"mips":   {"mips64", "mips64le", "mipsle"},
-	"mips64": {"mips64le"},
-	"ppc64":  {"ppc64le"},
-	"386":    {"x86_64", "amd64"},
+func isNameSeparator(r rune) bool { return r == '-' || r == '_' || r == '.' || r == ' ' }
+
+// matchesPlatform reports whether an asset name has a word for this GOOS and
+// one for this GOARCH.
+//
+// Whole words, never substrings. A substring test let "mac" match "hmac",
+// "win" match "darwin", "arm" match "arm64" and "x86" match "x86_64", and every
+// alias added to fix one spelling brought new collisions with it.
+func matchesPlatform(name, goos, goarch string) bool {
+	words := nameWords(name)
+	return hasWord(words, spellings(goosSpellings, goos)) && hasWord(words, spellings(goarchSpellings, goarch))
 }
 
-// goosAliases and goarchAliases are the spellings releases use that are not
-// Go's. Plenty of projects ship "macos" or "x86_64"; refusing those made
-// `outpost add <url>` fail on naming alone, with an error blaming the platform
-// rather than the vocabulary.
-var goosAliases = map[string][]string{
-	"darwin":  {"macos", "osx", "apple", "mac"},
-	"windows": {"win"},
-}
-
-var goarchAliases = map[string][]string{
-	"amd64": {"x86_64", "x64"},
-	"arm64": {"aarch64", "armv8"},
-	"386":   {"i386", "x86"},
-	"arm":   {"armv7", "armv6", "armhf"},
-}
-
-// matchesOS is a substring match over GOOS and the spellings that mean it.
-func matchesOS(lowerName, goos string) bool {
-	if strings.Contains(lowerName, goos) {
-		return true
-	}
-	for _, alias := range goosAliases[goos] {
-		if strings.Contains(lowerName, alias) {
-			return true
-		}
-	}
-	return false
-}
-
-// matchesArch is the same over GOARCH, refusing names that belong to a wider
-// architecture this one is merely a substring of.
-func matchesArch(lowerName, goarch string) bool {
-	for _, wider := range archOverlaps[goarch] {
-		if strings.Contains(lowerName, wider) {
-			return false
-		}
-	}
-	if strings.Contains(lowerName, goarch) {
-		return true
-	}
-	for _, alias := range goarchAliases[goarch] {
-		if strings.Contains(lowerName, alias) {
-			return true
+func hasWord(words, want []string) bool {
+	for _, w := range words {
+		for _, s := range want {
+			if w == s {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// programName is the part of an asset's name before the platform or version
+// begins: "plumbline" in "plumbline_1.2.0_linux_amd64.tar.gz". It is a second
+// name to look for inside an archive, so `--name pl` renames the service
+// without making its own binary unfindable.
+func programName(asset string) string {
+	platform := map[string]bool{}
+	for _, table := range []map[string][]string{goosSpellings, goarchSpellings} {
+		for goName, words := range table {
+			platform[goName] = true
+			for _, w := range words {
+				platform[w] = true
+			}
+		}
+	}
+	for _, w := range []string{"linux", "freebsd", "openbsd", "netbsd", "android", "ppc64", "ppc64le", "riscv64", "s390x", "mips", "mipsle", "mips64", "mips64le"} {
+		platform[w] = true
+	}
+
+	lower := strings.ToLower(asset)
+	start := 0
+	for i := 0; i <= len(lower); i++ {
+		if i < len(lower) && !isNameSeparator(rune(lower[i])) {
+			continue
+		}
+		word := lower[start:i]
+		isVersion := len(word) > 0 && (word[0] >= '0' && word[0] <= '9' ||
+			len(word) > 1 && word[0] == 'v' && word[1] >= '0' && word[1] <= '9')
+		if platform[word] || isVersion {
+			return strings.TrimRightFunc(asset[:start], isNameSeparator)
+		}
+		start = i + 1
+	}
+	return ""
+}
+
+// memberNames are the names to look for inside an archive: the service's,
+// then the program's the asset is named after.
+func memberNames(service, asset string) []string {
+	names := []string{service}
+	if p := programName(asset); p != "" && !strings.EqualFold(p, service) {
+		names = append(names, p)
+	}
+	return names
 }
 
 func isChecksumName(name string) bool {
@@ -297,7 +332,7 @@ func (c *Client) Install(ctx context.Context, rel *Release, asset Asset, dest st
 		extracted.Close()
 		defer os.Remove(extractedName)
 
-		member, err := extractBinary(tmpName, extractedName, filepath.Base(dest), kind)
+		member, err := extractMember(ctx, tmpName, extractedName, kind, c.GOOS, memberNames(filepath.Base(dest), asset.Name))
 		if err != nil {
 			return res, fmt.Errorf("%s: %w", asset.Name, err)
 		}
