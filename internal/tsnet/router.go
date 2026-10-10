@@ -12,6 +12,10 @@
 // the supervisor's reconcile loop, which must not stall, so Attach only records
 // intent — a per-service goroutine does the work and retries until it succeeds
 // or the service is detached.
+//
+// Each node runs in its own child process (see process.go), so a Tailscale
+// panic costs one service its tailnet exposure rather than taking down the
+// daemon. A node that dies is brought back up the same way it first came up.
 package tsnet
 
 import (
@@ -21,13 +25,12 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
-
-	"tailscale.com/tsnet"
 
 	"github.com/sroberts/outpost/internal/manifest"
 )
@@ -57,12 +60,22 @@ type Options struct {
 	Verbose bool
 }
 
-// tailnetNode is one live Tailscale node. The real implementation wraps
-// tsnet.Server; tests substitute a fake so the router's lifecycle can be
-// exercised without credentials or a tailnet.
+// tailnetNode is one live Tailscale node. The real implementation is a child
+// process running tsnet.Server; tests substitute a fake so the router's
+// lifecycle can be exercised without credentials or a tailnet.
+//
+// A node whose Listener is nil serves the tailnet itself, as the child
+// process does; otherwise the router serves the proxy on it.
 type tailnetNode interface {
 	Listener() net.Listener
 	Close() error
+}
+
+// exitingNode is a node that can stop on its own -- a child process that
+// crashed. The router brings such a node back up rather than reporting it
+// attached forever.
+type exitingNode interface {
+	Done() <-chan struct{}
 }
 
 // nodeConfig is everything needed to bring one node up.
@@ -72,6 +85,8 @@ type nodeConfig struct {
 	Dir      string
 	AuthKey  string
 	Verbose  bool
+	// Port is the service's loopback port, which a node process proxies to.
+	Port int
 }
 
 // Router owns one tsnet node per attached service.
@@ -83,6 +98,9 @@ type Router struct {
 
 	// startNode brings a node up. Swapped out in tests.
 	startNode func(ctx context.Context, cfg nodeConfig) (tailnetNode, error)
+	// nodeCmd builds the child process for a node. Swapped out in tests.
+	nodeCmd       func(cfg nodeConfig) (*exec.Cmd, error)
+	nodeStopGrace time.Duration
 
 	retryInitial  time.Duration
 	retryMax      time.Duration
@@ -131,9 +149,11 @@ func New(opts Options) (*Router, error) {
 		retryInitial:  defaultRetryInitial,
 		retryMax:      defaultRetryMax,
 		shutdownGrace: defaultShutdownGrace,
+		nodeCmd:       defaultNodeCmd,
+		nodeStopGrace: defaultNodeStopGrace,
 		nodes:         map[string]*node{},
 	}
-	r.startNode = r.startTsnetNode
+	r.startNode = r.startProcessNode
 	return r, nil
 }
 
@@ -223,6 +243,7 @@ func (r *Router) bringUp(ctx context.Context, n *node) {
 		Dir:      r.StateDirFor(n.name),
 		AuthKey:  r.authKey,
 		Verbose:  r.verbose,
+		Port:     n.port,
 	}
 
 	backoff := r.retryInitial
@@ -233,12 +254,33 @@ func (r *Router) bringUp(ctx context.Context, n *node) {
 
 		live, err := r.startNode(ctx, cfg)
 		if err == nil {
-			if r.serve(ctx, n, live) {
+			if !r.serve(ctx, n, live) {
+				// Detached while the node was coming up.
+				_ = live.Close() // nobody is left to report a close failure to
 				return
 			}
-			// Detached while the node was coming up.
-			live.Close()
-			return
+			exiting, ok := live.(exitingNode)
+			if !ok {
+				return
+			}
+			upSince := time.Now()
+			select {
+			case <-ctx.Done():
+				// Detach or Close owns the node from here.
+				return
+			case <-exiting.Done():
+			}
+			r.unserve(n, live)
+			if ctx.Err() != nil {
+				return
+			}
+			// A node that stayed up a while earns a fresh backoff; one that
+			// dies as soon as it starts keeps backing off, so a crash loop
+			// does not spin.
+			if time.Since(upSince) > r.retryMax {
+				backoff = r.retryInitial
+			}
+			err = errors.New("the node process exited")
 		}
 
 		if ctx.Err() != nil {
@@ -275,9 +317,13 @@ func (r *Router) serve(ctx context.Context, n *node, live tailnetNode) bool {
 		return false
 	}
 
-	srv := &http.Server{
-		Handler:           newProxy(n.port),
-		ReadHeaderTimeout: 30 * time.Second,
+	ln := live.Listener()
+	var srv *http.Server
+	if ln != nil {
+		srv = &http.Server{
+			Handler:           newProxy(n.port),
+			ReadHeaderTimeout: 30 * time.Second,
+		}
 	}
 
 	n.mu.Lock()
@@ -288,14 +334,30 @@ func (r *Router) serve(ctx context.Context, n *node, live tailnetNode) bool {
 
 	r.logf("%s: on the tailnet as %s -> 127.0.0.1:%d", n.name, n.hostname, n.port)
 
+	if srv == nil {
+		// The node serves the tailnet itself.
+		return true
+	}
 	go func() {
-		if err := srv.Serve(live.Listener()); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			if ctx.Err() == nil {
 				r.logf("%s: tailnet listener stopped: %v", n.name, err)
 			}
 		}
 	}()
 	return true
+}
+
+// unserve forgets a node that stopped on its own, so the service is no longer
+// reported attached while a replacement comes up.
+func (r *Router) unserve(n *node, live tailnetNode) {
+	n.mu.Lock()
+	if n.live == live {
+		n.live, n.http, n.attached = nil, nil, false
+	}
+	n.mu.Unlock()
+	// The process has already exited; Close only reaps what is left.
+	_ = live.Close()
 }
 
 // Detach removes a service from the tailnet, including one whose attach is
@@ -368,65 +430,4 @@ func (r *Router) shutdownNode(n *node) error {
 		}
 	}
 	return nil
-}
-
-// startTsnetNode is the real backend: a tsnet.Server listening on the tailnet.
-func (r *Router) startTsnetNode(ctx context.Context, cfg nodeConfig) (tailnetNode, error) {
-	if err := os.MkdirAll(cfg.Dir, 0o700); err != nil {
-		return nil, fmt.Errorf("create tsnet state dir: %w", err)
-	}
-
-	server := &tsnet.Server{
-		Dir:       cfg.Dir,
-		Hostname:  cfg.Hostname,
-		AuthKey:   cfg.AuthKey,
-		Ephemeral: false,
-		Logf:      r.tsnetLogf(cfg.Service),
-		UserLogf: func(format string, args ...any) {
-			r.logf("%s: "+format, append([]any{cfg.Service}, args...)...)
-		},
-	}
-
-	if err := server.Start(); err != nil {
-		server.Close()
-		return nil, fmt.Errorf("start tsnet node %q: %w", cfg.Hostname, err)
-	}
-	// Block until the node is actually usable, so a node that never registers
-	// is retried rather than reported as attached.
-	if _, err := server.Up(ctx); err != nil {
-		server.Close()
-		return nil, fmt.Errorf("tsnet node %q did not come up: %w", cfg.Hostname, err)
-	}
-
-	ln, err := server.Listen("tcp", ":80")
-	if err != nil {
-		server.Close()
-		return nil, fmt.Errorf("listen on tailnet: %w", err)
-	}
-	return &tsnetNode{server: server, ln: ln}, nil
-}
-
-// tsnetNode adapts tsnet.Server to tailnetNode.
-type tsnetNode struct {
-	server *tsnet.Server
-	ln     net.Listener
-}
-
-func (n *tsnetNode) Listener() net.Listener { return n.ln }
-
-func (n *tsnetNode) Close() error {
-	n.ln.Close()
-	return n.server.Close()
-}
-
-// tsnetLogf keeps tsnet's internal chatter out of the daemon's output unless
-// verbose logging was asked for; a first run still surfaces the login URL,
-// which arrives via UserLogf.
-func (r *Router) tsnetLogf(service string) func(string, ...any) {
-	if !r.verbose {
-		return func(string, ...any) {}
-	}
-	return func(format string, args ...any) {
-		r.logf("%s: "+format, append([]any{service}, args...)...)
-	}
 }
