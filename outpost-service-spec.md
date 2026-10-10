@@ -539,8 +539,8 @@ whole words between `-`, `_` and `.`, so `hmac-proxy` does not read as a mac
 build.
 
 **Archives are unpacked.** A `.tar.gz` or `.zip` is fine — Outpost takes the
-binary out of it, choosing the executable named after the service (or after
-the program the asset is named for, so `--name` does not hide it), or the only
+binary out of it, choosing the file named after the service (or after the
+program the asset is named for, so `--name` does not hide it), or the only
 executable if there is exactly one. A bare binary is preferred when you publish
 both. Only those shapes are installed: a bare name with no extension, or one of
 those two archives. `.tar.xz`, `.gz`, `.deb`, `.apk`, checksums and signatures

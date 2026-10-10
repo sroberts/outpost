@@ -113,12 +113,13 @@ func TestSelectAsset_DescriptorNamingACompressedFileIsRefused(t *testing.T) {
 	}
 }
 
-// The base build is chosen on the name without its extension, and the result
-// does not depend on the order the release lists its assets in.
+// The base build is chosen on the name without its extension, so a variant in
+// a shorter archive format does not become the base, and the result does not
+// depend on the order the release lists its assets in.
 func TestSelectAsset_PlainestIgnoresExtensionAndOrder(t *testing.T) {
 	for _, order := range [][]string{
-		{"app-linux-amd64.tar.gz", "app-linux-amd64-v3.zip"},
-		{"app-linux-amd64-v3.zip", "app-linux-amd64.tar.gz"},
+		{"app-linux-amd64.tar.gz", "app-linux-amd64-static.zip"},
+		{"app-linux-amd64-static.zip", "app-linux-amd64.tar.gz"},
 	} {
 		if got, err := selectFrom(t, "linux", "amd64", order...); err != nil || got.Name != "app-linux-amd64.tar.gz" {
 			t.Errorf("%v: got %q, %v; want the plain build", order, got.Name, err)
@@ -249,7 +250,7 @@ func TestExtractMember_RefusesWhatCannotRun(t *testing.T) {
 
 // The entry copied is the entry judged: a symlink sharing the binary's name
 // is skipped by the copy as it was by the listing, and a repeated tar entry
-// resolves to the last copy, as tar itself would.
+// is an error rather than whichever copy came first.
 func TestExtractMember_CopiesTheEntryItChose(t *testing.T) {
 	body := zipBytes(t, []entry{
 		{name: "svc", body: "/etc/passwd", mode: os.ModeSymlink | 0o777},
@@ -263,8 +264,8 @@ func TestExtractMember_CopiesTheEntryItChose(t *testing.T) {
 		{name: "svc", body: "OLD", mode: 0o755},
 		{name: "svc", body: "NEW", mode: 0o755},
 	})
-	if _, got, err := extractFrom(t, body, archiveTarGz, "linux", "svc"); err != nil || got != "NEW" {
-		t.Errorf("tar: content %q, err %v; want the last entry", got, err)
+	if member, _, err := extractFrom(t, body, archiveTarGz, "linux", "svc"); err == nil {
+		t.Errorf("tar: took %q from two entries named svc; want an error", member)
 	}
 }
 
