@@ -27,7 +27,9 @@ func TestHealth_ProbesRunConcurrently(t *testing.T) {
 	h := newHarness(t)
 	const n, delay = 6, 200 * time.Millisecond
 	for i := 0; i < n; i++ {
-		h.writeManifest(fmt.Sprintf("svc%d", i), "")
+		// writeManifest derives the port from the name's length, which
+		// these names share.
+		h.writeManifestPort(fmt.Sprintf("svc%d", i), 9300+i)
 	}
 	h.apply()
 	h.tick() // starts them
