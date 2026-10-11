@@ -542,9 +542,13 @@ build.
 binary out of it, choosing the file named after the service (or after the
 program the asset is named for, so `--name` does not hide it), or the only
 executable if there is exactly one. A bare binary is preferred when you publish
-both. Only those shapes are installed: a bare name with no extension, or one of
-those two archives. `.tar.xz`, `.gz`, `.deb`, `.apk`, checksums and signatures
-are never taken for the binary.
+both. When Outpost has to guess, it only takes a binary-shaped name or one of
+those two archives. A binary-shaped name has no extension: a final dot segment
+that is a platform word (`svc.linux.amd64`) or a version (`svc-1.0.0rc1`)
+counts as part of the name. `.bin` is also accepted, as is `.exe` on Windows
+and `.AppImage` on Linux. `.tar.xz`, `.gz`, `.7z`, `.deb`, `.apk`, checksums
+and signatures are never taken for the binary. An asset named by `asset` in
+the descriptor is taken as named unless it is one of those.
 
 If your release ships variants for the same platform — a `_gui` build beside
 the plain one — Outpost takes the plainest name, and says which it passed over.

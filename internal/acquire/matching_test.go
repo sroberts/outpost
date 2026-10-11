@@ -77,7 +77,7 @@ func TestSelectAsset_SidecarsDoNotBeatTheArchive(t *testing.T) {
 // Formats Outpost does not open are never installed as the binary, whatever
 // they are called. Only a bare name or a supported archive is installable.
 func TestSelectAsset_OnlyInstallableShapesAreConsidered(t *testing.T) {
-	for _, ext := range []string{".gz", ".tar", ".xz", ".zst", ".txz", ".tbz2", ".apk", ".ipk", ".snap", ".AppImage"} {
+	for _, ext := range []string{".gz", ".tar", ".xz", ".zst", ".txz", ".tbz2", ".apk", ".ipk", ".snap"} {
 		if got, err := selectFrom(t, "linux", "amd64", "svc-linux-amd64"+ext); err == nil {
 			t.Errorf("selected %q, which Outpost cannot install", got.Name)
 		}
@@ -218,8 +218,19 @@ func TestProgramName(t *testing.T) {
 		"yarr_darwin_arm64_gui.zip":          "yarr",
 		"svc-v2.0-x86_64-unknown-linux-gnu":  "svc",
 		"rust-analyzer-aarch64-apple-darwin": "rust-analyzer",
-		"linux-amd64":                        "",
 		"no-platform-here":                   "",
+		// The first word is always the program's, whatever it looks like.
+		"v2ray-linux-64.zip":                 "v2ray",
+		"3proxy-linux-amd64":                 "3proxy",
+		"win-acme.v2.2.9.x64.pluggable.zip":  "win-acme",
+		"apple-music-cli_linux_amd64.tar.gz": "apple-music-cli",
+		// OS words with a bitness, and the GOOS values with no alias.
+		"svc-win64-x64.zip":        "svc",
+		"svc_illumos_amd64.tar.gz": "svc",
+		"svc_solaris_amd64.tar.gz": "svc",
+		// Offsets must stay valid when lowercasing would change byte length.
+		"İnstaller-linux-amd64": "İnstaller",
+		"svc-İ-linux-amd64":     "svc-İ",
 	} {
 		if got := programName(asset); got != want {
 			t.Errorf("programName(%q) = %q; want %q", asset, got, want)
@@ -340,5 +351,88 @@ func TestExtractMember_ListingIsBounded(t *testing.T) {
 	_, err := extractMember(ctx, src, filepath.Join(t.TempDir(), "svc"), archiveTarGz, "linux", []string{"svc"})
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("err = %v; want the cancellation", err)
+	}
+}
+
+// Some releases separate words with dots, and some versions end in letters.
+// The final dot segment of those is not an extension.
+func TestSelectAsset_DottedAndPrereleaseNamesAreInstallable(t *testing.T) {
+	for _, name := range []string{
+		"sops-v3.8.1.linux.amd64",
+		"svc-linux-amd64-1.0.0rc1",
+		"svc.linux.x86_64",
+		"svc-linux-amd64.AppImage",
+	} {
+		if got, err := selectFrom(t, "linux", "amd64", name); err != nil || got.Name != name {
+			t.Errorf("got %q, %v; want %q", got.Name, err, name)
+		}
+	}
+	if got, err := selectFrom(t, "darwin", "arm64", "svc-darwin-arm64.AppImage"); err == nil {
+		t.Errorf("darwin selected the Linux-only %q", got.Name)
+	}
+	if got, err := selectFrom(t, "linux", "amd64", "svc-linux-amd64.7z"); err == nil {
+		t.Errorf("selected %q, which Outpost cannot open", got.Name)
+	}
+}
+
+// A descriptor's author named the asset; the shape heuristic is for guessing
+// and must not overrule them.
+func TestSelectAsset_DescriptorIsNotSecondGuessedOnShape(t *testing.T) {
+	h := newFakeHub(t)
+	h.release = &Release{Tag: "v1"}
+	h.addAsset("App-x86_64.run", []byte("ELF"))
+
+	got, err := h.client().SelectAsset(h.release, &Descriptor{Asset: "App-x86_64.run"})
+	if err != nil || got.Name != "App-x86_64.run" {
+		t.Errorf("got %q, %v; want the named asset", got.Name, err)
+	}
+}
+
+// The sole-executable fallback inside an archive accepts dotted names too.
+func TestExtractMember_DottedSoleExecutable(t *testing.T) {
+	body := tarGz(t, []entry{
+		{name: "LICENSE", body: "MIT"},
+		{name: "tool.linux.amd64", body: "ELF", mode: 0o755},
+	})
+	if member, got, err := extractFrom(t, body, archiveTarGz, "linux", "svc"); err != nil || member != "tool.linux.amd64" || got != "ELF" {
+		t.Errorf("member %q, content %q, err %v", member, got, err)
+	}
+}
+
+// On Windows, .bat and .dll files are not "Windows executables that cannot
+// run here"; the message must not contradict itself.
+func TestExtractMember_WindowsMessageOnlyOffWindows(t *testing.T) {
+	body := zipBytes(t, []entry{{name: "install.bat", body: "@echo"}, {name: "lib.dll", body: "MZ"}})
+	_, _, err := extractFrom(t, body, archiveZip, "windows", "svc")
+	if err == nil || strings.Contains(err.Error(), "cannot run on windows") {
+		t.Errorf("err = %v; want a refusal that does not blame Windows", err)
+	}
+}
+
+// An archive of exactly the entry limit is accepted, as a zip of the same
+// count is.
+func TestExtractMember_EntryLimitIsInclusive(t *testing.T) {
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	for i := 0; i < maxArchiveEntries-1; i++ {
+		if err := tw.WriteHeader(&tar.Header{Name: "d/", Typeflag: tar.TypeDir, Mode: 0o755}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tw.WriteHeader(&tar.Header{Name: "svc", Typeflag: tar.TypeReg, Mode: 0o755, Size: 3}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write([]byte("ELF")); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, got, err := extractFrom(t, buf.Bytes(), archiveTarGz, "linux", "svc"); err != nil || got != "ELF" {
+		t.Errorf("content %q, err %v; want exactly %d entries accepted", got, err, maxArchiveEntries)
 	}
 }

@@ -111,10 +111,13 @@ func installable(name, goos string) bool {
 }
 
 // isBareExecutable reports a name with no file extension, which is how
-// executables are named everywhere but Windows, or a ".bin" that some
-// projects add to say exactly that. A final dot segment holding a separator
-// or only digits is a version ("svc_1.2.3_linux_amd64", "tool-1.5"), not an
-// extension.
+// executables are named everywhere but Windows.
+//
+// Not every final dot segment is an extension. Some releases separate words
+// with dots ("sops-v3.8.1.linux.amd64"), so a platform word is not one; nor
+// is a version, which starts with a digit ("tool-1.5", "svc-1.0.0rc1") or
+// holds a separator ("svc_1.2.3_linux_amd64"). ".bin" and, on Linux,
+// ".AppImage" are extensions that say the file is an executable.
 func isBareExecutable(name, goos string) bool {
 	base := path.Base(name)
 	i := strings.LastIndexByte(base, '.')
@@ -123,21 +126,21 @@ func isBareExecutable(name, goos string) bool {
 	}
 	ext := strings.ToLower(base[i+1:])
 	switch {
-	case ext == "exe":
-		return goos == "windows"
-	case ext == "bin":
-		return true
 	case ext == "":
 		return false
-	case strings.ContainsAny(ext, "-_"):
+	case ext == "exe":
+		return goos == "windows"
+	case ext == "appimage":
+		return goos == "linux"
+	case ext == "bin":
+		return true
+	case ext == "7z":
+		// The one archive extension that starts with a digit.
+		return false
+	case ext[0] >= '0' && ext[0] <= '9', strings.ContainsAny(ext, "-_"):
 		return true
 	}
-	for _, r := range ext {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
+	return isPlatformWord(ext)
 }
 
 // Printable returns s unchanged, or Go-quoted when it holds anything that is
@@ -327,9 +330,6 @@ func extractTarGz(ctx context.Context, src, dest string, wantNames []string, goo
 	var members []member
 	tr := tar.NewReader(&boundedReader{ctx: ctx, r: gz, left: maxExpandedBytes})
 	for i := 0; ; i++ {
-		if i >= maxArchiveEntries {
-			return "", fmt.Errorf("the archive %w", errTooManyEntries)
-		}
 		h, err := tr.Next()
 		if err == io.EOF {
 			break
@@ -339,6 +339,11 @@ func extractTarGz(ctx context.Context, src, dest string, wantNames []string, goo
 				return "", fmt.Errorf("the archive %w", err)
 			}
 			return "", fmt.Errorf("read tar: %w", err)
+		}
+		// Checked on a header actually read, so an archive of exactly the
+		// limit is accepted, as it is for a zip.
+		if i >= maxArchiveEntries {
+			return "", fmt.Errorf("the archive %w", errTooManyEntries)
 		}
 		if h.Typeflag != tar.TypeReg {
 			continue
@@ -502,7 +507,7 @@ func chooseMember(members []member, wantNames []string, goos string) (member, er
 	for _, m := range members {
 		if candidate(m, goos) {
 			usable = append(usable, m)
-		} else if hasSuffixAny(strings.ToLower(m.name), windowsOnlyExts) && !skipInArchive(m) {
+		} else if goos != "windows" && hasSuffixAny(strings.ToLower(m.name), windowsOnlyExts) && !skipInArchive(m) {
 			windowsOnly = true
 		}
 	}

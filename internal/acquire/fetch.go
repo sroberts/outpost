@@ -53,7 +53,10 @@ func (c *Client) SelectAsset(rel *Release, d *Descriptor) (Asset, error) {
 				// A .tar.gz or .zip is unpacked; anything else that is not a
 				// binary would be chmod +x'd and fail later at exec time with
 				// an error naming neither the file nor the descriptor.
-				if isChecksumName(a.Name) || isSignature(a.Name) || isUnsupportedArchive(a.Name) || !installable(a.Name, c.GOOS) {
+				// The descriptor's author named this asset, so only what is
+				// certainly not a binary is refused; the shape heuristic below
+				// is for guessing, and must not overrule them.
+				if isChecksumName(a.Name) || isSignature(a.Name) || isUnsupportedArchive(a.Name) {
 					return Asset{}, fmt.Errorf("%s names %q, which is not a binary and not an archive Outpost can open "+
 						"(.tar.gz and .zip are); name the binary or a supported archive",
 						DescriptorName, a.Name)
@@ -67,7 +70,7 @@ func (c *Client) SelectAsset(rel *Release, d *Descriptor) (Asset, error) {
 	var platform []Asset
 	for _, a := range rel.Assets {
 		name := strings.ToLower(a.Name)
-		if isChecksumName(a.Name) || isSignature(a.Name) || isUnsupportedArchive(a.Name) || !installable(a.Name, c.GOOS) {
+		if !takeable(a.Name, c.GOOS) {
 			continue
 		}
 		if !matchesOS(name, c.GOOS) || !matchesArch(name, c.GOARCH) {
@@ -339,33 +342,75 @@ func matchesArch(lowerName, goarch string) bool {
 	return false
 }
 
-// programName is the part of an asset's name before the platform or version
-// begins: "plumbline" in "plumbline_1.2.0_linux_amd64.tar.gz". It is a second
-// name to look for inside an archive.
-func programName(asset string) string {
-	platform := map[string]bool{"linux": true, "freebsd": true, "openbsd": true, "netbsd": true,
-		"android": true, "ppc64": true, "ppc64le": true, "riscv64": true, "s390x": true,
-		"mips": true, "mipsle": true, "mips64": true, "mips64le": true}
+// takeable reports an asset SelectAsset may guess at: installable in shape,
+// and not a checksum manifest, signature or unopenable archive. installable
+// alone misses the extensionless "SHA256SUMS", and the ".7z"-style names that
+// read like versions.
+func takeable(name, goos string) bool {
+	return installable(name, goos) && !isChecksumName(name) && !isSignature(name) && !isUnsupportedArchive(name)
+}
+
+// platformWords are the words, Go's and the aliases, that name a platform.
+// Built once from the same tables matchesOS and matchesArch read, plus every
+// GOOS and GOARCH Go knows that has no alias.
+var platformWords = func() map[string]bool {
+	words := map[string]bool{}
+	for _, w := range []string{
+		"aix", "android", "dragonfly", "freebsd", "illumos", "ios", "js", "linux",
+		"netbsd", "openbsd", "plan9", "solaris", "wasip1", "wasm", "loong64",
+		"mips", "mipsle", "mips64", "mips64le", "ppc64", "ppc64le", "riscv64", "s390x",
+	} {
+		words[w] = true
+	}
 	for _, table := range []map[string][]string{goosAliases, goarchAliases} {
-		for goName, words := range table {
-			platform[goName] = true
-			for _, w := range words {
-				platform[w] = true
+		for goName, aliases := range table {
+			words[goName] = true
+			for _, a := range aliases {
+				words[a] = true
 			}
 		}
 	}
+	return words
+}()
 
-	lower := strings.ToLower(asset)
-	start := 0
+// isPlatformWord reports a word naming a platform, allowing the trailing
+// digits matchesOS allows ("win64", "linux32", "macos11").
+func isPlatformWord(w string) bool {
+	return platformWords[w] || platformWords[strings.TrimRight(w, "0123456789")]
+}
+
+// programName is the part of an asset's name before the platform or version
+// begins: "plumbline" in "plumbline_1.2.0_linux_amd64.tar.gz". It is a second
+// name to look for inside an archive.
+//
+// The first word always belongs to the program, so names that start like a
+// version or a platform -- v2ray, 3proxy, win-acme -- are not cut to nothing.
+func programName(asset string) string {
+	// ASCII-only lowering and separators keep every offset on a rune
+	// boundary of asset, so slicing it cannot split a character.
+	sep := func(b byte) bool { return b < 0x80 && isNameSeparator(rune(b)) }
+	lower := []byte(asset)
+	for i, b := range lower {
+		if 'A' <= b && b <= 'Z' {
+			lower[i] = b + 'a' - 'A'
+		}
+	}
+	start, word := 0, 0
 	for i := 0; i <= len(lower); i++ {
-		if i < len(lower) && !isNameSeparator(rune(lower[i])) {
+		if i < len(lower) && !sep(lower[i]) {
 			continue
 		}
-		word := lower[start:i]
-		isVersion := word != "" && (word[0] >= '0' && word[0] <= '9' ||
-			len(word) > 1 && word[0] == 'v' && word[1] >= '0' && word[1] <= '9')
-		if platform[word] || isVersion {
-			return strings.TrimRightFunc(asset[:start], isNameSeparator)
+		w := string(lower[start:i])
+		if w != "" {
+			isVersion := w[0] >= '0' && w[0] <= '9' || len(w) > 1 && w[0] == 'v' && w[1] >= '0' && w[1] <= '9'
+			if word > 0 && (isPlatformWord(w) || isVersion) {
+				end := start
+				for end > 0 && sep(lower[end-1]) {
+					end--
+				}
+				return asset[:end]
+			}
+			word++
 		}
 		start = i + 1
 	}
