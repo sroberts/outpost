@@ -28,6 +28,8 @@ func (a *app) cmdServe(args []string) error {
 	interval := fs.Duration("interval", 3*time.Second, "reconcile interval")
 	tailnet := fs.Bool("tailnet", true, "put each service on the tailnet via tsnet (§7); --tailnet=false to run without it")
 	tsVerbose := fs.Bool("tailnet-verbose", false, "pass tsnet's own logging through")
+	startupTimeout := fs.Duration("startup-timeout", defaultStartupTimeout,
+		"exit if bring-up has not finished within this long, so the service manager restarts the daemon; 0 disables")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -36,6 +38,12 @@ func (a *app) cmdServe(args []string) error {
 	// recording which build produced everything underneath it.
 	fmt.Fprintf(a.out, "outpost: %s starting\n", version.Short())
 
+	// Everything up to the socket accepting connections runs under a
+	// deadline (#30). Its stage names are what the log reports if it fires.
+	watch := watchStartup(*startupTimeout, a.err, os.Exit)
+	defer watch.finished()
+
+	watch.at("preparing " + a.home)
 	if err := a.ensureLayout(); err != nil {
 		return err
 	}
@@ -43,6 +51,7 @@ func (a *app) cmdServe(args []string) error {
 		return fmt.Errorf("an outpost daemon is already running (pid %d)", pid)
 	}
 
+	watch.at("opening the state store")
 	store, err := state.Open(a.statePath())
 	if err != nil {
 		return err
@@ -58,6 +67,7 @@ func (a *app) cmdServe(args []string) error {
 		}
 	})
 
+	watch.at("starting the tailnet router")
 	var router supervisor.TailnetRouter
 	if useTailnet {
 		authKey := a.config.ResolveAuthKey()
@@ -81,6 +91,7 @@ func (a *app) cmdServe(args []string) error {
 		fmt.Fprintln(a.out, "outpost: Tailscale is disabled; services stay on loopback")
 	}
 
+	watch.at("loading manifests")
 	sup, err := supervisor.New(supervisor.Options{
 		ServicesDir:     a.servicesDir(),
 		BackupDir:       a.backupsDir(),
@@ -101,6 +112,7 @@ func (a *app) cmdServe(args []string) error {
 	// A daemon killed with SIGKILL — OOM, power cut, `kill -9` — leaves its
 	// services running and holding their ports. Clear them before starting
 	// replacements, or every one of them restart-loops on a bound port.
+	watch.at("reclaiming orphans from a previous run")
 	if reclaimed, err := sup.ReclaimOrphans(context.Background()); err != nil {
 		fmt.Fprintf(a.err, "outpost: orphan reclaim: %v\n", err)
 	} else if len(reclaimed) > 0 {
@@ -108,6 +120,7 @@ func (a *app) cmdServe(args []string) error {
 			len(reclaimed), strings.Join(reclaimed, ", "))
 	}
 
+	watch.at("opening the control socket")
 	srv, err := ipc.Listen(a.socketPath(), sup, func(format string, v ...any) {
 		fmt.Fprintf(a.err, format+"\n", v...)
 	})
@@ -126,6 +139,7 @@ func (a *app) cmdServe(args []string) error {
 
 	fmt.Fprintf(a.out, "outpost: supervising %d service(s) from %s\n", len(sup.Services()), a.servicesDir())
 	fmt.Fprintf(a.out, "outpost: listening on %s\n", srv.Addr())
+	watch.finished()
 
 	// The socket server runs alongside the loop; its handlers reach the
 	// supervisor through the command queue, so the loop stays single-threaded.
