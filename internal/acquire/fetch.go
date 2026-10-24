@@ -42,8 +42,9 @@ var checksumNames = []string{"SHA256SUMS", "sha256sums.txt", "checksums.txt", "S
 //
 // A descriptor's asset template wins outright; otherwise the name has to
 // mention both GOOS and GOARCH, which is what a conventional Go release
-// already produces. Checksums, signatures and archives Outpost cannot open are
-// skipped. A bare binary is preferred; a .tar.gz or .zip is taken when the
+// already produces. Only an installable shape is considered -- a bare
+// executable, or a .tar.gz or .zip -- so checksums, signatures and formats
+// Outpost cannot open are skipped. A bare binary is preferred; a .tar.gz or .zip is taken when the
 // release ships nothing else, and Install unpacks it.
 func (c *Client) SelectAsset(rel *Release, d *Descriptor) (Asset, error) {
 	if want := d.assetName(c.GOOS, c.GOARCH); want != "" {
@@ -52,6 +53,9 @@ func (c *Client) SelectAsset(rel *Release, d *Descriptor) (Asset, error) {
 				// A .tar.gz or .zip is unpacked; anything else that is not a
 				// binary would be chmod +x'd and fail later at exec time with
 				// an error naming neither the file nor the descriptor.
+				// The descriptor's author named this asset, so only what is
+				// certainly not a binary is refused; the shape heuristic below
+				// is for guessing, and must not overrule them.
 				if isChecksumName(a.Name) || isSignature(a.Name) || isUnsupportedArchive(a.Name) {
 					return Asset{}, fmt.Errorf("%s names %q, which is not a binary and not an archive Outpost can open "+
 						"(.tar.gz and .zip are); name the binary or a supported archive",
@@ -66,7 +70,7 @@ func (c *Client) SelectAsset(rel *Release, d *Descriptor) (Asset, error) {
 	var platform []Asset
 	for _, a := range rel.Assets {
 		name := strings.ToLower(a.Name)
-		if isChecksumName(a.Name) || isSignature(a.Name) || isUnsupportedArchive(a.Name) {
+		if !takeable(a.Name, c.GOOS) {
 			continue
 		}
 		if !matchesOS(name, c.GOOS) || !matchesArch(name, c.GOARCH) {
@@ -252,7 +256,7 @@ var archOverlaps = map[string][]string{
 	"mips":   {"mips64", "mips64le", "mipsle"},
 	"mips64": {"mips64le"},
 	"ppc64":  {"ppc64le"},
-	"386":    {"x86_64", "amd64"},
+	"386":    {"x86_64", "x86-64", "amd64"},
 }
 
 // goosAliases and goarchAliases are the spellings releases use that are not
@@ -267,7 +271,7 @@ var goosAliases = map[string][]string{
 // Because matching is on word boundaries, "armv7" and "i386" are not
 // redundant with "arm" and "386": neither contains its GOARCH as a whole word.
 var goarchAliases = map[string][]string{
-	"amd64": {"x86_64", "x64"},
+	"amd64": {"x86_64", "x86-64", "x64"},
 	"arm64": {"aarch64", "armv8"},
 	"386":   {"i386", "i686", "x86"},
 	"arm":   {"armv7", "armv7l", "armv6", "armhf"},
@@ -336,6 +340,91 @@ func matchesArch(lowerName, goarch string) bool {
 		}
 	}
 	return false
+}
+
+// takeable reports an asset SelectAsset may guess at: installable in shape,
+// and not a checksum manifest, signature or unopenable archive. installable
+// alone misses the extensionless "SHA256SUMS", and the ".7z"-style names that
+// read like versions.
+func takeable(name, goos string) bool {
+	return installable(name, goos) && !isChecksumName(name) && !isSignature(name) && !isUnsupportedArchive(name)
+}
+
+// platformWords are the words, Go's and the aliases, that name a platform.
+// Built once from the same tables matchesOS and matchesArch read, plus every
+// GOOS and GOARCH Go knows that has no alias.
+var platformWords = func() map[string]bool {
+	words := map[string]bool{}
+	for _, w := range []string{
+		"aix", "android", "dragonfly", "freebsd", "illumos", "ios", "js", "linux",
+		"netbsd", "openbsd", "plan9", "solaris", "wasip1", "wasm", "loong64",
+		"mips", "mipsle", "mips64", "mips64le", "ppc64", "ppc64le", "riscv64", "s390x",
+	} {
+		words[w] = true
+	}
+	for _, table := range []map[string][]string{goosAliases, goarchAliases} {
+		for goName, aliases := range table {
+			words[goName] = true
+			for _, a := range aliases {
+				words[a] = true
+			}
+		}
+	}
+	return words
+}()
+
+// isPlatformWord reports a word naming a platform, allowing the trailing
+// digits matchesOS allows ("win64", "linux32", "macos11").
+func isPlatformWord(w string) bool {
+	return platformWords[w] || platformWords[strings.TrimRight(w, "0123456789")]
+}
+
+// programName is the part of an asset's name before the platform or version
+// begins: "plumbline" in "plumbline_1.2.0_linux_amd64.tar.gz". It is a second
+// name to look for inside an archive.
+//
+// The first word always belongs to the program, so names that start like a
+// version or a platform -- v2ray, 3proxy, win-acme -- are not cut to nothing.
+func programName(asset string) string {
+	// ASCII-only lowering and separators keep every offset on a rune
+	// boundary of asset, so slicing it cannot split a character.
+	sep := func(b byte) bool { return b < 0x80 && isNameSeparator(rune(b)) }
+	lower := []byte(asset)
+	for i, b := range lower {
+		if 'A' <= b && b <= 'Z' {
+			lower[i] = b + 'a' - 'A'
+		}
+	}
+	start, word := 0, 0
+	for i := 0; i <= len(lower); i++ {
+		if i < len(lower) && !sep(lower[i]) {
+			continue
+		}
+		w := string(lower[start:i])
+		if w != "" {
+			isVersion := w[0] >= '0' && w[0] <= '9' || len(w) > 1 && w[0] == 'v' && w[1] >= '0' && w[1] <= '9'
+			if word > 0 && (isPlatformWord(w) || isVersion) {
+				end := start
+				for end > 0 && sep(lower[end-1]) {
+					end--
+				}
+				return asset[:end]
+			}
+			word++
+		}
+		start = i + 1
+	}
+	return ""
+}
+
+// memberNames are the names to look for inside an archive: the service's,
+// then the program's the asset is named after.
+func memberNames(service, asset string) []string {
+	names := []string{service}
+	if p := programName(asset); p != "" && !strings.EqualFold(p, service) {
+		names = append(names, p)
+	}
+	return names
 }
 
 func isChecksumName(name string) bool {
@@ -421,7 +510,7 @@ func (c *Client) Install(ctx context.Context, rel *Release, asset Asset, dest st
 		_ = extracted.Close()
 		defer os.Remove(extractedName)
 
-		member, err := extractBinaryFor(tmpName, extractedName, filepath.Base(dest), kind, c.GOOS)
+		member, err := extractMember(ctx, tmpName, extractedName, kind, c.GOOS, memberNames(filepath.Base(dest), asset.Name))
 		if err != nil {
 			return res, fmt.Errorf("%s: %w", asset.Name, err)
 		}
