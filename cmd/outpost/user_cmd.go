@@ -174,7 +174,7 @@ func (a *app) newPassword(username string, fromStdin bool) (string, error) {
 	switch {
 	case fromStdin:
 		line, err := bufio.NewReader(stdin).ReadString('\n')
-		if err != nil && !(errors.Is(err, io.EOF) && line != "") {
+		if err != nil && (!errors.Is(err, io.EOF) || line == "") {
 			return "", errors.New("--password-stdin: no password on stdin")
 		}
 		pw = strings.TrimRight(line, "\r\n")
@@ -258,7 +258,7 @@ func writeUserTable(w io.Writer, users []ipc.UserInfo) error {
 // because the flag package would read "-kids" as an unknown flag.
 func (a *app) cmdUserGroups(args []string) error {
 	if len(args) < 2 {
-		return errors.New("usage: outpost user groups <name> +group -group ...")
+		return errors.New("usage: outpost user groups <name> [+group] [-group]")
 	}
 	name := args[0]
 	var add, remove []string
