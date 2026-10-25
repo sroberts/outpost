@@ -1,6 +1,7 @@
 # Design: users, a gateway, and an app catalog
 
-Status: proposed, not built
+Status: being built. PR 1, the auth store (#39); PR 1b, the Tailscale default
+(#40); PR 2, the gateway (#41). PRs 3 and 4 not started.
 Branch: `feat/users-and-catalog`
 Date: 2026-10-25
 
@@ -479,9 +480,10 @@ trusts. They're never written to a log or the activity feed. The feed gains
 Four PRs, each usable on its own:
 
 1. **`internal/auth` plus the user CLI.** The store, hashing, sessions, keys,
-   the `outpost user …` commands over IPC, and first-run setup. No HTTP.
-   Tailscale detection and the install-time question ship here too: they're
-   small and independent of the gateway.
+   and the `outpost user …` commands over IPC. No HTTP. Tailscale detection and
+   the install-time question were planned here too, but shipped separately as
+   PR 1b, being a separate logical change; the first-run setup link moved to
+   PR 2, since it needs the gateway.
 2. **The gateway:** config, host routing, the reverse proxy, login, logout,
    the handshake, identity headers, the token and JWKS. The portal is a bare
    page listing links.
