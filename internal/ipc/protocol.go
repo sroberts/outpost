@@ -40,6 +40,7 @@ const (
 	CmdUserDisable = "user.disable"
 	CmdUserEnable  = "user.enable"
 	CmdUserLogout  = "user.logout"
+	CmdUserAdmin   = "user.admin"
 	CmdAuthRotate  = "auth.rotate-key"
 
 	CmdGatewayStatus = "gateway.status"

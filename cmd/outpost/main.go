@@ -56,6 +56,7 @@ Users:
   user disable <name>      block a user from logging in and end their sessions
   user enable <name>       let a disabled user log in again
   user logout <name>       end every session a user has
+  user admin <name> on|off grant or revoke admin
   auth rotate-key          replace the key that signs identity tokens
   gateway status           the gateway's addresses and the apps it routes
 

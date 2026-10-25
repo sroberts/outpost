@@ -30,7 +30,8 @@ var (
 // lastAdminError explains a refusal that would leave nobody able to manage
 // users. Recovering from that would mean editing auth.db by hand.
 func lastAdminError(username, action string) error {
-	return fmt.Errorf("refusing to %s %s: they are the last enabled admin; make another user an admin first", action, username)
+	return fmt.Errorf("refusing to %s %s: they are the last enabled admin; "+
+		"make another user an admin first with `outpost user admin <name> on`", action, username)
 }
 
 // AddUser creates a user. An empty password creates one who can't log in
@@ -299,17 +300,26 @@ func (s *Store) Authenticate(username, password string) (User, error) {
 
 	now := s.now()
 	if NeedsRehash(r.hash, s.Params) {
-		// A failed upgrade isn't a failed login; the old hash still works and
-		// the next login tries again.
-		if h, err := HashPassword(password, s.Params); err == nil {
-			_, _ = s.db.Exec(`UPDATE users SET password_hash = ? WHERE id = ?`, h, r.id)
-		}
+		s.rehash(r.id, r.hash, password)
 	}
 	if _, err := s.db.Exec(`UPDATE users SET last_login_at = ? WHERE id = ?`, now.Unix(), r.id); err != nil {
 		return User{}, fmt.Errorf("record login for %s: %w", username, err)
 	}
 	r.LastLoginAt = fromUnix(now.Unix())
 	return r.User, nil
+}
+
+// rehash upgrades a hash to the current parameters after a successful login.
+// It only replaces the hash that was verified: argon2 takes long enough that
+// `outpost user passwd` can land in between, and an unconditional write would
+// put the old password back. A failed upgrade isn't a failed login; the old
+// hash still works and the next login tries again.
+func (s *Store) rehash(id int64, verified, password string) {
+	h, err := HashPassword(password, s.Params)
+	if err != nil {
+		return
+	}
+	_, _ = s.db.Exec(`UPDATE users SET password_hash = ? WHERE id = ? AND password_hash = ?`, h, id, verified)
 }
 
 // dummyHash is verified against when there is no real hash to check, so an
