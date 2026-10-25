@@ -42,8 +42,11 @@ Commands:
   tui                      launch the dashboard
   version                  print the build identity of this binary
   config [--init]          show or create the global configuration
+  config --tailscale on|off
+                           give services their own Tailscale identity, or not
   install [--system]       install the launchd/systemd service that keeps
-                           the daemon running across reboots
+                           the daemon running across reboots; asks whether to
+                           use Tailscale unless --tailscale/--no-tailscale
   uninstall [--system]     stop that service and remove it
 
 Flags:
@@ -71,6 +74,9 @@ type app struct {
 	out    io.Writer
 	err    io.Writer
 	config config.Config
+	// deferTailscaleChoice stops ensureLayout settling Tailscale for a new
+	// home, because the command (install) is about to ask instead.
+	deferTailscaleChoice bool
 }
 
 func run(args []string, stdout, stderr io.Writer) error {
@@ -189,12 +195,18 @@ func (a *app) backupsDir() string  { return filepath.Join(a.home, "backups") }
 func (a *app) tsnetDir() string    { return filepath.Join(a.home, "tsnet") }
 func (a *app) configPath() string  { return filepath.Join(a.home, "config.toml") }
 
-// ensureLayout creates the Outpost root on first use.
+// ensureLayout creates the Outpost root on first use. A home created here is
+// a new install, and gets the new-install Tailscale setting.
 func (a *app) ensureLayout() error {
+	_, statErr := os.Stat(a.home)
+	fresh := os.IsNotExist(statErr)
 	for _, dir := range []string{a.home, a.servicesDir(), a.logsDir()} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return fmt.Errorf("create %s: %w", dir, err)
 		}
+	}
+	if fresh && !a.deferTailscaleChoice {
+		return a.firstRunTailscale()
 	}
 	return nil
 }

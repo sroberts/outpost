@@ -68,6 +68,28 @@ func Load(path string) (Config, error) {
 	return cfg, nil
 }
 
+// HasTailscaleSetting reports whether the file at path sets
+// tailscale.enabled itself. Load can't say: it decodes over the defaults, so
+// an absent key and "enabled = true" look the same afterwards. The difference
+// matters because a home with no setting has been running with Tailscale on,
+// and is asked before that changes, while one with a setting is left alone.
+// A missing file has no setting.
+func HasTailscaleSetting(path string) (bool, error) {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("read %s: %w", path, err)
+	}
+	var probe Config
+	md, err := toml.Decode(string(body), &probe)
+	if err != nil {
+		return false, fmt.Errorf("parse %s: %w", path, err)
+	}
+	return md.IsDefined("tailscale", "enabled"), nil
+}
+
 // Validate checks the settings make sense.
 func (c Config) Validate() error { return nil }
 

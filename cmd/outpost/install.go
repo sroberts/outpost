@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/sroberts/outpost/internal/autostart"
+	"github.com/sroberts/outpost/internal/config"
 )
 
 // cmdInstall writes the init-system integration that keeps the daemon running:
@@ -22,8 +23,13 @@ func (a *app) cmdInstall(args []string) error {
 	printOnly := fs.Bool("print", false, "write nothing; print the generated file to stdout")
 	label := fs.String("label", autostart.DefaultLabel, "job label / unit name")
 	authKey := fs.String("authkey", "", "TS_AUTHKEY to put in the service environment")
+	tsOn := fs.Bool("tailscale", false, "give each service its own Tailscale identity, without asking")
+	tsOff := fs.Bool("no-tailscale", false, "keep services on loopback only, without asking")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *tsOn && *tsOff {
+		return fmt.Errorf("install: --tailscale and --no-tailscale can't be used together")
 	}
 
 	mgr, cfg, err := a.autostartConfig(*label, *system, *authKey)
@@ -39,7 +45,22 @@ func (a *app) cmdInstall(args []string) error {
 		fmt.Fprint(a.out, body)
 		return nil
 	}
+
+	// Decided before ensureLayout creates anything, which would otherwise
+	// make every home look like an existing one.
+	_, statErr := os.Stat(a.home)
+	fresh := os.IsNotExist(statErr)
+	explicit := false
+	if !fresh {
+		if explicit, err = config.HasTailscaleSetting(a.configPath()); err != nil {
+			return err
+		}
+	}
+	a.deferTailscaleChoice = true
 	if err := a.ensureLayout(); err != nil {
+		return err
+	}
+	if err := a.chooseTailscale(*tsOn, *tsOff, fresh, explicit); err != nil {
 		return err
 	}
 

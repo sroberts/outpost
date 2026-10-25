@@ -223,6 +223,8 @@ outpost backup [service]         archive a service's storage (all if omitted)
 outpost backup --list <service>  list existing backups
 outpost restore <service> [ts]   restore from a backup (newest if ts omitted)
 outpost tui                      launch the dashboard
+outpost config --tailscale on|off
+                                 turn per-service Tailscale identities on or off
 outpost install [--system]       install the launchd/systemd autostart service
 outpost uninstall [--system]     stop that service and remove it
 ```
@@ -302,15 +304,23 @@ enabled  = true
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `tailscale.enabled` | `true` | Whether services get a Tailscale identity |
+| `tailscale.enabled` | see below | Whether services get a Tailscale identity |
 | `tailscale.auth_key` | — | Registers nodes unattended; `TS_AUTHKEY` wins over it |
+
+New installs start with Tailscale off: the first command to create
+`~/.outpost` writes `enabled = false`, and `outpost install` asks (see
+[Running at startup](#running-at-startup)). A home with no setting at all keeps
+running with it on, since that was the default before, and existing installs
+shouldn't lose their tailnet on upgrade. `outpost config --tailscale on|off`
+changes it at any time; restart the daemon afterwards.
 
 The file may hold an auth key, so it is written `0600`. Prefer `TS_AUTHKEY` in
 the environment, or `outpost install --authkey`, over writing one to disk.
 
 ## Running without Tailscale
 
-Tailscale is the default, but it is not required. Set:
+Tailscale is off for new installs and never required. To turn it off on an
+existing install, run `outpost config --tailscale off`, or set:
 
 ```toml
 [tailscale]
@@ -379,6 +389,20 @@ Pass `--enable` to have Outpost run them for you.
 
 Pass `--authkey` (or set `TS_AUTHKEY`) to put a Tailscale auth key in the
 service environment, which keeps it out of the manifests.
+
+If `config.toml` doesn't yet say whether to use Tailscale, `install` checks
+whether Tailscale is running on the machine, says what it found, and asks
+whether each service should get its own Tailscale identity. The answer is
+written to `config.toml`, so it's asked once. `--tailscale` and
+`--no-tailscale` answer without asking. With no terminal and neither flag, a
+new install gets Tailscale off and an existing one is left as it is.
+
+### Upgrading
+
+Replace the binary, then re-run `outpost install` (with the same flags as
+before, such as `--system`). That rewrites the service file for the new
+binary and asks any question a new version has added. Restart the daemon to
+pick up the new binary.
 
 ### User scope versus system scope
 
