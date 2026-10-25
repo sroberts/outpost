@@ -14,6 +14,7 @@ import (
 
 	"github.com/sroberts/outpost/internal/auth"
 	"github.com/sroberts/outpost/internal/backup"
+	"github.com/sroberts/outpost/internal/gateway"
 	"github.com/sroberts/outpost/internal/supervisor"
 )
 
@@ -40,6 +41,8 @@ const (
 	CmdUserEnable  = "user.enable"
 	CmdUserLogout  = "user.logout"
 	CmdAuthRotate  = "auth.rotate-key"
+
+	CmdGatewayStatus = "gateway.status"
 )
 
 // Timeouts. Most commands are near-instant queries against the supervisor's
@@ -128,6 +131,7 @@ type Response struct {
 	Archives []backup.Archive           `json:"archives,omitempty"`
 	Message  string                     `json:"message,omitempty"`
 	Users    []UserInfo                 `json:"users,omitempty"`
+	Gateway  *gateway.Status            `json:"gateway,omitempty"`
 }
 
 // errorResponse builds a failure reply.

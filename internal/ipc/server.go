@@ -15,6 +15,7 @@ import (
 
 	"github.com/sroberts/outpost/internal/auth"
 	"github.com/sroberts/outpost/internal/backup"
+	"github.com/sroberts/outpost/internal/gateway"
 	"github.com/sroberts/outpost/internal/supervisor"
 	"github.com/sroberts/outpost/internal/version"
 )
@@ -25,11 +26,12 @@ const maxSocketPath = 104
 
 // Server exposes a Supervisor over a Unix socket.
 type Server struct {
-	sup  *supervisor.Supervisor
-	auth *auth.Store
-	path string
-	ln   net.Listener
-	logf func(string, ...any)
+	sup     *supervisor.Supervisor
+	auth    *auth.Store
+	gateway GatewayStatus
+	path    string
+	ln      net.Listener
+	logf    func(string, ...any)
 
 	wg sync.WaitGroup
 }
@@ -79,6 +81,15 @@ func Listen(path string, sup *supervisor.Supervisor, logf func(string, ...any)) 
 // a setter rather than a Listen parameter so a daemon, or a test, that has no
 // auth store keeps working unchanged.
 func (s *Server) UseAuth(a *auth.Store) { s.auth = a }
+
+// GatewayStatus is the part of the gateway the socket reports on.
+type GatewayStatus interface {
+	Status() gateway.Status
+}
+
+// UseGateway enables gateway.status. Call it before Serve; a daemon with the
+// gateway off doesn't.
+func (s *Server) UseGateway(g GatewayStatus) { s.gateway = g }
 
 // Addr reports the socket path.
 func (s *Server) Addr() string { return s.path }
@@ -220,6 +231,13 @@ func (s *Server) dispatch(ctx context.Context, req Request) Response {
 	case CmdUserAdd, CmdUserPasswd, CmdUserRemove, CmdUserList, CmdUserGroups,
 		CmdUserDisable, CmdUserEnable, CmdUserLogout, CmdAuthRotate:
 		return s.dispatchAuth(req)
+
+	case CmdGatewayStatus:
+		if s.gateway == nil {
+			return errorResponse(errors.New("the gateway is off; turn it on with [gateway] enabled = true in config.toml, then restart the daemon"))
+		}
+		st := s.gateway.Status()
+		return Response{OK: true, Gateway: &st}
 
 	case CmdBackups:
 		archives, err := s.sup.ListBackups(ctx, req.Service)

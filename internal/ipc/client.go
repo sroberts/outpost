@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sroberts/outpost/internal/backup"
+	"github.com/sroberts/outpost/internal/gateway"
 	"github.com/sroberts/outpost/internal/supervisor"
 )
 
@@ -223,6 +224,18 @@ func (c *Client) UserLogout(username string) (string, error) {
 func (c *Client) AuthRotateKey() (string, error) {
 	resp, err := c.do(Request{Command: CmdAuthRotate})
 	return resp.Message, err
+}
+
+// GatewayStatus reports the gateway's addresses and routes.
+func (c *Client) GatewayStatus() (gateway.Status, error) {
+	resp, err := c.do(Request{Command: CmdGatewayStatus})
+	if err != nil {
+		return gateway.Status{}, err
+	}
+	if resp.Gateway == nil {
+		return gateway.Status{}, errors.New("daemon returned no gateway status")
+	}
+	return *resp.Gateway, nil
 }
 
 // isConnRefused reports whether dialing failed because nothing is listening,

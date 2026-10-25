@@ -57,6 +57,7 @@ Users:
   user enable <name>       let a disabled user log in again
   user logout <name>       end every session a user has
   auth rotate-key          replace the key that signs identity tokens
+  gateway status           the gateway's addresses and the apps it routes
 
 Flags:
   --home <dir>             Outpost root (default $OUTPOST_HOME or ~/.outpost)
@@ -155,6 +156,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return a.cmdUser(cmdArgs)
 	case "auth":
 		return a.cmdAuth(cmdArgs)
+	case "gateway":
+		return a.cmdGateway(cmdArgs)
 
 	case "help", "-h", "--help":
 		fmt.Fprint(stdout, usage)
