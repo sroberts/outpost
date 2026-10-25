@@ -115,10 +115,13 @@ Outpost injects, in this order:
 
 1. The daemon's own environment
 2. Every key in the manifest's `env` table
-3. `OUTPOST_STORAGE_DIR`
+3. With the login gateway on: `OUTPOST_AUTH=gateway`, `OUTPOST_ISSUER` and
+   `OUTPOST_JWKS_URL`
+4. `OUTPOST_STORAGE_DIR`
 
-`OUTPOST_STORAGE_DIR` is appended last and therefore always wins — a manifest
-cannot hand your service the wrong storage path, even by mistake.
+What Outpost sets comes after the manifest's `env` and therefore always wins —
+a manifest cannot hand your service the wrong storage path, or claim a gateway
+that isn't there, even by mistake.
 
 There is no shared configuration file format and Outpost will never write one
 for you. Read your configuration from the environment, from flags in `args`, or
@@ -269,7 +272,7 @@ Do not build expecting any of this:
 |---|---|
 | TLS | Tailscale terminates it; serve plain HTTP on loopback |
 | A bind address | You bind loopback; Outpost never binds your port |
-| Authentication or authorization | Tailnet membership is the boundary; add your own if you need more |
+| Authentication or authorization | Tailnet membership is the boundary; add your own if you need more. Behind the login gateway, the user arrives in `X-Outpost-*` headers; trust them only when `OUTPOST_AUTH=gateway` |
 | Secrets management | Read secrets from a file path given via env |
 | Service discovery | No registry; addresses are the operator's business |
 | A database, cache, or queue | Bring your own, inside your storage directory |
