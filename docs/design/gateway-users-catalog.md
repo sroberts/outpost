@@ -516,3 +516,58 @@ Sections that no longer hold once this lands:
 3. **Session length:** 30 days, sliding.
 4. **Admins and `allow`:** admins reach and see every app. `allow` limits
    ordinary users only.
+
+## Changes during implementation
+
+PRs #39, #40 and #41 built the first three delivery steps. Where they differ
+from the sections above, the code is current and this list says why. The rest
+of the design stands.
+
+**Install and first run (#40)**
+
+- **No terminal at install.** The design says the answer is no unless
+  `--tailscale` is passed. An auth key, from `--authkey` or `TS_AUTHKEY`, now
+  also means yes, unless the home already has a setting or `--no-tailscale` is
+  given: otherwise a scripted install's key would go unused. An existing home
+  with no setting is left on, as before, rather than answered no.
+- **Re-running install on an existing home.** The design defaults the question
+  to yes. It defaults to yes only when the home has Tailscale state
+  (`tsnet/`); a home that has never joined a tailnet defaults to no.
+- **First run under `serve`.** The design has the first command that creates
+  `~/.outpost` look for Tailscale and mention it only if found. `serve` skips
+  the check, which can take two seconds inside its startup deadline, and always
+  prints the command that turns Tailscale on. Other commands still detect.
+- **`config --init` and `serve --tailnet` on a new home** write the new-install
+  setting (off, or whatever `--tailnet` says), not the built-in default.
+
+**Sessions and codes (#41)**
+
+- **One-time codes live in memory in the gateway**, not in `auth.db`. They
+  last a minute, a restart ending them is harmless, and a copy of `auth.db`
+  never holds one. Their tests are the gateway's, not `internal/auth`'s.
+- **Using an app keeps the login alive.** Each slide of an app session also
+  slides its portal session (`TouchFamily`), so someone who only ever opens
+  one app isn't sent back to log in after 30 days.
+- **Logging out from an app host** ends the portal session and every app
+  session under it (`RevokeFamily`), as the design says; it needed a store
+  method the design didn't name.
+- **The cookie lasts 400 days**, the most browsers allow. `auth.db` decides
+  when a session ends; the cookie only has to outlive it.
+- **The callback throttle allows five failures per address** before backing
+  off, so a stale link or two doesn't lock anyone out. Codes are 256 random
+  bits, so the limit is about load, not guessing.
+
+**Gateway details (#41)**
+
+- **Plain HTTP on the network** is rejected in config validation, so every
+  command refuses the config, not just the gateway at start.
+- **`X-Forwarded-Proto` is never honoured**, even from a trusted proxy. The
+  scheme always comes from `public_url`. `X-Forwarded-Host` and
+  `X-Forwarded-For` are honoured from `trusted_proxies` as designed.
+- **The JWKS is served on any host given as an address** (`127.0.0.1`, a LAN
+  IP, `localhost`), not only loopback, since the keys are public anyway.
+- **Service names that aren't DNS labels** are logged and left unrouted for
+  now. Making them an `apply` error with the gateway on, as designed, comes
+  with PR 3's manifest validation.
+- **Deferred:** the `login`, `login-failed` and `user` activity-feed events.
+  They need a supervisor API for events that aren't about a service.
