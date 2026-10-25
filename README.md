@@ -227,6 +227,26 @@ outpost install [--system]       install the launchd/systemd autostart service
 outpost uninstall [--system]     stop that service and remove it
 ```
 
+Users are for the login gateway, which is still being built. They're managed
+from the CLI too, through the daemon:
+
+```
+outpost user add <name> [--admin] [--group G] [--email E] [--display-name N]
+                                 add a user; prompts for a password, or takes
+                                 --password-stdin or --no-password
+outpost user passwd <name>       set a password and end the user's sessions
+outpost user rm <name>           remove a user
+outpost user list                users, their groups and live sessions
+outpost user groups <name> +g -g add to and remove from groups
+outpost user disable|enable <name>
+outpost user logout <name>       end every session the user has
+outpost auth rotate-key          replace the key that signs identity tokens
+```
+
+Passwords are typed at a prompt with no echo, never on the command line, and
+cross only the owner-only control socket. Removing, disabling or demoting the
+last enabled admin is refused.
+
 Global flags:
 
 | Flag | Default | Notes |
@@ -342,6 +362,7 @@ Everything lives under `~/.outpost` (or `$OUTPOST_HOME`, or `--home`):
   backups/<name>/<ts>.tar.gz
   tsnet/<name>/            per-service Tailscale node identity
   state.db                 SQLite observed state and event log
+  auth.db                  users, password hashes, sessions, signing keys (0600)
   config.toml              global settings, mode 0600 (optional)
   outpost.sock             control socket, mode 0600
   outpost.pid              running daemon's PID
@@ -352,6 +373,12 @@ Everything lives under `~/.outpost` (or `$OUTPOST_HOME`, or `--home`):
 and re-running `outpost apply` converges to the same running state; there is a
 test for exactly that. The one thing it holds that is *not* a cache is your
 intent: `outpost stop` records that a service should stay down.
+
+`auth.db` is the opposite: nothing can rebuild it. It holds users, argon2id
+password hashes, sessions (stored only as SHA-256 hashes of their tokens) and
+the keys that sign identity tokens, so it lives apart from `state.db` and
+should be backed up with the manifests. `outpost backup` covers service
+storage, not this file.
 
 > **Note on socket paths.** Unix domain sockets have a hard length limit in the
 > kernel (104 bytes on macOS). `~/.outpost/outpost.sock` is well under it, but a
@@ -535,8 +562,8 @@ updated_at)`. This adds `desired` (your start/stop intent), `restart_epoch` (how
 given up). They are load-bearing, not incidental.
 
 **The CLI differs from spec §12.** Added: `serve`, `install`, `uninstall`,
-`--home` / `$OUTPOST_HOME`, `backup --list`, `--tailnet`. Not built:
-`outpost hermes publish`, which spec §12 lists.
+`user`, `auth`, `--home` / `$OUTPOST_HOME`, `backup --list`, `--tailnet`.
+Not built: `outpost hermes publish`, which spec §12 lists.
 
 **Manifest reloading polls instead of using fsnotify.** Spec §6 calls for
 fsnotify. The daemon hashes the manifest directory each tick and re-applies on
