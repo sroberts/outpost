@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/sroberts/outpost/internal/autostart"
-	"github.com/sroberts/outpost/internal/config"
 )
 
 // cmdInstall writes the init-system integration that keeps the daemon running:
@@ -46,22 +45,32 @@ func (a *app) cmdInstall(args []string) error {
 		return nil
 	}
 
-	// Decided before ensureLayout creates anything, which would otherwise
-	// make every home look like an existing one.
-	_, statErr := os.Stat(a.home)
-	fresh := os.IsNotExist(statErr)
-	explicit := false
-	if !fresh {
-		if explicit, err = config.HasTailscaleSetting(a.configPath()); err != nil {
+	explicit := a.config.TailscaleSet()
+	fresh, err := a.createLayout()
+	if err != nil {
+		return err
+	}
+	// A new home is off before the question is asked, so abandoning it
+	// (Ctrl-C, no usable answer) leaves a new install rather than one that
+	// looks like an old home running with Tailscale on.
+	if fresh {
+		if err := a.saveTailscale(false); err != nil {
 			return err
 		}
 	}
-	a.deferTailscaleChoice = true
-	if err := a.ensureLayout(); err != nil {
+	on := *tsOn
+	key := cfg.Env["TS_AUTHKEY"]
+	// An auth key is only any use with Tailscale on, so giving one answers
+	// the question, unless the home already has a setting.
+	if key != "" && !on && !*tsOff && !explicit {
+		fmt.Fprintln(a.out, "An auth key was given, so Tailscale goes on.")
+		on = true
+	}
+	if err := a.chooseTailscale(on, *tsOff, fresh, explicit); err != nil {
 		return err
 	}
-	if err := a.chooseTailscale(*tsOn, *tsOff, fresh, explicit); err != nil {
-		return err
+	if key != "" && !a.config.TailscaleEnabled() {
+		fmt.Fprintln(a.out, "  note: with Tailscale off, the auth key won't be used")
 	}
 
 	unitPath, err := mgr.UnitPath(cfg)

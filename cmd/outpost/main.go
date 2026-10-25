@@ -74,9 +74,6 @@ type app struct {
 	out    io.Writer
 	err    io.Writer
 	config config.Config
-	// deferTailscaleChoice stops ensureLayout settling Tailscale for a new
-	// home, because the command (install) is about to ask instead.
-	deferTailscaleChoice bool
 }
 
 func run(args []string, stdout, stderr io.Writer) error {
@@ -198,15 +195,23 @@ func (a *app) configPath() string  { return filepath.Join(a.home, "config.toml")
 // ensureLayout creates the Outpost root on first use. A home created here is
 // a new install, and gets the new-install Tailscale setting.
 func (a *app) ensureLayout() error {
+	fresh, err := a.createLayout()
+	if err != nil || !fresh {
+		return err
+	}
+	return a.firstRunTailscale(true)
+}
+
+// createLayout creates the Outpost root and reports whether the home itself
+// is new, for the commands that settle a new home's Tailscale setting their
+// own way.
+func (a *app) createLayout() (fresh bool, err error) {
 	_, statErr := os.Stat(a.home)
-	fresh := os.IsNotExist(statErr)
+	fresh = os.IsNotExist(statErr)
 	for _, dir := range []string{a.home, a.servicesDir(), a.logsDir()} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
-			return fmt.Errorf("create %s: %w", dir, err)
+			return false, fmt.Errorf("create %s: %w", dir, err)
 		}
 	}
-	if fresh && !a.deferTailscaleChoice {
-		return a.firstRunTailscale()
-	}
-	return nil
+	return fresh, nil
 }

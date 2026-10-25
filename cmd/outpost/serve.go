@@ -43,9 +43,27 @@ func (a *app) cmdServe(args []string) error {
 	watch := watchStartup(*startupTimeout, a.err, os.Exit)
 	defer watch.finished()
 
+	tailnetSet := false
+	fs.Visit(func(f *flag.Flag) { tailnetSet = tailnetSet || f.Name == "tailnet" })
+
 	watch.at("preparing " + a.home)
-	if err := a.ensureLayout(); err != nil {
+	fresh, err := a.createLayout()
+	if err != nil {
 		return err
+	}
+	if fresh {
+		// An explicit --tailnet is the choice for a new home, not just for
+		// this run. Detection is skipped: it can take seconds, and this is
+		// inside the startup deadline.
+		if tailnetSet {
+			err = a.saveTailscale(*tailnet)
+			fmt.Fprintf(a.out, "outpost: new Outpost home at %s; Tailscale is %s, from --tailnet\n", a.home, onOff(*tailnet))
+		} else {
+			err = a.firstRunTailscale(false)
+		}
+		if err != nil {
+			return err
+		}
 	}
 	if pid, running := a.supervisorPID(); running {
 		return fmt.Errorf("an outpost daemon is already running (pid %d)", pid)
@@ -61,11 +79,9 @@ func (a *app) cmdServe(args []string) error {
 	// config.toml decides whether the tailnet is used at all; an explicit
 	// --tailnet on the command line overrides it for this run.
 	useTailnet := a.config.TailscaleEnabled()
-	fs.Visit(func(f *flag.Flag) {
-		if f.Name == "tailnet" {
-			useTailnet = *tailnet
-		}
-	})
+	if tailnetSet {
+		useTailnet = *tailnet
+	}
 
 	watch.at("starting the tailnet router")
 	var router supervisor.TailnetRouter
@@ -85,7 +101,7 @@ func (a *app) cmdServe(args []string) error {
 
 		if authKey == "" {
 			fmt.Fprintln(a.out, "outpost: no Tailscale auth key; each new service will log a one-time login URL")
-			fmt.Fprintln(a.out, "outpost: set TS_AUTHKEY, or run without Tailscale via `outpost config --init` and tailscale.enabled = false")
+			fmt.Fprintln(a.out, "outpost: set TS_AUTHKEY, or run without Tailscale via `outpost config --tailscale off`")
 		}
 	} else {
 		fmt.Fprintln(a.out, "outpost: Tailscale is disabled; services stay on loopback")

@@ -43,7 +43,15 @@ func (a *app) cmdConfig(args []string) error {
 		if _, err := os.Stat(a.configPath()); err == nil {
 			return fmt.Errorf("%s already exists", a.configPath())
 		}
-		if err := config.Save(a.configPath(), a.config); err != nil {
+		cfg := a.config
+		// A home that doesn't exist yet is a new install, which starts with
+		// Tailscale off. An existing home with no file has been running with
+		// it on, and the starter file records that.
+		if _, err := os.Stat(a.home); os.IsNotExist(err) {
+			off := false
+			cfg.Tailscale.Enabled = &off
+		}
+		if err := config.Save(a.configPath(), cfg); err != nil {
 			return err
 		}
 		fmt.Fprintf(a.out, "wrote %s\n", a.configPath())

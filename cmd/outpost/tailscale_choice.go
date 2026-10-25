@@ -28,18 +28,18 @@ var (
 // firstRunTailscale settles the Tailscale setting for a home this command has
 // just created. New installs start with Tailscale off; the built-in default
 // stays on only so that existing homes with no setting keep the behaviour
-// they've been running with.
-func (a *app) firstRunTailscale() error {
-	if explicit, err := config.HasTailscaleSetting(a.configPath()); err != nil || explicit {
-		return err
-	}
+// they've been running with. With detect false the hint is given without
+// looking for Tailscale first, which can take seconds.
+func (a *app) firstRunTailscale(detect bool) error {
 	if err := a.saveTailscale(false); err != nil {
 		return err
 	}
 	fmt.Fprintf(a.err, "outpost: new Outpost home at %s; Tailscale is off, so services stay on loopback\n", a.home)
-	if res := detectTailscale(context.Background()); res.Found {
-		fmt.Fprintf(a.err, "outpost: %s; to give each service its own Tailscale identity, run `outpost config --tailscale on`\n",
-			runningHere(res))
+	const turnOn = "to give each service its own Tailscale identity, run `outpost config --tailscale on`"
+	if !detect {
+		fmt.Fprintf(a.err, "outpost: %s\n", turnOn)
+	} else if res := detectTailscale(context.Background()); res.Found {
+		fmt.Fprintf(a.err, "outpost: %s; %s\n", runningHere(res), turnOn)
 	}
 	return nil
 }
@@ -117,7 +117,6 @@ func (a *app) askTailscale() (bool, error) {
 
 // setTailscale records an explicit choice and says what it means.
 func (a *app) setTailscale(on bool) error {
-	was := a.config.TailscaleEnabled()
 	if err := a.saveTailscale(on); err != nil {
 		return err
 	}
@@ -125,8 +124,10 @@ func (a *app) setTailscale(on bool) error {
 	if on {
 		a.warnMissingTailscaleNames()
 	}
-	if on != was && a.client().Available() {
-		fmt.Fprintln(a.out, "  the running daemon still has it "+onOff(was)+"; restart it for this to take effect")
+	// The daemon's setting can't be asked for, and config.toml's previous
+	// value needn't be it: the file may have changed since the daemon started.
+	if a.client().Available() {
+		fmt.Fprintln(a.out, "  a daemon is running and reads config.toml only at startup; restart it if this changed its setting")
 	}
 	return nil
 }
