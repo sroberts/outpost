@@ -128,15 +128,7 @@ func (s *Store) SchemaVersion() (string, error) {
 // already returning the error that matters.
 func rollback(tx *sql.Tx) { _ = tx.Rollback() }
 
-// unixOrZero stores the zero time as 0 rather than a large negative number.
-func unixOrZero(t time.Time) int64 {
-	if t.IsZero() {
-		return 0
-	}
-	return t.Unix()
-}
-
-// fromUnix is unixOrZero's inverse.
+// fromUnix reads a stored time, where 0 means never.
 func fromUnix(sec int64) time.Time {
 	if sec == 0 {
 		return time.Time{}

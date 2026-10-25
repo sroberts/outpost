@@ -108,15 +108,6 @@ func TestUsers_UnknownUser(t *testing.T) {
 	}
 }
 
-func liveSessions(t *testing.T, s *Store, username string) int {
-	t.Helper()
-	u, err := s.GetUser(username)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return u.Sessions
-}
-
 func TestUsers_SetPasswordEndsSessions(t *testing.T) {
 	s, _ := newTestStore(t)
 	mustAdd(t, s, User{Username: "alice"}, pw)
