@@ -62,7 +62,9 @@ data race, and there is a regression test for it.
 execution, process groups, rotating logs) · `supervisor` (reconcile loop,
 restart policy, backoff, orphan reclamation) · `state` (SQLite) · `ipc` (JSON
 over a 0600 Unix socket) · `tsnet` (per-service Tailscale nodes) · `backup`
-(tar.gz) · `autostart` (launchd/systemd units) · `config` · `tui`.
+(tar.gz) · `autostart` (launchd/systemd units) · `config` · `tsdetect`
+(asks the system `tailscale` CLI whether Tailscale is running; never links
+Tailscale's client library) · `tui`.
 
 ## Invariants that bite
 

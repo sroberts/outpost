@@ -25,8 +25,8 @@ Not built: container services (`runtime = "container"` is rejected at apply
 time) and Hermes `SKILL.md` generation.
 
 **Tailscale integration is written but unverified.** No node has ever joined a
-real tailnet — it needs credentials and a device slot. It is off by default; see
-[Tailscale](#tailscale).
+real tailnet — it needs credentials and a device slot. New installs start with
+it off; see [Configuration](#configuration) and [Tailscale](#tailscale).
 
 ## Building
 
@@ -298,7 +298,7 @@ configuration at all — and `outpost config --init` writes a commented starter.
 
 ```toml
 [tailscale]
-enabled  = true
+enabled  = false
 # auth_key = "tskey-..."
 ```
 
@@ -394,8 +394,10 @@ If `config.toml` doesn't yet say whether to use Tailscale, `install` checks
 whether Tailscale is running on the machine, says what it found, and asks
 whether each service should get its own Tailscale identity. The answer is
 written to `config.toml`, so it's asked once. `--tailscale` and
-`--no-tailscale` answer without asking. With no terminal and neither flag, a
-new install gets Tailscale off and an existing one is left as it is.
+`--no-tailscale` answer without asking, and so does an auth key: `--authkey`
+or `TS_AUTHKEY` means on, unless the home already has a setting or
+`--no-tailscale` is given. Otherwise, with no terminal, a new install gets
+Tailscale off and an existing one is left as it is.
 
 ### Upgrading
 
@@ -572,6 +574,11 @@ or an OCI container", and §9 designs a container runtime. Outpost supervises
 native Go processes only, so `image`, `container_args` and `container_engine`
 are gone from the schema and `runtime` accepts only `"process"`. Spec §9 and
 build step 8 no longer apply.
+
+**Tailscale is opt-in for new installs.** Spec §1 and §7 have every service
+on the tailnet, reachable only through Tailscale. New installs now start with
+`tailscale.enabled = false`, and `outpost install` offers to turn it on when it
+finds Tailscale running. Homes with no setting keep the old behaviour, on.
 
 **`funnel` is rejected, not ignored.** It is accepted by the schema and refused
 at apply time with an explicit error, per spec §7.
