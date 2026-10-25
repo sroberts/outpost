@@ -46,6 +46,18 @@ Commands:
                            the daemon running across reboots
   uninstall [--system]     stop that service and remove it
 
+Users:
+  user add <name>          add a user (--admin, --group G, --email E,
+                           --display-name N, --no-password, --password-stdin)
+  user passwd <name>       set a user's password and end their sessions
+  user rm <name>           remove a user
+  user list                table of users, their groups and sessions
+  user groups <name> +g -g add to and remove from groups
+  user disable <name>      block a user from logging in and end their sessions
+  user enable <name>       let a disabled user log in again
+  user logout <name>       end every session a user has
+  auth rotate-key          replace the key that signs identity tokens
+
 Flags:
   --home <dir>             Outpost root (default $OUTPOST_HOME or ~/.outpost)
   --version                print the build identity of this binary
@@ -139,6 +151,10 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return a.cmdUninstall(cmdArgs)
 	case "version":
 		return a.cmdVersion(cmdArgs)
+	case "user":
+		return a.cmdUser(cmdArgs)
+	case "auth":
+		return a.cmdAuth(cmdArgs)
 
 	case "help", "-h", "--help":
 		fmt.Fprint(stdout, usage)
@@ -188,6 +204,7 @@ func (a *app) socketPath() string  { return filepath.Join(a.home, "outpost.sock"
 func (a *app) backupsDir() string  { return filepath.Join(a.home, "backups") }
 func (a *app) tsnetDir() string    { return filepath.Join(a.home, "tsnet") }
 func (a *app) configPath() string  { return filepath.Join(a.home, "config.toml") }
+func (a *app) authPath() string    { return filepath.Join(a.home, "auth.db") }
 
 // ensureLayout creates the Outpost root on first use.
 func (a *app) ensureLayout() error {

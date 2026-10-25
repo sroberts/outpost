@@ -171,6 +171,60 @@ func (c *Client) Backups(name string) ([]backup.Archive, error) {
 	return resp.Archives, err
 }
 
+// UserAdd creates a user. An empty password creates one who can't log in yet.
+func (c *Client) UserAdd(r UserRequest) (string, error) {
+	resp, err := c.do(Request{Command: CmdUserAdd, User: &r})
+	return resp.Message, err
+}
+
+// UserPasswd sets a user's password.
+func (c *Client) UserPasswd(username, password string) (string, error) {
+	resp, err := c.do(Request{Command: CmdUserPasswd, User: &UserRequest{Username: username, Password: password}})
+	return resp.Message, err
+}
+
+// UserRemove deletes a user.
+func (c *Client) UserRemove(username string) (string, error) {
+	resp, err := c.do(Request{Command: CmdUserRemove, User: &UserRequest{Username: username}})
+	return resp.Message, err
+}
+
+// UserList returns every user.
+func (c *Client) UserList() ([]UserInfo, error) {
+	resp, err := c.do(Request{Command: CmdUserList})
+	return resp.Users, err
+}
+
+// UserGroups adds and removes a user's group memberships.
+func (c *Client) UserGroups(username string, add, remove []string) (string, error) {
+	resp, err := c.do(Request{Command: CmdUserGroups,
+		User: &UserRequest{Username: username, AddGroups: add, RemoveGroups: remove}})
+	return resp.Message, err
+}
+
+// UserDisable and UserEnable turn a user's access off and on.
+func (c *Client) UserDisable(username string) (string, error) {
+	resp, err := c.do(Request{Command: CmdUserDisable, User: &UserRequest{Username: username}})
+	return resp.Message, err
+}
+
+func (c *Client) UserEnable(username string) (string, error) {
+	resp, err := c.do(Request{Command: CmdUserEnable, User: &UserRequest{Username: username}})
+	return resp.Message, err
+}
+
+// UserLogout ends every session a user has.
+func (c *Client) UserLogout(username string) (string, error) {
+	resp, err := c.do(Request{Command: CmdUserLogout, User: &UserRequest{Username: username}})
+	return resp.Message, err
+}
+
+// AuthRotateKey replaces the identity-token signing key.
+func (c *Client) AuthRotateKey() (string, error) {
+	resp, err := c.do(Request{Command: CmdAuthRotate})
+	return resp.Message, err
+}
+
 // isConnRefused reports whether dialing failed because nothing is listening,
 // which is a stale socket rather than a real error worth surfacing.
 //
