@@ -12,9 +12,10 @@ they can open. It also serves **each app on its own subdomain**, behind that
 same login. The gateway tells each app who is calling, with plain headers for
 simple apps and a short-lived signed token for apps that want to verify it.
 
-Tailscale stops being a requirement. The gateway works on a LAN behind your
-own TLS, behind `tailscale serve`, or alongside today's per-app tsnet nodes,
-which keep working unchanged.
+Tailscale stops being a requirement, and new installs leave it off unless the
+installer finds it on the machine and the operator says yes. The gateway works
+on a LAN behind your own TLS, behind `tailscale serve`, or alongside today's
+per-app tsnet nodes, which keep working unchanged.
 
 Decisions already taken:
 
@@ -23,7 +24,10 @@ Decisions already taken:
 | How apps are addressed | A subdomain per app: `yarr.outpost.example` |
 | How apps learn the user | Identity headers plus an Ed25519-signed token, verifiable against a JWKS endpoint |
 | How people log in | Username and password (argon2id), then a session cookie |
-| Who can reach what | Every user reaches every app unless its manifest sets `allow`, which takes usernames and groups |
+| Who can reach what | Every user reaches every app unless its manifest sets `allow`, which takes usernames and groups. Admins reach everything |
+| Per-app `subdomain` override | Yes, from the start |
+| Tailscale on new installs | Off by default; detected at install and upgrade, and offered then |
+| Portal session length | 30 days, sliding |
 
 ## Goals
 
@@ -289,8 +293,9 @@ public_paths = ["/webhook/*"]            # skip login here; identity headers are
 
 - **`allow`** is checked at the app host on every request, and during the
   handshake before a code is minted. A logged-in user who isn't allowed gets a
-  plain "you don't have access to Yarr" page, not a redirect loop. Admins are
-  not exempt: `allow` means what it says. A user or group named in `allow`
+  plain "you don't have access to Yarr" page, not a redirect loop. **Admins
+  reach every app and see every card**, whatever `allow` says; `allow` limits
+  ordinary users. A user or group named in `allow`
   that doesn't exist is a warning in `outpost apply`, not an error, so a
   manifest can be written before the user exists.
 - **`public_paths`** exists because webhooks, RSS feeds and some APIs carry
@@ -309,7 +314,8 @@ public_paths = ["/webhook/*"]            # skip login here; identity headers are
 `html/template` and embedded with `embed`. No JavaScript framework, no build
 step, nothing fetched from a CDN. It must work offline on a LAN.
 
-- **One card per app** the user is allowed to open (minus `hidden`). Each card
+- **One card per app** the user is allowed to open (minus `hidden`; an admin
+  sees every app, and `hidden` ones too, marked as hidden). Each card
   shows the icon or a lettermark, the title, the description and the address.
   The whole card is the link.
 - **Status on every card:** running, starting, or unavailable. Unavailable
@@ -355,6 +361,55 @@ tailnet also requires an Outpost login, is a follow-up. It's a small change
 once #35 lands, but it changes behaviour that people rely on today, so it
 should be opt-in and decided separately.
 
+## Tailscale off by default, offered when found
+
+New installs start with Tailscale off. When the installer finds Tailscale on
+the machine, it offers to turn it on.
+
+### Detection
+
+Outpost runs the `tailscale` CLI, on `PATH` or at the macOS app path
+(`/Applications/Tailscale.app/Contents/MacOS/Tailscale`), with `status --json`.
+It reads `BackendState` and the tailnet name. "Detected" means the CLI exists
+and the backend is `Running`. Outpost runs the CLI rather than linking
+Tailscale's client library, so the daemon still links no `tailscale.com` code
+outside `internal/tsnet/node`. The check has a two-second limit, and any
+failure reads as "not detected", never as an error.
+
+Detection only decides what to *offer*. Per-app tsnet nodes don't need the
+system Tailscale at all, so its absence never blocks turning Tailscale on.
+
+### When the question is asked
+
+- **`outpost install`**, both on first install and when re-run after an
+  upgrade. The README documents no upgrade step today; this change makes
+  "replace the binary, re-run `outpost install`" that step. If `config.toml`
+  has no explicit `tailscale.enabled`, it reports what it found ("Tailscale is
+  running here, tailnet `tail1234.ts.net`") and asks "Give each service its
+  own Tailscale identity? [y/N]". The answer is written to `config.toml`, so
+  it's asked once. With no TTY, the answer is no unless the new `--tailscale`
+  flag is passed; the new `--no-tailscale` says no explicitly.
+- **`outpost config --tailscale on|off`** changes it at any time.
+- **First run without `install`.** A daemon or CLI command that creates
+  `~/.outpost` for the first time writes `config.toml` with `enabled = false`.
+  If Tailscale is detected, it logs one line naming the command that turns it
+  on.
+
+### Existing installs keep their behaviour
+
+An install with no setting has been running with Tailscale **on**, because
+that's the built-in default today. Turning it off silently on upgrade would
+take every app off the tailnet. So the built-in default for a home that has
+no setting stays **on**, and "off for new installs" comes from the explicit
+value written at install or first run. Re-running `outpost install` on such a
+home asks the question with "Y" as the default, since it's already on.
+
+This also leaves two existing tests untouched:
+`TestLoad_MissingFileUsesDefaults` and `TestLoad_PartialFileKeepsDefaults`
+pin "no setting means on". The simpler alternative, flipping the built-in
+default, would mean editing those two tests, which needs your approval, and
+would turn Tailscale off on upgrade for anyone without a config file.
+
 ## CLI
 
 Every command goes through the daemon socket, as the rest of the CLI does.
@@ -370,6 +425,7 @@ outpost user disable|enable <name>
 outpost user logout <name>            # end every session
 outpost auth rotate-key
 outpost gateway status                # listen address, public URL, routed hosts
+outpost config --tailscale on|off     # explicit switch; see the Tailscale section
 ```
 
 Passwords cross the 0600 Unix socket, the same boundary the CLI already
@@ -424,6 +480,8 @@ Four PRs, each usable on its own:
 
 1. **`internal/auth` plus the user CLI.** The store, hashing, sessions, keys,
    the `outpost user …` commands over IPC, and first-run setup. No HTTP.
+   Tailscale detection and the install-time question ship here too: they're
+   small and independent of the gateway.
 2. **The gateway:** config, host routing, the reverse proxy, login, logout,
    the handshake, identity headers, the token and JWKS. The portal is a bare
    page listing links.
@@ -447,14 +505,12 @@ Sections that no longer hold once this lands:
 - **§7:** tsnet becomes one way of exposing apps, not the only one.
 - **§12:** gains the `user`, `auth` and `gateway` command groups.
 
-## Open questions
+## Resolved questions
 
-1. **The `subdomain` field.** Is a per-app override worth having from the
-   start, or is the service name enough until someone asks? (`hostname` is
-   needed either way, for Tailscale Services.)
-2. **Defaults:** should `tailscale.enabled` default to false once the gateway
-   exists, for new installs only? Today it defaults to true.
-3. **Session length:** is a 30-day sliding portal session right for a home
-   setup, or should it be shorter?
-4. **Should `allow` restrict admins too,** as proposed, or should admins see
-   everything?
+1. **`subdomain` override:** in from the start, defaulting to the service
+   name.
+2. **Tailscale default:** off for new installs; detected and offered at
+   install and upgrade. See "Tailscale off by default, offered when found".
+3. **Session length:** 30 days, sliding.
+4. **Admins and `allow`:** admins reach and see every app. `allow` limits
+   ordinary users only.
