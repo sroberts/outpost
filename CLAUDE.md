@@ -17,7 +17,7 @@ before opening a PR.
 
 ```sh
 make build                                       # ./outpost
-make test                                        # full suite (261 tests)
+make test                                        # full suite
 make test-race                                   # race detector; the suite is clean, keep it that way
 make lint                                        # go vet + golangci-lint
 make fmt-check                                   # gofmt, honouring the one exempt file
@@ -62,7 +62,9 @@ data race, and there is a regression test for it.
 execution, process groups, rotating logs) · `supervisor` (reconcile loop,
 restart policy, backoff, orphan reclamation) · `state` (SQLite) · `ipc` (JSON
 over a 0600 Unix socket) · `tsnet` (per-service Tailscale nodes) · `backup`
-(tar.gz) · `autostart` (launchd/systemd units) · `config` · `tui`.
+(tar.gz) · `autostart` (launchd/systemd units) · `acquire` (installing a
+binary from a GitHub release, for `outpost add <url>`) · `config` · `tui` ·
+`version` (the build identity `make build` stamps).
 
 ## Invariants that bite
 
