@@ -35,7 +35,8 @@ const userUsage = `usage:
   outpost user groups <name> +group -group ...
   outpost user disable <name>
   outpost user enable <name>
-  outpost user logout <name>`
+  outpost user logout <name>
+  outpost user admin <name> on|off`
 
 // cmdUser manages the people who can log in. Every subcommand goes through
 // the daemon: it owns auth.db, and ending a session has to reach it.
@@ -61,6 +62,8 @@ func (a *app) cmdUser(args []string) error {
 		return a.userSimple(rest, "enable", (*ipc.Client).UserEnable)
 	case "logout":
 		return a.userSimple(rest, "logout", (*ipc.Client).UserLogout)
+	case "admin":
+		return a.cmdUserAdmin(rest)
 	case "help", "-h", "--help":
 		fmt.Fprintln(a.out, userUsage)
 		return nil
@@ -277,6 +280,33 @@ func (a *app) cmdUserGroups(args []string) error {
 		return err
 	}
 	msg, err := c.UserGroups(name, add, remove)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(a.out, msg)
+	return nil
+}
+
+// cmdUserAdmin grants or revokes admin. Without it the last-admin guard's
+// advice, make another user an admin, had no command to follow it.
+func (a *app) cmdUserAdmin(args []string) error {
+	const use = "usage: outpost user admin <name> on|off"
+	if len(args) != 2 {
+		return errors.New(use)
+	}
+	var admin bool
+	switch args[1] {
+	case "on":
+		admin = true
+	case "off":
+	default:
+		return fmt.Errorf("user admin: %q is not on or off\n%s", args[1], use)
+	}
+	c, err := a.daemon()
+	if err != nil {
+		return err
+	}
+	msg, err := c.UserAdmin(args[0], admin)
 	if err != nil {
 		return err
 	}

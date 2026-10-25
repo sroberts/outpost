@@ -213,6 +213,12 @@ func (c *Client) UserEnable(username string) (string, error) {
 	return resp.Message, err
 }
 
+// UserAdmin grants or revokes admin.
+func (c *Client) UserAdmin(username string, admin bool) (string, error) {
+	resp, err := c.do(Request{Command: CmdUserAdmin, User: &UserRequest{Username: username, Admin: admin}})
+	return resp.Message, err
+}
+
 // UserLogout ends every session a user has.
 func (c *Client) UserLogout(username string) (string, error) {
 	resp, err := c.do(Request{Command: CmdUserLogout, User: &UserRequest{Username: username}})

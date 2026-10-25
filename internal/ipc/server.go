@@ -218,7 +218,7 @@ func (s *Server) dispatch(ctx context.Context, req Request) Response {
 			Message: fmt.Sprintf("restored %s from %s", req.Service, archive.Timestamp)}
 
 	case CmdUserAdd, CmdUserPasswd, CmdUserRemove, CmdUserList, CmdUserGroups,
-		CmdUserDisable, CmdUserEnable, CmdUserLogout, CmdAuthRotate:
+		CmdUserDisable, CmdUserEnable, CmdUserLogout, CmdUserAdmin, CmdAuthRotate:
 		return s.dispatchAuth(req)
 
 	case CmdBackups:
@@ -318,6 +318,15 @@ func (s *Server) dispatchAuth(req Request) Response {
 			return Response{OK: true, Message: "disabled " + u.Username + " and ended their sessions"}
 		}
 		return Response{OK: true, Message: "enabled " + u.Username}
+
+	case CmdUserAdmin:
+		if err := s.auth.SetAdmin(u.Username, u.Admin); err != nil {
+			return errorResponse(err)
+		}
+		if u.Admin {
+			return Response{OK: true, Message: u.Username + " is now an admin"}
+		}
+		return Response{OK: true, Message: u.Username + " is no longer an admin"}
 
 	case CmdUserLogout:
 		n, err := s.auth.RevokeUserSessions(u.Username)

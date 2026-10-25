@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"unicode/utf8"
 )
 
 // PortalSessionTTL is how long a session lasts without being used.
@@ -39,7 +40,13 @@ func (s *Store) CreateSession(username, app, parentToken, userAgent string) (str
 		return "", errors.New("an app session needs a parent session, and a portal session can't have one")
 	}
 	if len(userAgent) > maxUserAgent {
-		userAgent = userAgent[:maxUserAgent]
+		// Back up to a character boundary, so a cut never stores half a
+		// UTF-8 sequence.
+		cut := maxUserAgent
+		for cut > 0 && !utf8.RuneStart(userAgent[cut]) {
+			cut--
+		}
+		userAgent = userAgent[:cut]
 	}
 	tok, err := NewToken()
 	if err != nil {
