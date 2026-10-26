@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/sroberts/outpost/internal/auth"
 	"github.com/sroberts/outpost/internal/ipc"
 	"github.com/sroberts/outpost/internal/manifest"
 	"github.com/sroberts/outpost/internal/runtime"
@@ -75,6 +76,13 @@ func (a *app) cmdServe(args []string) error {
 		return err
 	}
 	defer store.Close()
+
+	watch.at("opening the auth store")
+	authStore, err := auth.Open(a.authPath())
+	if err != nil {
+		return err
+	}
+	defer authStore.Close()
 
 	// config.toml decides whether the tailnet is used at all; an explicit
 	// --tailnet on the command line overrides it for this run.
@@ -144,6 +152,12 @@ func (a *app) cmdServe(args []string) error {
 		return err
 	}
 	defer srv.Close()
+	srv.UseAuth(authStore)
+	if users, err := authStore.ListUsers(); err != nil {
+		fmt.Fprintf(a.err, "outpost: auth store: %v\n", err)
+	} else if len(users) == 0 {
+		fmt.Fprintln(a.out, `outpost: no users yet; create the first admin with "outpost user add <name> --admin"`)
+	}
 
 	if err := a.writePID(); err != nil {
 		return err
