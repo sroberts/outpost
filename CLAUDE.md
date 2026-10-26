@@ -48,7 +48,9 @@ is the daemon; every other subcommand is a client.
 **The manifest is the source of truth; `state.db` is a cache of observed
 reality.** Deleting the state store and re-running `apply` must converge to the
 same running set (`TestStateRecovery_ReapplyConvergesAfterStateLoss`). Don't
-introduce logic that treats the database as authoritative.
+introduce logic that treats the database as authoritative. `auth.db` is the
+exception, and is kept in a separate file for that reason: users, password
+hashes, sessions and signing keys can't be rebuilt from anything.
 
 **The reconcile loop is single-threaded, and that is load-bearing.** `Run` ticks
 on a timer and drains a command channel; API calls don't touch supervisor state
@@ -63,7 +65,8 @@ execution, process groups, rotating logs) · `supervisor` (reconcile loop,
 restart policy, backoff, orphan reclamation) · `state` (SQLite) · `ipc` (JSON
 over a 0600 Unix socket) · `tsnet` (per-service Tailscale nodes) · `backup`
 (tar.gz) · `autostart` (launchd/systemd units) · `acquire` (installing a
-binary from a GitHub release, for `outpost add <url>`) · `config` · `tui` ·
+binary from a GitHub release, for `outpost add <url>`) · `auth` (users, argon2id
+hashes, sessions, signing keys in `auth.db`; no HTTP) · `config` · `tui` ·
 `version` (the build identity `make build` stamps).
 
 ## Invariants that bite
