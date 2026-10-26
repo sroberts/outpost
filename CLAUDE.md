@@ -68,7 +68,9 @@ over a 0600 Unix socket) · `tsnet` (per-service Tailscale nodes) · `backup`
 binary from a GitHub release, for `outpost add <url>`) · `auth` (users, argon2id
 hashes, sessions, signing keys in `auth.db`; no HTTP) · `gateway` (the
 login front door: host routing, the reverse proxy, sessions over HTTP) ·
-`config` · `tui` · `version` (the build identity `make build` stamps).
+`config` · `tsdetect` (asks the system `tailscale` CLI whether Tailscale is
+running; never links Tailscale's client library) · `tui` · `version` (the
+build identity `make build` stamps).
 
 ## Invariants that bite
 
