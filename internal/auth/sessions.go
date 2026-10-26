@@ -220,3 +220,63 @@ WHERE expires_at <= ?
 	n, err := res.RowsAffected()
 	return int(n), err
 }
+
+// parentOf returns the hash of the portal session a token's session hangs
+// from: its parent for an app session, its own hash for a portal session.
+func (s *Store) parentOf(token string) (string, error) {
+	h := HashToken(token)
+	var parent string
+	err := s.db.QueryRow(`SELECT parent_hash FROM sessions WHERE token_hash = ? AND expires_at > ?`,
+		h, s.now().Unix()).Scan(&parent)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNoSuchSession
+	}
+	if err != nil {
+		return "", fmt.Errorf("look up session: %w", err)
+	}
+	if parent == "" {
+		return h, nil
+	}
+	return parent, nil
+}
+
+// TouchFamily records that a session was used, sliding it and, for an app
+// session, its portal session too, each on TouchSession's terms. Using any
+// app counts as using the login, so someone who only ever opens one app
+// isn't sent back to the login page when the untouched portal session runs
+// out.
+func (s *Store) TouchFamily(token string) error {
+	parent, err := s.parentOf(token)
+	if err != nil {
+		return err
+	}
+	now := s.now()
+	slide := now.Add(PortalSessionTTL).Unix()
+	// Only rows last slid more than RefreshAfter ago, as in TouchSession.
+	stale := now.Add(PortalSessionTTL - RefreshAfter).Unix()
+	if _, err := s.db.Exec(`
+UPDATE sessions SET expires_at = ?, last_seen_at = ?
+WHERE token_hash IN (?, ?) AND expires_at > ? AND expires_at <= ?`,
+		slide, now.Unix(), HashToken(token), parent, now.Unix(), stale); err != nil {
+		return fmt.Errorf("touch session: %w", err)
+	}
+	return nil
+}
+
+// RevokeFamily ends the login a session belongs to: its portal session and
+// every app session under it. Logging out from any app host means this. A
+// token that names no live session is not an error.
+func (s *Store) RevokeFamily(token string) error {
+	parent, err := s.parentOf(token)
+	if errors.Is(err, ErrNoSuchSession) {
+		return s.RevokeSession(token)
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(`DELETE FROM sessions WHERE token_hash = ? OR parent_hash = ? OR token_hash = ?`,
+		parent, parent, HashToken(token)); err != nil {
+		return fmt.Errorf("revoke sessions: %w", err)
+	}
+	return nil
+}

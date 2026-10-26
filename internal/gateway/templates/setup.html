@@ -1,0 +1,20 @@
+{{define "body"}}
+<main class="narrow">
+<h1>Set up Outpost</h1>
+<p class="lede">Create the first admin. This link works once, until an admin exists or the daemon restarts.</p>
+{{if .Error}}<p class="error" role="alert">{{.Error}}</p>{{end}}
+<form method="post" action="/setup">
+<input type="hidden" name="token" value="{{.Token}}">
+<label>Username
+<input name="username" value="{{.Username}}" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus>
+</label>
+<label>Password <span class="hint">at least {{.MinPassword}} characters</span>
+<input name="password" type="password" autocomplete="new-password" minlength="{{.MinPassword}}" required>
+</label>
+<label>Password again
+<input name="confirm" type="password" autocomplete="new-password" minlength="{{.MinPassword}}" required>
+</label>
+<button type="submit">Create admin</button>
+</form>
+</main>
+{{end}}

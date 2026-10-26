@@ -16,6 +16,8 @@ import (
 type Config struct {
 	// Tailscale controls whether services are put on a tailnet at all.
 	Tailscale Tailscale `toml:"tailscale"`
+	// Gateway is the login front door. Off unless enabled.
+	Gateway Gateway `toml:"gateway"`
 }
 
 // Tailscale settings.
@@ -84,7 +86,12 @@ func HasTailscaleSetting(path string) (bool, error) {
 }
 
 // Validate checks the settings make sense.
-func (c Config) Validate() error { return nil }
+func (c Config) Validate() error {
+	if err := c.Gateway.validate(); err != nil {
+		return fmt.Errorf("gateway: %w", err)
+	}
+	return nil
+}
 
 // Save writes the configuration, creating the directory if needed.
 func Save(path string, cfg Config) error {
@@ -116,6 +123,8 @@ func (c Config) Render() string {
 	} else {
 		b.WriteString("# auth_key = \"tskey-...\"\n")
 	}
+	b.WriteString("\n")
+	c.Gateway.render(&b)
 	return b.String()
 }
 

@@ -66,12 +66,18 @@ restart policy, backoff, orphan reclamation) · `state` (SQLite) · `ipc` (JSON
 over a 0600 Unix socket) · `tsnet` (per-service Tailscale nodes) · `backup`
 (tar.gz) · `autostart` (launchd/systemd units) · `acquire` (installing a
 binary from a GitHub release, for `outpost add <url>`) · `auth` (users, argon2id
-hashes, sessions, signing keys in `auth.db`; no HTTP) · `config` · `tsdetect`
-(asks the system `tailscale` CLI whether Tailscale is running; never links
-Tailscale's client library) · `tui` · `version` (the build identity `make
-build` stamps).
+hashes, sessions, signing keys in `auth.db`; no HTTP) · `gateway` (the
+login front door: host routing, the reverse proxy, sessions over HTTP) ·
+`config` · `tsdetect` (asks the system `tailscale` CLI whether Tailscale is
+running; never links Tailscale's client library) · `tui` · `version` (the
+build identity `make build` stamps).
 
 ## Invariants that bite
+
+**The gateway strips identity before anything else.** `ServeHTTP` removes every
+incoming `X-Outpost-*` header first, on every host and path, and the proxy
+removes the Outpost cookie. Anything new that handles a request has to come
+after that, and nothing may let a client choose the identity a service sees.
 
 **Never run `gofmt -w` on a directory.** `internal/manifest/manifest_test.go` is
 deliberately left unformatted and `gofmt -l .` is expected to report it and

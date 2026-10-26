@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/sroberts/outpost/internal/auth"
+	"github.com/sroberts/outpost/internal/gateway"
 	"github.com/sroberts/outpost/internal/ipc"
 	"github.com/sroberts/outpost/internal/manifest"
 	"github.com/sroberts/outpost/internal/runtime"
@@ -116,13 +117,19 @@ func (a *app) cmdServe(args []string) error {
 	}
 
 	watch.at("loading manifests")
+	procs := &runtime.ProcessRuntime{
+		LogDir: a.logsDir(),
+		// Tells each service whether identity headers can be trusted, and
+		// where the keys that verify them are.
+		Env: gateway.ServiceEnv(a.config.Gateway),
+	}
 	sup, err := supervisor.New(supervisor.Options{
 		ServicesDir:     a.servicesDir(),
 		BackupDir:       a.backupsDir(),
 		Tailnet:         router,
 		ManifestOptions: manifest.Options{RequireTailscale: useTailnet},
 		Store:           store,
-		ProcessRuntime:  &runtime.ProcessRuntime{LogDir: a.logsDir()},
+		ProcessRuntime:  procs,
 		Interval:        *interval,
 		Logf:            func(format string, v ...any) { fmt.Fprintf(a.out, format+"\n", v...) },
 	})
@@ -153,10 +160,36 @@ func (a *app) cmdServe(args []string) error {
 	}
 	defer srv.Close()
 	srv.UseAuth(authStore)
+
+	var gw *gateway.Gateway
+	if a.config.Gateway.Enabled {
+		watch.at("starting the gateway")
+		gw, err = gateway.New(gateway.Options{
+			Config:   a.config.Gateway,
+			Auth:     authStore,
+			Services: sup,
+			Logf:     func(format string, v ...any) { fmt.Fprintf(a.out, format+"\n", v...) },
+		})
+		if err != nil {
+			return err
+		}
+		if err := gw.Listen(); err != nil {
+			return err
+		}
+		srv.UseGateway(gw)
+	}
+
 	if users, err := authStore.ListUsers(); err != nil {
 		fmt.Fprintf(a.err, "outpost: auth store: %v\n", err)
 	} else if len(users) == 0 {
-		fmt.Fprintln(a.out, `outpost: no users yet; create the first admin with "outpost user add <name> --admin"`)
+		if gw != nil && gw.SetupURL() != "" {
+			// The link carries a secret, but only to this log, and it's
+			// dead once an admin exists or the daemon restarts.
+			fmt.Fprintf(a.out, "outpost: no users yet; create the first admin at %s\n", gw.SetupURL())
+			fmt.Fprintln(a.out, `outpost: or run "outpost user add <name> --admin"`)
+		} else {
+			fmt.Fprintln(a.out, `outpost: no users yet; create the first admin with "outpost user add <name> --admin"`)
+		}
 	}
 
 	if err := a.writePID(); err != nil {
@@ -176,12 +209,26 @@ func (a *app) cmdServe(args []string) error {
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- srv.Serve(ctx) }()
 
+	gwDone := make(chan struct{})
+	if gw != nil {
+		fmt.Fprintf(a.out, "outpost: gateway at %s, listening on %s\n", gw.PortalURL(), gw.Addr())
+		go func() {
+			defer close(gwDone)
+			if err := gw.Serve(ctx); err != nil {
+				fmt.Fprintf(a.err, "outpost: gateway: %v\n", err)
+			}
+		}()
+	} else {
+		close(gwDone)
+	}
+
 	// Run reloads manifests each tick and stops every service on the way out.
 	runErr := sup.Run(ctx)
 	srv.Close()
 	if err := <-serveErr; err != nil {
 		fmt.Fprintf(a.err, "outpost: socket server: %v\n", err)
 	}
+	<-gwDone
 
 	fmt.Fprintln(a.out, "outpost: stopped")
 	if runErr != nil && ctx.Err() == nil {

@@ -19,10 +19,12 @@ and that document disagree.
 
 Built and tested: manifest loading and validation, process supervision with
 restart policies and backoff, SQLite state, the CLI, the daemon and its control
-socket, autostart under launchd and systemd, backup/restore, and the dashboard.
+socket, autostart under launchd and systemd, backup/restore, the dashboard,
+users, and the [login gateway](#the-login-gateway).
 
 Not built: container services (`runtime = "container"` is rejected at apply
-time) and Hermes `SKILL.md` generation.
+time), Hermes `SKILL.md` generation, and the gateway's app catalog and per-app
+access rules.
 
 **Tailscale integration is written but unverified.** No node has ever joined a
 real tailnet — it needs credentials and a device slot. New installs start with
@@ -231,8 +233,8 @@ outpost install [--system]       install the launchd/systemd autostart service
 outpost uninstall [--system]     stop that service and remove it
 ```
 
-Users are for the login gateway, which is still being built. They're managed
-from the CLI too, through the daemon:
+Users log in through the [login gateway](#the-login-gateway). They're managed
+from the CLI, through the daemon:
 
 ```
 outpost user add <name> [--admin] [--group G] [--email E] [--display-name N]
@@ -245,6 +247,7 @@ outpost user groups <name> +g -g add to and remove from groups
 outpost user disable|enable <name>
 outpost user logout <name>       end every session the user has
 outpost auth rotate-key          replace the key that signs identity tokens
+outpost gateway status           the portal address and the apps it routes
 ```
 
 Passwords are typed at a prompt with no echo, never on the command line, and
@@ -336,6 +339,9 @@ running with it on, since that was the default before, and existing installs
 shouldn't lose their tailnet on upgrade. `outpost config --tailscale on|off`
 changes it at any time; restart the daemon afterwards.
 
+`[gateway]` turns on the login gateway; its settings are in
+[The login gateway](#the-login-gateway).
+
 The file may hold an auth key, so it is written `0600`. Prefer `TS_AUTHKEY` in
 the environment, or `outpost install --authkey`, over writing one to disk.
 
@@ -361,6 +367,55 @@ Services still bind loopback, because that is what the service contract asks
 for. Without Tailscale they are reachable from the machine itself; exposing them
 further is between you and whatever you put in front of them — Outpost has no
 `bind` setting, because it never binds the port itself.
+
+## The login gateway
+
+An optional HTTP front door in the daemon. People log in once at a portal and
+reach each service at its own subdomain, `<name>.<domain>`, and every request
+the service receives says who sent it. It's off unless you turn it on:
+
+```toml
+[gateway]
+enabled    = true
+public_url = "https://outpost.example"   # the portal, as browsers see it
+# listen          = "127.0.0.1:8443"     # where the daemon listens
+# domain          = "outpost.example"    # apps at <name>.<domain>; defaults to public_url's host
+# tls_cert        = "/path/to/fullchain.pem"   # serve TLS directly; leave both unset
+# tls_key         = "/path/to/privkey.pem"     # when something in front terminates it
+# trusted_proxies = ["127.0.0.1/32", "::1/128"] # may set X-Forwarded-*
+# allow_insecure  = false                # see below
+```
+
+It needs a wildcard: `*.outpost.example` resolving to the machine, and a
+certificate that covers it, whether the gateway serves TLS itself or something
+in front of it does. A plain-http `public_url` is fine on loopback, behind a
+proxy that terminates TLS, but with a network-facing `listen` Outpost rejects
+the config unless `allow_insecure = true`, because passwords would cross the
+network in clear.
+
+With no users yet, `outpost serve` logs a one-time setup link that creates the
+first admin; `outpost user add <name> --admin` does the same from a terminal.
+The link stops working once anyone exists, or when the daemon restarts.
+
+What a service receives on every request, once its user is logged in:
+
+| Header | Example |
+|---|---|
+| `X-Outpost-User` | `alice` |
+| `X-Outpost-Name` | `Alice Example` (may be empty) |
+| `X-Outpost-Email` | `alice@example.com` (may be empty) |
+| `X-Outpost-Groups` | `family,kids` |
+| `X-Outpost-Identity` | an Ed25519-signed JWT, valid for 60 seconds, `aud` the app's host |
+
+Any `X-Outpost-*` header a client sends is removed first, and Outpost's own
+cookie never reaches the service. The token verifies against the keys at
+`/.well-known/jwks.json`, which `outpost auth rotate-key` replaces, keeping the
+old key published for a day. With the gateway on, every service also gets
+`OUTPOST_AUTH=gateway`, `OUTPOST_ISSUER` and `OUTPOST_JWKS_URL`; a running
+service picks them up at its next restart.
+
+Not built yet: the catalog the portal will show, and per-app `allow` rules.
+Until then every user can open every app.
 
 ## Layout
 
@@ -591,10 +646,11 @@ updated_at)`. This adds `desired` (your start/stop intent), `restart_epoch` (how
 given up). They are load-bearing, not incidental.
 
 **The CLI differs from spec §12.** Added: `serve`, `add`, `remove`,
-`install`, `uninstall`, `config`, `version`, `user`, `auth`, `--home` /
-`$OUTPOST_HOME`, `logs --events`, `backup --list`, `backup --schedule`,
-`--tailnet`. `restore` takes the timestamp as optional, defaulting to the
-newest archive. Not built: `outpost hermes publish`, which spec §12 lists.
+`install`, `uninstall`, `config`, `version`, `user`, `auth`, `gateway`,
+`--home` / `$OUTPOST_HOME`, `logs --events`, `backup --list`,
+`backup --schedule`, `--tailnet`. `restore` takes the timestamp as optional,
+defaulting to the newest archive. Not built: `outpost hermes publish`, which
+spec §12 lists.
 
 **Manifest reloading polls instead of using fsnotify.** Spec §6 calls for
 fsnotify. The daemon hashes the manifest directory each tick and re-applies on
@@ -611,6 +667,11 @@ build step 8 no longer apply.
 on the tailnet, reachable only through Tailscale. New installs now start with
 `tailscale.enabled = false`, and `outpost install` offers to turn it on when it
 finds Tailscale running. Homes with no setting keep the old behaviour, on.
+
+**There is a small web UI.** Spec §1 rules one out for v1. The login gateway
+serves a portal for logging in and listing apps; managing Outpost stays in the
+CLI and the TUI. Spec §7 also has tsnet as the only way in; the gateway is
+another, and the two can run side by side.
 
 **`funnel` is rejected, not ignored.** It is accepted by the schema and refused
 at apply time with an explicit error, per spec §7.
