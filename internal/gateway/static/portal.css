@@ -1,0 +1,86 @@
+:root {
+  --bg: #f7f7f5;
+  --surface: #ffffff;
+  --text: #1c1c1a;
+  --muted: #6b6b66;
+  --line: #deded8;
+  --accent: #2f5d50;
+  --accent-text: #ffffff;
+  --error: #a32020;
+  --up: #2f7d4a;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161615;
+    --surface: #1f1f1d;
+    --text: #ecece6;
+    --muted: #9a9a92;
+    --line: #34342f;
+    --accent: #7fb8a4;
+    --accent-text: #10201b;
+    --error: #f08a8a;
+    --up: #7fcf96;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+main { max-width: 44rem; margin: 0 auto; padding: 2rem 1rem; }
+main.narrow { max-width: 24rem; padding-top: 12vh; }
+h1 { font-size: 1.5rem; margin: 0 0 0.5rem; }
+.lede, .hint, .empty { color: var(--muted); }
+.hint { font-size: 0.875rem; }
+.error { color: var(--error); }
+form { display: grid; gap: 1rem; margin-top: 1.5rem; }
+label { display: grid; gap: 0.25rem; font-weight: 500; }
+input {
+  font: inherit;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+}
+button {
+  font: inherit;
+  padding: 0.6rem 1rem;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--accent-text);
+  cursor: pointer;
+}
+button.quiet { background: none; color: var(--muted); padding: 0.25rem 0.5rem; }
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+.bar form { margin: 0; }
+.brand { font-weight: 600; margin-right: auto; }
+.who { color: var(--muted); }
+.apps { list-style: none; padding: 0; margin: 1.5rem 0 0; display: grid; gap: 0.5rem; }
+.apps a {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: inherit;
+  text-decoration: none;
+}
+.apps a:hover, .apps a:focus-visible { border-color: var(--accent); }
+.name { font-weight: 500; overflow-wrap: anywhere; }
+.status { color: var(--muted); }
+.status.up { color: var(--up); }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em; }

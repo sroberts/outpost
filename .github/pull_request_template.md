@@ -5,7 +5,7 @@
 ## Test plan
 
 - [ ] Unit tests cover the change
-- [ ] Lint and type-check pass
+- [ ] `make check` passes (format, vet, lint, tests, race detector)
 - [ ] Manual smoke check (if UI / behavior changed)
 - [ ] Docs updated (if a public surface changed)
 - [ ] No unrelated formatting churn in the diff

@@ -22,8 +22,13 @@ func (a *app) cmdInstall(args []string) error {
 	printOnly := fs.Bool("print", false, "write nothing; print the generated file to stdout")
 	label := fs.String("label", autostart.DefaultLabel, "job label / unit name")
 	authKey := fs.String("authkey", "", "TS_AUTHKEY to put in the service environment")
+	tsOn := fs.Bool("tailscale", false, "give each service its own Tailscale identity, without asking")
+	tsOff := fs.Bool("no-tailscale", false, "keep services on loopback only, without asking")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *tsOn && *tsOff {
+		return fmt.Errorf("install: --tailscale and --no-tailscale can't be used together")
 	}
 
 	mgr, cfg, err := a.autostartConfig(*label, *system, *authKey)
@@ -39,8 +44,33 @@ func (a *app) cmdInstall(args []string) error {
 		fmt.Fprint(a.out, body)
 		return nil
 	}
-	if err := a.ensureLayout(); err != nil {
+
+	explicit := a.config.TailscaleSet()
+	fresh, err := a.createLayout()
+	if err != nil {
 		return err
+	}
+	// A new home is off before the question is asked, so abandoning it
+	// (Ctrl-C, no usable answer) leaves a new install rather than one that
+	// looks like an old home running with Tailscale on.
+	if fresh {
+		if err := a.saveTailscale(false); err != nil {
+			return err
+		}
+	}
+	on := *tsOn
+	key := cfg.Env["TS_AUTHKEY"]
+	// An auth key is only any use with Tailscale on, so giving one answers
+	// the question, unless the home already has a setting.
+	if key != "" && !on && !*tsOff && !explicit {
+		fmt.Fprintln(a.out, "An auth key was given, so Tailscale goes on.")
+		on = true
+	}
+	if err := a.chooseTailscale(on, *tsOff, fresh, explicit); err != nil {
+		return err
+	}
+	if key != "" && !a.config.TailscaleEnabled() {
+		fmt.Fprintln(a.out, "  note: with Tailscale off, the auth key won't be used")
 	}
 
 	unitPath, err := mgr.UnitPath(cfg)

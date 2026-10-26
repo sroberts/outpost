@@ -115,10 +115,13 @@ Outpost injects, in this order:
 
 1. The daemon's own environment
 2. Every key in the manifest's `env` table
-3. `OUTPOST_STORAGE_DIR`
+3. With the login gateway on: `OUTPOST_AUTH=gateway`, `OUTPOST_ISSUER` and
+   `OUTPOST_JWKS_URL`
+4. `OUTPOST_STORAGE_DIR`
 
-`OUTPOST_STORAGE_DIR` is appended last and therefore always wins — a manifest
-cannot hand your service the wrong storage path, even by mistake.
+What Outpost sets comes after the manifest's `env` and therefore always wins —
+a manifest cannot hand your service the wrong storage path, or claim a gateway
+that isn't there, even by mistake.
 
 There is no shared configuration file format and Outpost will never write one
 for you. Read your configuration from the environment, from flags in `args`, or
@@ -269,7 +272,7 @@ Do not build expecting any of this:
 |---|---|
 | TLS | Tailscale terminates it; serve plain HTTP on loopback |
 | A bind address | You bind loopback; Outpost never binds your port |
-| Authentication or authorization | Tailnet membership is the boundary; add your own if you need more |
+| Authentication or authorization | Tailnet membership is the boundary; add your own if you need more. Behind the login gateway, the user arrives in `X-Outpost-*` headers; trust them only when `OUTPOST_AUTH=gateway` |
 | Secrets management | Read secrets from a file path given via env |
 | Service discovery | No registry; addresses are the operator's business |
 | A database, cache, or queue | Bring your own, inside your storage directory |
@@ -532,13 +535,23 @@ yourservice-darwin-arm64
 ```
 
 Go's `GOOS`/`GOARCH` spellings are preferred, but the common alternatives are
-understood too — `macos`, `osx` and `apple` for darwin, `x86_64` and `x64` for
-amd64, `aarch64` for arm64, `i386` for 386, `win` for windows.
+understood too — `macos`, `osx`, `apple` and `mac` for darwin, `x86_64`,
+`x86-64` and `x64` for amd64, `aarch64` for arm64, `i386`, `i686` and `x86`
+for 386, `armv7`/`armv6`/`armhf` for arm, `win` for windows. They match as
+whole words between `-`, `_` and `.`, so `hmac-proxy` does not read as a mac
+build.
 
 **Archives are unpacked.** A `.tar.gz` or `.zip` is fine — Outpost takes the
-binary out of it, choosing the file named after the service, or the only
+binary out of it, choosing the file named after the service (or after the
+program the asset is named for, so `--name` does not hide it), or the only
 executable if there is exactly one. A bare binary is preferred when you publish
-both. `.tar.xz`, `.deb`, `.rpm` and friends are not opened.
+both. When Outpost has to guess, it only takes a binary-shaped name or one of
+those two archives. A binary-shaped name has no extension: a final dot segment
+that is a platform word (`svc.linux.amd64`) or a version (`svc-1.0.0rc1`)
+counts as part of the name. `.bin` is also accepted, as is `.exe` on Windows
+and `.AppImage` on Linux. `.tar.xz`, `.gz`, `.7z`, `.deb`, `.apk`, checksums
+and signatures are never taken for the binary. An asset named by `asset` in
+the descriptor is taken as named unless it is one of those.
 
 If your release ships variants for the same platform — a `_gui` build beside
 the plain one — Outpost takes the plainest name, and says which it passed over.

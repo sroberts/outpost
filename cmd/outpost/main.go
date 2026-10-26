@@ -43,9 +43,26 @@ Commands:
   tui                      launch the dashboard
   version                  print the build identity of this binary
   config [--init]          show or create the global configuration
+  config --tailscale on|off
+                           give services their own Tailscale identity, or not
   install [--system]       install the launchd/systemd service that keeps
-                           the daemon running across reboots
+                           the daemon running across reboots; asks whether to
+                           use Tailscale unless --tailscale/--no-tailscale
   uninstall [--system]     stop that service and remove it
+
+Users:
+  user add <name>          add a user (--admin, --group G, --email E,
+                           --display-name N, --no-password, --password-stdin)
+  user passwd <name>       set a user's password and end their sessions
+  user rm <name>           remove a user
+  user list                table of users, their groups and sessions
+  user groups <name> +g -g add to and remove from groups
+  user disable <name>      block a user from logging in and end their sessions
+  user enable <name>       let a disabled user log in again
+  user logout <name>       end every session a user has
+  user admin <name> on|off grant or revoke admin
+  auth rotate-key          replace the key that signs identity tokens
+  gateway status           the gateway's addresses and the apps it routes
 
 Flags:
   --home <dir>             Outpost root (default $OUTPOST_HOME or ~/.outpost)
@@ -146,6 +163,12 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return a.cmdUninstall(cmdArgs)
 	case "version":
 		return a.cmdVersion(cmdArgs)
+	case "user":
+		return a.cmdUser(cmdArgs)
+	case "auth":
+		return a.cmdAuth(cmdArgs)
+	case "gateway":
+		return a.cmdGateway(cmdArgs)
 
 	case "help", "-h", "--help":
 		fmt.Fprint(stdout, usage)
@@ -195,13 +218,28 @@ func (a *app) socketPath() string  { return filepath.Join(a.home, "outpost.sock"
 func (a *app) backupsDir() string  { return filepath.Join(a.home, "backups") }
 func (a *app) tsnetDir() string    { return filepath.Join(a.home, "tsnet") }
 func (a *app) configPath() string  { return filepath.Join(a.home, "config.toml") }
+func (a *app) authPath() string    { return filepath.Join(a.home, "auth.db") }
 
-// ensureLayout creates the Outpost root on first use.
+// ensureLayout creates the Outpost root on first use. A home created here is
+// a new install, and gets the new-install Tailscale setting.
 func (a *app) ensureLayout() error {
+	fresh, err := a.createLayout()
+	if err != nil || !fresh {
+		return err
+	}
+	return a.firstRunTailscale(true)
+}
+
+// createLayout creates the Outpost root and reports whether the home itself
+// is new, for the commands that settle a new home's Tailscale setting their
+// own way.
+func (a *app) createLayout() (fresh bool, err error) {
+	_, statErr := os.Stat(a.home)
+	fresh = os.IsNotExist(statErr)
 	for _, dir := range []string{a.home, a.servicesDir(), a.logsDir()} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
-			return fmt.Errorf("create %s: %w", dir, err)
+			return false, fmt.Errorf("create %s: %w", dir, err)
 		}
 	}
-	return nil
+	return fresh, nil
 }

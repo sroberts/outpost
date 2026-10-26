@@ -1,0 +1,17 @@
+{{define "body"}}
+<header class="bar">
+<span class="brand">Outpost</span>
+<span class="who">{{.Who}}</span>
+<form method="post" action="/logout"><button class="quiet" type="submit">Sign out</button></form>
+</header>
+<main>
+<h1>Apps</h1>
+{{if .Apps}}
+<ul class="apps">
+{{range .Apps}}<li><a href="{{.URL}}"><span class="name">{{.Name}}</span><span class="status{{if .Up}} up{{end}}">{{.Status}}</span></a></li>
+{{end}}</ul>
+{{else}}
+<p class="empty">No apps here yet.{{if .Admin}} Add one with <code>outpost add</code>.{{end}}</p>
+{{end}}
+</main>
+{{end}}

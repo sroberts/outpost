@@ -110,6 +110,12 @@ type Supervisor struct {
 	loopMu sync.Mutex
 
 	ticks int
+	// probes holds this tick's healthchecks, taken concurrently before the
+	// services are reconciled. Reconcile-loop goroutine only.
+	probes map[string]probeResult
+	// heartbeat tells a failed healthcheck caused by the daemon stalling apart
+	// from one caused by the service. It runs only while Run does.
+	heartbeat *heartbeat
 	// fingerprint of the manifest set at the last successful Apply, so serve
 	// can re-apply only when something on disk actually changed.
 	fingerprint string
@@ -166,6 +172,7 @@ func New(opts Options) (*Supervisor, error) {
 		tracked:             map[string]*svcState{},
 		cmds:                make(chan command, 64),
 		stopped:             make(chan struct{}),
+		heartbeat:           newHeartbeat(heartbeatPeriod, stallThreshold),
 	}
 	if s.Interval <= 0 {
 		s.Interval = defaultInterval
@@ -332,6 +339,10 @@ func (s *Supervisor) Run(ctx context.Context) error {
 	s.loopRunning.Store(true)
 	defer s.loopRunning.Store(false)
 
+	beatCtx, stopBeat := context.WithCancel(ctx)
+	defer stopBeat()
+	go s.heartbeat.run(beatCtx)
+
 	s.withLoopLock(func() { s.tickLocked(ctx) })
 	for {
 		select {
@@ -404,9 +415,11 @@ func (s *Supervisor) tickLocked(ctx context.Context) {
 		delete(s.tracked, name)
 	}
 
+	s.probes = s.probeAll(ctx)
 	for _, svc := range s.servicesLocked() {
 		s.reconcileService(ctx, svc)
 	}
+	s.probes = nil
 
 	if s.ticks%eventPruneEvery == 0 {
 		if err := s.store.PruneEvents(eventPruneAge, eventPruneRows); err != nil {
@@ -623,7 +636,8 @@ func (s *Supervisor) attachToTailnet(ctx context.Context, svc *manifest.Service)
 // checkHealth probes a running service and restarts it once it has failed the
 // healthcheck HealthFailThreshold times in a row (§6.2).
 func (s *Supervisor) checkHealth(ctx context.Context, st *svcState) {
-	ok, err := s.runtimeFor(st.svc).Healthy(ctx, st.handle)
+	r := s.probe(ctx, st)
+	ok, err := r.ok, r.err
 	if ok {
 		if st.healthFails > 0 {
 			s.event(st.svc.Name, state.EventHealthOK, "healthcheck recovered")
@@ -649,6 +663,16 @@ func (s *Supervisor) checkHealth(ctx context.Context, st *svcState) {
 	// The window ends at the first success, or when it expires.
 	if !st.everHealthy && s.withinStartGrace(st) {
 		st.status = runtime.StatusStarting
+		s.persist(st)
+		return
+	}
+
+	// A probe that failed while the daemon could not run says nothing about
+	// the service: every probe in flight times out together, and counting
+	// them restarted healthy services in bulk (#29).
+	if stall, stalled := s.heartbeat.stalledSince(r.started); stalled {
+		s.logf("%s: healthcheck failed while outpost itself was stalled for %s; not counting it",
+			st.svc.Name, stall.Round(100*time.Millisecond))
 		s.persist(st)
 		return
 	}

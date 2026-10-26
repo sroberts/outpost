@@ -29,6 +29,9 @@ type ProcessRuntime struct {
 	StopGrace time.Duration
 	// HealthTimeout bounds a single healthcheck request.
 	HealthTimeout time.Duration
+	// Env is KEY=value pairs every service gets, after its manifest's own
+	// env so a manifest can't override them.
+	Env []string
 
 	clientOnce sync.Once
 	client     *http.Client
@@ -146,7 +149,7 @@ func (r *ProcessRuntime) Start(ctx context.Context, svc *manifest.Service) (Hand
 	cmd := exec.Command(svc.Binary, svc.Args...)
 	cmd.Stdout = lw
 	cmd.Stderr = lw
-	cmd.Env = buildEnv(svc)
+	cmd.Env = buildEnv(svc, r.Env)
 	// Own process group, so Stop can signal the service and anything it spawns.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
@@ -190,13 +193,14 @@ func (h *processHandle) reap() {
 	close(h.done)
 }
 
-// buildEnv layers the manifest's env and OUTPOST_STORAGE_DIR over the daemon's
-// own environment (§2).
-func buildEnv(svc *manifest.Service) []string {
+// buildEnv layers the manifest's env, then the runtime's extra env and
+// OUTPOST_STORAGE_DIR, over the daemon's own environment (§2).
+func buildEnv(svc *manifest.Service, extra []string) []string {
 	env := append([]string{}, os.Environ()...)
 	for k, v := range svc.Env {
 		env = append(env, fmt.Sprintf("%s=%s", k, v))
 	}
+	env = append(env, extra...)
 	// Appended last so a service can never be handed the wrong storage path.
 	env = append(env, "OUTPOST_STORAGE_DIR="+svc.ExpandStorage())
 	return env

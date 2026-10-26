@@ -9,10 +9,13 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/sroberts/outpost/internal/auth"
 	"github.com/sroberts/outpost/internal/backup"
+	"github.com/sroberts/outpost/internal/gateway"
 	"github.com/sroberts/outpost/internal/supervisor"
 	"github.com/sroberts/outpost/internal/version"
 )
@@ -23,10 +26,12 @@ const maxSocketPath = 104
 
 // Server exposes a Supervisor over a Unix socket.
 type Server struct {
-	sup  *supervisor.Supervisor
-	path string
-	ln   net.Listener
-	logf func(string, ...any)
+	sup     *supervisor.Supervisor
+	auth    *auth.Store
+	gateway GatewayStatus
+	path    string
+	ln      net.Listener
+	logf    func(string, ...any)
 
 	wg sync.WaitGroup
 }
@@ -71,6 +76,20 @@ func Listen(path string, sup *supervisor.Supervisor, logf func(string, ...any)) 
 
 	return &Server{sup: sup, path: path, ln: ln, logf: logf}, nil
 }
+
+// UseAuth enables the user.* and auth.* commands. Call it before Serve. It's
+// a setter rather than a Listen parameter so a daemon, or a test, that has no
+// auth store keeps working unchanged.
+func (s *Server) UseAuth(a *auth.Store) { s.auth = a }
+
+// GatewayStatus is the part of the gateway the socket reports on.
+type GatewayStatus interface {
+	Status() gateway.Status
+}
+
+// UseGateway enables gateway.status. Call it before Serve; a daemon with the
+// gateway off doesn't.
+func (s *Server) UseGateway(g GatewayStatus) { s.gateway = g }
 
 // Addr reports the socket path.
 func (s *Server) Addr() string { return s.path }
@@ -209,6 +228,17 @@ func (s *Server) dispatch(ctx context.Context, req Request) Response {
 		return Response{OK: true, Archives: []backup.Archive{archive},
 			Message: fmt.Sprintf("restored %s from %s", req.Service, archive.Timestamp)}
 
+	case CmdUserAdd, CmdUserPasswd, CmdUserRemove, CmdUserList, CmdUserGroups,
+		CmdUserDisable, CmdUserEnable, CmdUserLogout, CmdUserAdmin, CmdAuthRotate:
+		return s.dispatchAuth(req)
+
+	case CmdGatewayStatus:
+		if s.gateway == nil {
+			return errorResponse(errors.New("the gateway is off; turn it on with [gateway] enabled = true in config.toml, then restart the daemon"))
+		}
+		st := s.gateway.Status()
+		return Response{OK: true, Gateway: &st}
+
 	case CmdBackups:
 		archives, err := s.sup.ListBackups(ctx, req.Service)
 		if err != nil {
@@ -219,6 +249,111 @@ func (s *Server) dispatch(ctx context.Context, req Request) Response {
 	default:
 		return errorResponse(fmt.Errorf("unknown command %q", req.Command))
 	}
+}
+
+// errNoAuth is what user management says on a daemon without an auth store,
+// instead of a nil-pointer panic.
+var errNoAuth = errors.New("user management is not available: this daemon was started without an auth store")
+
+// dispatchAuth serves the user.* and auth.* commands. They go straight to the
+// auth store rather than through the supervisor's loop: auth.db is its own
+// database with its own locking, and nothing here touches supervisor state.
+func (s *Server) dispatchAuth(req Request) Response {
+	if s.auth == nil {
+		return errorResponse(errNoAuth)
+	}
+	if req.Command == CmdAuthRotate {
+		k, err := s.auth.RotateKey()
+		if err != nil {
+			return errorResponse(err)
+		}
+		return Response{OK: true, Message: fmt.Sprintf("new signing key %s; the old one stays published for %.0fh",
+			k.ID, auth.KeyGracePeriod.Hours())}
+	}
+	if req.Command == CmdUserList {
+		users, err := s.auth.ListUsers()
+		if err != nil {
+			return errorResponse(err)
+		}
+		infos := make([]UserInfo, 0, len(users))
+		for _, u := range users {
+			infos = append(infos, userInfo(u))
+		}
+		return Response{OK: true, Users: infos}
+	}
+
+	if req.User == nil || req.User.Username == "" {
+		return errorResponse(fmt.Errorf("%s: a username is required", req.Command))
+	}
+	u := *req.User
+	switch req.Command {
+	case CmdUserAdd:
+		err := s.auth.AddUser(auth.User{
+			Username: u.Username, DisplayName: u.DisplayName, Email: u.Email,
+			Admin: u.Admin, Groups: u.AddGroups,
+		}, u.Password)
+		if err != nil {
+			return errorResponse(err)
+		}
+		msg := "added user " + u.Username
+		if u.Admin {
+			msg += " (admin)"
+		}
+		if u.Password == "" {
+			msg += "; they can't log in until `outpost user passwd " + u.Username + "` sets a password"
+		}
+		return Response{OK: true, Message: msg}
+
+	case CmdUserPasswd:
+		if err := s.auth.SetPassword(u.Username, u.Password); err != nil {
+			return errorResponse(err)
+		}
+		return Response{OK: true, Message: "set the password for " + u.Username + "; their existing sessions have ended"}
+
+	case CmdUserRemove:
+		if err := s.auth.RemoveUser(u.Username); err != nil {
+			return errorResponse(err)
+		}
+		return Response{OK: true, Message: "removed user " + u.Username}
+
+	case CmdUserGroups:
+		groups, err := s.auth.UpdateGroups(u.Username, u.AddGroups, u.RemoveGroups)
+		if err != nil {
+			return errorResponse(err)
+		}
+		list := "no groups"
+		if len(groups) > 0 {
+			list = strings.Join(groups, ", ")
+		}
+		return Response{OK: true, Message: u.Username + ": " + list}
+
+	case CmdUserDisable, CmdUserEnable:
+		disable := req.Command == CmdUserDisable
+		if err := s.auth.SetDisabled(u.Username, disable); err != nil {
+			return errorResponse(err)
+		}
+		if disable {
+			return Response{OK: true, Message: "disabled " + u.Username + " and ended their sessions"}
+		}
+		return Response{OK: true, Message: "enabled " + u.Username}
+
+	case CmdUserAdmin:
+		if err := s.auth.SetAdmin(u.Username, u.Admin); err != nil {
+			return errorResponse(err)
+		}
+		if u.Admin {
+			return Response{OK: true, Message: u.Username + " is now an admin"}
+		}
+		return Response{OK: true, Message: u.Username + " is no longer an admin"}
+
+	case CmdUserLogout:
+		n, err := s.auth.RevokeUserSessions(u.Username)
+		if err != nil {
+			return errorResponse(err)
+		}
+		return Response{OK: true, Message: fmt.Sprintf("ended %d session(s) for %s", n, u.Username)}
+	}
+	return errorResponse(fmt.Errorf("unknown command %q", req.Command))
 }
 
 func writeResponse(w io.Writer, resp Response) {

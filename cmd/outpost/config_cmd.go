@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/sroberts/outpost/internal/config"
 )
@@ -14,8 +15,23 @@ func (a *app) cmdConfig(args []string) error {
 	fs.SetOutput(a.err)
 	initialise := fs.Bool("init", false, "write a starter config.toml if none exists")
 	path := fs.Bool("path", false, "print the config file's path and nothing else")
+	tailscale := fs.String("tailscale", "", "on or off: whether each service gets its own Tailscale identity")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+
+	if *tailscale != "" {
+		if *initialise || *path {
+			return fmt.Errorf("config: --tailscale can't be combined with --init or --path")
+		}
+		switch strings.ToLower(*tailscale) {
+		case "on":
+			return a.setTailscale(true)
+		case "off":
+			return a.setTailscale(false)
+		default:
+			return fmt.Errorf("config: --tailscale takes on or off, not %q", *tailscale)
+		}
 	}
 
 	if *path {
@@ -27,7 +43,15 @@ func (a *app) cmdConfig(args []string) error {
 		if _, err := os.Stat(a.configPath()); err == nil {
 			return fmt.Errorf("%s already exists", a.configPath())
 		}
-		if err := config.Save(a.configPath(), a.config); err != nil {
+		cfg := a.config
+		// A home that doesn't exist yet is a new install, which starts with
+		// Tailscale off. An existing home with no file has been running with
+		// it on, and the starter file records that.
+		if _, err := os.Stat(a.home); os.IsNotExist(err) {
+			off := false
+			cfg.Tailscale.Enabled = &off
+		}
+		if err := config.Save(a.configPath(), cfg); err != nil {
 			return err
 		}
 		fmt.Fprintf(a.out, "wrote %s\n", a.configPath())
