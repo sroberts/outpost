@@ -12,6 +12,7 @@ import (
 	"github.com/sroberts/outpost/internal/config"
 	"github.com/sroberts/outpost/internal/manifest"
 	"github.com/sroberts/outpost/internal/tsdetect"
+	"golang.org/x/term"
 )
 
 // Seams for tests: detection runs the real tailscale CLI, and the install
@@ -19,11 +20,14 @@ import (
 var (
 	detectTailscale            = tsdetect.Detect
 	answerIn         io.Reader = os.Stdin
-	answerIsTerminal           = func() bool {
-		fi, err := os.Stdin.Stat()
-		return err == nil && fi.Mode()&os.ModeCharDevice != 0
-	}
+	answerIsTerminal           = func() bool { return isTerminal(os.Stdin) }
 )
+
+// isTerminal asks the terminal driver rather than checking for a character
+// device: /dev/null is one too, and `install </dev/null` has no one to ask.
+func isTerminal(f *os.File) bool {
+	return term.IsTerminal(int(f.Fd()))
+}
 
 // firstRunTailscale settles the Tailscale setting for a home this command has
 // just created. New installs start with Tailscale off; the built-in default
