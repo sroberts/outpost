@@ -38,7 +38,7 @@ go build -o outpost ./cmd/outpost
 go test ./...
 ```
 
-The binary is ~44 MB, most of which is the `tailscale.com` dependency.
+The binary is ~36 MB, most of which is the `tailscale.com` dependency.
 
 ## Quick start
 
@@ -66,7 +66,7 @@ outpost logs plumbline -f
 
 `outpost serve` runs in the foreground and stops every service it started when
 it exits, so nothing is left orphaned holding a port. To keep it running across
-logins and reboots, see [Running under launchd](#running-under-launchd).
+logins and reboots, see [Running at startup](#running-at-startup).
 
 ## Adding and removing services
 
@@ -223,8 +223,10 @@ outpost backup [service]         archive a service's storage (all if omitted)
 outpost backup --list <service>  list existing backups
 outpost restore <service> [ts]   restore from a backup (newest if ts omitted)
 outpost tui                      launch the dashboard
+outpost config [--init]          show the global configuration, or write a starter
 outpost config --tailscale on|off
                                  turn per-service Tailscale identities on or off
+outpost version                  print the build identity of this binary
 outpost install [--system]       install the launchd/systemd autostart service
 outpost uninstall [--system]     stop that service and remove it
 ```
@@ -528,7 +530,7 @@ service cannot end up silently off the tailnet.
 ## Development
 
 ```sh
-go test ./...           # 261 tests
+go test ./...
 go test ./... -race
 go vet ./...
 ```
@@ -537,7 +539,8 @@ Layout follows `spec.md` §4. `internal/manifest` parses and validates;
 `internal/runtime` starts and stops things; `internal/supervisor` decides what
 *should* run and owns the reconcile loop; `internal/state` records what was
 observed; `internal/ipc` carries CLI requests to the daemon; `internal/backup`,
-`internal/tsnet`, `internal/autostart` and `internal/tui` are self-contained.
+`internal/tsnet`, `internal/autostart`, `internal/acquire`, `internal/config`,
+`internal/version` and `internal/tui` are self-contained.
 
 The supervisor's state is deliberately single-threaded. Its exported API hands
 work to the reconcile loop through a command queue rather than locking, and runs
@@ -560,8 +563,10 @@ updated_at)`. This adds `desired` (your start/stop intent), `restart_epoch` (how
 `outpost restart` reaches the daemon) and `halted` (whether the supervisor has
 given up). They are load-bearing, not incidental.
 
-**The CLI differs from spec §12.** Added: `serve`, `install`, `uninstall`,
-`--home` / `$OUTPOST_HOME`, `backup --list`, `--tailnet`. Not built:
+**The CLI differs from spec §12.** Added: `serve`, `add`, `remove`,
+`install`, `uninstall`, `config`, `version`, `--home` / `$OUTPOST_HOME`,
+`logs --events`, `backup --list`, `backup --schedule`, `--tailnet`. `restore`
+takes the timestamp as optional, defaulting to the newest archive. Not built:
 `outpost hermes publish`, which spec §12 lists.
 
 **Manifest reloading polls instead of using fsnotify.** Spec §6 calls for
