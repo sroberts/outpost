@@ -26,9 +26,9 @@ Not built: container services (`runtime = "container"` is rejected at apply
 time), Hermes `SKILL.md` generation, and the gateway's app catalog and per-app
 access rules.
 
-**Tailscale integration is written but unverified.** No node has ever joined a
-real tailnet — it needs credentials and a device slot. New installs start with
-it off; see [Configuration](#configuration) and [Tailscale](#tailscale).
+**Tailscale integration has been checked once against a real tailnet,** on
+macOS with an interactive login; see [Tailscale](#tailscale). New installs
+start with it off; see [Configuration](#configuration).
 
 ## Building
 
@@ -586,8 +586,11 @@ when the backup finishes.
 
 ## Tailscale
 
-**Unverified.** The code is written and unit-tested against local backends, but
-no node has joined a real tailnet.
+**Checked once, by hand.** On macOS, a node joined a real tailnet through the
+interactive login URL and served its service over MagicDNS. Killing the node
+left the daemon and the service running, and the node came back without a
+new login. Killing the daemon ended the node with it. Not yet tried: an auth
+key, Linux under systemd, and more than one service at a time.
 
 ```sh
 TS_AUTHKEY=tskey-... outpost serve --tailnet
@@ -595,6 +598,8 @@ TS_AUTHKEY=tskey-... outpost serve --tailnet
 
 Each service gets its own `tsnet.Server`, named by `tailscale_name`, with node
 state under `~/.outpost/tsnet/<service>/` so identities persist across restarts.
+Each node runs in a child process, `outpost __tsnet-node`, so a Tailscale panic
+ends that node, which the daemon restarts, rather than the daemon.
 The node listens on the tailnet and reverse-proxies to `127.0.0.1:<port>`, so
 the supervised process never binds anything but loopback.
 
