@@ -74,7 +74,10 @@ func (g *Gateway) pageHeaders(w http.ResponseWriter, r *http.Request) {
 	h := w.Header()
 	h.Set("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'; base-uri 'none'")
 	h.Set("X-Content-Type-Options", "nosniff")
-	h.Set("Referrer-Policy", "no-referrer")
+	// Not no-referrer: under it a browser sends Origin: null and no Referer
+	// even on a same-origin form POST, and sameOrigin refuses every login.
+	// same-origin still keeps the setup token and next URLs from other sites.
+	h.Set("Referrer-Policy", "same-origin")
 	h.Set("Cache-Control", "no-store")
 	if g.secure && g.hostOf(r) == g.portalHost {
 		h.Set("Strict-Transport-Security", "max-age=31536000")
