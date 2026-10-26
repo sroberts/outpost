@@ -21,8 +21,8 @@ type Config struct {
 // Tailscale settings.
 type Tailscale struct {
 	// Enabled decides whether the daemon gives services a Tailscale identity.
-	// Defaults to true: a tailnet identity per service is the point of Outpost.
-	// Set it to false to run services on loopback only.
+	// A new install writes false. Left unset it reads as true, because homes
+	// from before that change have been running with Tailscale on.
 	Enabled *bool `toml:"enabled"`
 	// AuthKey registers nodes unattended. TS_AUTHKEY in the environment wins,
 	// so a key need not be written to disk.
@@ -43,12 +43,18 @@ func (c Config) TailscaleEnabled() bool {
 	return *c.Tailscale.Enabled
 }
 
-// Load reads path, falling back to defaults if it does not exist.
+// TailscaleSet reports whether the file set tailscale.enabled itself, as
+// opposed to leaving it to the default.
+func (c Config) TailscaleSet() bool { return c.Tailscale.Enabled != nil }
+
+// Load reads path. A missing config file is the normal case, not an error:
+// Outpost works with no configuration at all.
 //
-// A missing config file is the normal case, not an error: Outpost works with
-// no configuration at all.
+// The file is decoded into a zero Config rather than over Defaults, so a
+// setting it leaves out stays unset and TailscaleSet can say so; the getters
+// supply the defaults.
 func Load(path string) (Config, error) {
-	cfg := Defaults()
+	var cfg Config
 
 	body, err := os.ReadFile(path)
 	if err != nil {
@@ -58,7 +64,6 @@ func Load(path string) (Config, error) {
 		return cfg, fmt.Errorf("read %s: %w", path, err)
 	}
 
-	// Decode over the defaults so an absent key keeps its default.
 	if _, err := toml.Decode(string(body), &cfg); err != nil {
 		return Defaults(), fmt.Errorf("parse %s: %w", path, err)
 	}
@@ -66,6 +71,16 @@ func Load(path string) (Config, error) {
 		return Defaults(), fmt.Errorf("%s: %w", path, err)
 	}
 	return cfg, nil
+}
+
+// HasTailscaleSetting reports whether the file at path sets
+// tailscale.enabled. A missing file has no setting.
+func HasTailscaleSetting(path string) (bool, error) {
+	cfg, err := Load(path)
+	if err != nil {
+		return false, err
+	}
+	return cfg.TailscaleSet(), nil
 }
 
 // Validate checks the settings make sense.
