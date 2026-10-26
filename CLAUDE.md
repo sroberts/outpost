@@ -63,13 +63,13 @@ data race, and there is a regression test for it.
 **Package roles:** `manifest` (schema + validation) · `runtime` (process
 execution, process groups, rotating logs) · `supervisor` (reconcile loop,
 restart policy, backoff, orphan reclamation) · `state` (SQLite) · `ipc` (JSON
-over a 0600 Unix socket) · `tsnet` (per-service Tailscale nodes) · `backup`
-(tar.gz) · `autostart` (launchd/systemd units) · `acquire` (installing a
-binary from a GitHub release, for `outpost add <url>`) · `auth` (users, argon2id
-hashes, sessions, signing keys in `auth.db`; no HTTP) · `gateway` (the
-login front door: host routing, the reverse proxy, sessions over HTTP) ·
-`config` · `tsdetect` (asks the system `tailscale` CLI whether Tailscale is
-running; never links Tailscale's client library) · `tui` · `version` (the
+over a 0600 Unix socket) · `tsnet` (per-service Tailscale nodes, each in its
+own child process) · `backup` (tar.gz) · `autostart` (launchd/systemd units) ·
+`acquire` (installing a binary from a GitHub release, for `outpost add <url>`) ·
+`auth` (users, argon2id hashes, sessions, signing keys in `auth.db`; no HTTP) ·
+`gateway` (the login front door: host routing, the reverse proxy, sessions over
+HTTP) · `config` · `tsdetect` (asks the system `tailscale` CLI whether Tailscale
+is running; never links Tailscale's client library) · `tui` · `version` (the
 build identity `make build` stamps).
 
 ## Invariants that bite
@@ -113,6 +113,12 @@ helper the existing tests use.
 with no Tailscale credentials. `Attach` is deliberately non-blocking — it starts
 a background `bringUp` with retry backoff, because a node stuck in `NeedsLogin`
 must not wedge the reconcile loop or the CLI.
+
+**Never run a `tsnet.Server` inside the daemon process.** Each node runs as
+`outpost __tsnet-node` (`internal/tsnet/node`), started and restarted by the
+router. Tailscale's ipnlocal watchdog panics from a timer goroutine that no
+`recover` can reach, and in-process that took down every supervised service
+(#31). Only `internal/tsnet/node` may import `tailscale.com/tsnet`.
 
 **In `internal/tui`, measure display cells, not bytes.** Use `lipgloss.Width`,
 never `len()`, on anything user-visible. This package has had three separate

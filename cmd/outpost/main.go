@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/sroberts/outpost/internal/config"
+	outposttsnet "github.com/sroberts/outpost/internal/tsnet"
 	"github.com/sroberts/outpost/internal/version"
 )
 
@@ -99,6 +100,12 @@ func run(args []string, stdout, stderr io.Writer) error {
 			fmt.Fprint(stdout, version.Get().Long())
 			return nil
 		}
+	}
+
+	// A node process is started by the daemon, not an operator, and needs
+	// neither a home directory nor the config file.
+	if len(args) > 0 && args[0] == outposttsnet.NodeCommand {
+		return runTsnetNode(args[1:], stdout, stderr)
 	}
 
 	home, rest, err := parseGlobals(args)
