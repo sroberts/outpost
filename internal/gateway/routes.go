@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,11 +20,15 @@ type route struct {
 	Name   string
 	Port   int
 	Status string
+	// Host is the service's own address on the tailnet, when it has one;
+	// the app is then served there rather than at <name>.<domain>.
+	Host string
 }
 
 type routeTable struct {
 	mu     sync.RWMutex
 	byName map[string]route
+	byHost map[string]string // tailnet host to service name
 	sorted []route
 	// skipped names services that can't be routed, so each is logged once.
 	skipped map[string]bool
@@ -32,6 +37,18 @@ type routeTable struct {
 func (t *routeTable) get(name string) (route, bool) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
+	r, ok := t.byName[name]
+	return r, ok
+}
+
+// forHost is the service whose tailnet address host is.
+func (t *routeTable) forHost(host string) (route, bool) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	name, ok := t.byHost[host]
+	if !ok {
+		return route{}, false
+	}
 	r, ok := t.byName[name]
 	return r, ok
 }
@@ -55,7 +72,13 @@ func (g *Gateway) refreshRoutes(ctx context.Context) {
 		return
 	}
 
+	var hosts map[string]string
+	if g.tailnetHosts != nil {
+		hosts = g.tailnetHosts()
+	}
+
 	byName := make(map[string]route, len(list))
+	byHost := map[string]string{}
 	var sorted []route
 	g.routes.mu.Lock()
 	defer g.routes.mu.Unlock()
@@ -76,11 +99,16 @@ func (g *Gateway) refreshRoutes(ctx context.Context) {
 			continue
 		}
 		r := route{Name: s.Name, Port: s.Port, Status: s.Status}
+		if h := strings.ToLower(hosts[s.Name]); h != "" {
+			r.Host = h
+			byHost[h] = s.Name
+		}
 		byName[s.Name] = r
 		sorted = append(sorted, r)
 	}
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
 	g.routes.byName = byName
+	g.routes.byHost = byHost
 	g.routes.sorted = sorted
 }
 
@@ -97,13 +125,16 @@ func (g *Gateway) keepRoutesFresh(ctx context.Context) {
 	}
 }
 
-// Status is what `outpost gateway status` shows.
+// Status is what `outpost gateway status` shows. Tailnet is whether
+// services on the tailnet are served at their own tailnet address rather
+// than <name>.<domain>.
 type Status struct {
 	Listen    string        `json:"listen"`
 	PublicURL string        `json:"public_url"`
 	Domain    string        `json:"domain"`
 	TLS       bool          `json:"tls"`
 	Routes    []RouteStatus `json:"routes"`
+	Tailnet   bool          `json:"tailnet,omitempty"`
 }
 
 // RouteStatus is one routed service.
@@ -121,6 +152,7 @@ func (g *Gateway) Status() Status {
 		PublicURL: g.portalOrigin,
 		Domain:    g.domain,
 		TLS:       g.cfg.TLSCert != "",
+		Tailnet:   g.tailnetHosts != nil,
 		Routes:    []RouteStatus{},
 	}
 	for _, rt := range g.routes.all() {

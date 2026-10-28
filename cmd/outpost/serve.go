@@ -94,19 +94,27 @@ func (a *app) cmdServe(args []string) error {
 
 	watch.at("starting the tailnet router")
 	var router supervisor.TailnetRouter
+	var tailnetHosts func() map[string]string
 	if useTailnet {
 		authKey := a.config.ResolveAuthKey()
-		r, err := outposttsnet.New(outposttsnet.Options{
+		opts := outposttsnet.Options{
 			StateDir: a.tsnetDir(),
 			AuthKey:  authKey,
 			Verbose:  *tsVerbose,
 			Logf:     func(format string, v ...any) { fmt.Fprintf(a.out, format+"\n", v...) },
-		})
+		}
+		// With the gateway on, a service's tailnet address goes through its
+		// login like every other way in, rather than straight to the service.
+		if a.config.Gateway.Enabled {
+			opts.Upstream, opts.UpstreamServerName = gateway.LocalUpstream(a.config.Gateway)
+		}
+		r, err := outposttsnet.New(opts)
 		if err != nil {
 			return err
 		}
 		defer r.Close()
 		router = r
+		tailnetHosts = r.Hosts
 
 		if authKey == "" {
 			fmt.Fprintln(a.out, "outpost: no Tailscale auth key; each new service will log a one-time login URL")
@@ -169,6 +177,8 @@ func (a *app) cmdServe(args []string) error {
 			Auth:     authStore,
 			Services: sup,
 			Logf:     func(format string, v ...any) { fmt.Fprintf(a.out, format+"\n", v...) },
+
+			TailnetHosts: tailnetHosts,
 		})
 		if err != nil {
 			return err

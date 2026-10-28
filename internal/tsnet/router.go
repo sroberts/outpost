@@ -58,6 +58,12 @@ type Options struct {
 	Logf func(format string, args ...any)
 	// Verbose passes tsnet's own (noisy) logging through to Logf.
 	Verbose bool
+	// Upstream, when set, is where nodes send tailnet traffic instead of the
+	// service: the login gateway, as a URL. Nodes then serve HTTPS, so that
+	// every request on the tailnet passes the gateway's login.
+	Upstream string
+	// UpstreamServerName verifies an https Upstream's certificate.
+	UpstreamServerName string
 }
 
 // tailnetNode is one live Tailscale node. The real implementation is a child
@@ -87,6 +93,9 @@ type nodeConfig struct {
 	Verbose  bool
 	// Port is the service's loopback port, which a node process proxies to.
 	Port int
+	// Upstream and UpstreamServerName are Options' own.
+	Upstream           string
+	UpstreamServerName string
 }
 
 // Router owns one tsnet node per attached service.
@@ -95,6 +104,9 @@ type Router struct {
 	authKey  string
 	logf     func(string, ...any)
 	verbose  bool
+
+	upstream           string
+	upstreamServerName string
 
 	// startNode brings a node up. Swapped out in tests.
 	startNode func(ctx context.Context, cfg nodeConfig) (tailnetNode, error)
@@ -126,6 +138,13 @@ type node struct {
 	live     tailnetNode
 	http     *http.Server
 	attached bool
+	// dnsName is what the node reported it was given, "" if it didn't.
+	dnsName string
+}
+
+// hostedNode is a node that knows its DNS name on the tailnet.
+type hostedNode interface {
+	Host() string
 }
 
 // New builds a Router. It does not contact Tailscale until Attach is called.
@@ -153,6 +172,7 @@ func New(opts Options) (*Router, error) {
 		nodeStopGrace: defaultNodeStopGrace,
 		nodes:         map[string]*node{},
 	}
+	r.upstream, r.upstreamServerName = opts.Upstream, opts.UpstreamServerName
 	r.startNode = r.startProcessNode
 	return r, nil
 }
@@ -178,6 +198,23 @@ func (r *Router) Attached() []string {
 		}
 	}
 	sort.Strings(out)
+	return out
+}
+
+// Hosts maps each attached service to the DNS name its node was given, for
+// the services whose node reported one.
+func (r *Router) Hosts() map[string]string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	out := map[string]string{}
+	for name, n := range r.nodes {
+		n.mu.Lock()
+		if n.attached && n.dnsName != "" {
+			out[name] = n.dnsName
+		}
+		n.mu.Unlock()
+	}
 	return out
 }
 
@@ -244,6 +281,9 @@ func (r *Router) bringUp(ctx context.Context, n *node) {
 		AuthKey:  r.authKey,
 		Verbose:  r.verbose,
 		Port:     n.port,
+
+		Upstream:           r.upstream,
+		UpstreamServerName: r.upstreamServerName,
 	}
 
 	backoff := r.retryInitial
@@ -330,9 +370,21 @@ func (r *Router) serve(ctx context.Context, n *node, live tailnetNode) bool {
 	n.live = live
 	n.http = srv
 	n.attached = true
+	n.dnsName = ""
+	if h, ok := live.(hostedNode); ok {
+		n.dnsName = h.Host()
+	}
 	n.mu.Unlock()
 
-	r.logf("%s: on the tailnet as %s -> 127.0.0.1:%d", n.name, n.hostname, n.port)
+	shown := n.hostname
+	if h, ok := live.(hostedNode); ok && h.Host() != "" {
+		shown = h.Host()
+	}
+	if r.upstream != "" {
+		r.logf("%s: on the tailnet as https://%s -> gateway -> 127.0.0.1:%d", n.name, shown, n.port)
+	} else {
+		r.logf("%s: on the tailnet as %s -> 127.0.0.1:%d", n.name, shown, n.port)
+	}
 
 	if srv == nil {
 		// The node serves the tailnet itself.
@@ -353,7 +405,7 @@ func (r *Router) serve(ctx context.Context, n *node, live tailnetNode) bool {
 func (r *Router) unserve(n *node, live tailnetNode) {
 	n.mu.Lock()
 	if n.live == live {
-		n.live, n.http, n.attached = nil, nil, false
+		n.live, n.http, n.attached, n.dnsName = nil, nil, false, ""
 	}
 	n.mu.Unlock()
 	// The process has already exited; Close only reaps what is left.

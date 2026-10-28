@@ -11,7 +11,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"time"
 
 	"tailscale.com/tsnet"
@@ -27,6 +29,11 @@ type Config struct {
 	AuthKey  string
 	Port     int
 	Verbose  bool
+	// Upstream, when set, is the login gateway's URL. The node then serves
+	// HTTPS and sends everything there rather than to the service, so the
+	// tailnet address is behind the same login as the portal.
+	Upstream           string
+	UpstreamServerName string
 }
 
 // Run brings the node up, prints outposttsnet.ReadyLine to ready once it is
@@ -57,20 +64,49 @@ func Run(ctx context.Context, cfg Config, ready, logs io.Writer) error {
 	}
 	// Block until the node is actually usable, so a node that never registers
 	// is retried by the daemon rather than reported as attached.
-	if _, err := server.Up(ctx); err != nil {
+	status, err := server.Up(ctx)
+	if err != nil {
 		return fmt.Errorf("tsnet node %q did not come up: %w", cfg.Hostname, err)
 	}
-	ln, err := server.Listen("tcp", ":80")
-	if err != nil {
-		return fmt.Errorf("listen on tailnet: %w", err)
+	if status.Self != nil && status.Self.DNSName != "" {
+		if _, err := fmt.Fprintln(ready, outposttsnet.HostLinePrefix+status.Self.DNSName); err != nil {
+			return fmt.Errorf("report host: %w", err)
+		}
 	}
 
-	srv := &http.Server{
-		Handler:           outposttsnet.NewProxy(cfg.Port),
-		ReadHeaderTimeout: 30 * time.Second,
+	var servers []*http.Server
+	served := make(chan error, 2)
+	serve := func(ln net.Listener, h http.Handler) {
+		srv := &http.Server{Handler: h, ReadHeaderTimeout: 30 * time.Second}
+		servers = append(servers, srv)
+		go func() { served <- srv.Serve(ln) }()
 	}
-	served := make(chan error, 1)
-	go func() { served <- srv.Serve(ln) }()
+
+	if cfg.Upstream == "" {
+		ln, err := server.Listen("tcp", ":80")
+		if err != nil {
+			return fmt.Errorf("listen on tailnet: %w", err)
+		}
+		serve(ln, outposttsnet.NewProxy(cfg.Port))
+	} else {
+		target, err := url.Parse(cfg.Upstream)
+		if err != nil {
+			return fmt.Errorf("upstream %q: %w", cfg.Upstream, err)
+		}
+		// The gateway's session cookie is Secure, so the app has to be
+		// served over HTTPS; the certificate is the tailnet's own.
+		tlsLn, err := server.ListenTLS("tcp", ":443")
+		if err != nil {
+			return fmt.Errorf("listen on tailnet: %w", err)
+		}
+		ln, err := server.Listen("tcp", ":80")
+		if err != nil {
+			_ = tlsLn.Close() // failing anyway
+			return fmt.Errorf("listen on tailnet: %w", err)
+		}
+		serve(tlsLn, outposttsnet.NewUpstreamProxy(target, cfg.UpstreamServerName))
+		serve(ln, http.HandlerFunc(toHTTPS))
+	}
 
 	if _, err := fmt.Fprintln(ready, outposttsnet.ReadyLine); err != nil {
 		return fmt.Errorf("report ready: %w", err)
@@ -85,8 +121,18 @@ func Run(ctx context.Context, cfg Config, ready, logs io.Writer) error {
 	case <-ctx.Done():
 		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		// Leaving anyway; in-flight requests that do not finish are cut off.
-		_ = srv.Shutdown(shutdown)
+		for _, srv := range servers {
+			// Leaving anyway; in-flight requests that do not finish are cut off.
+			_ = srv.Shutdown(shutdown)
+		}
 		return nil
 	}
+}
+
+// toHTTPS sends a plain-http request to the same place over HTTPS.
+func toHTTPS(w http.ResponseWriter, r *http.Request) {
+	u := *r.URL
+	u.Scheme = "https"
+	u.Host = r.Host
+	http.Redirect(w, r, u.String(), http.StatusMovedPermanently)
 }
