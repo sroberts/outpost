@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 
 	"tailscale.com/tsnet"
@@ -51,7 +52,7 @@ func Run(ctx context.Context, cfg Config, ready, logs io.Writer) error {
 		// tsnet's own logging is noisy; only the login URL and other
 		// user-facing lines come through unless verbose was asked for.
 		Logf:     quiet,
-		UserLogf: logf,
+		UserLogf: onceEach(logf),
 	}
 	if cfg.Verbose {
 		server.Logf = logf
@@ -135,4 +136,30 @@ func toHTTPS(w http.ResponseWriter, r *http.Request) {
 	u.Scheme = "https"
 	u.Host = r.Host
 	http.Redirect(w, r, u.String(), http.StatusMovedPermanently)
+}
+
+// maxRemembered bounds onceEach's memory. User-facing lines are few and
+// mostly identical, so this is only a backstop.
+const maxRemembered = 256
+
+// onceEach passes each distinct line through once. tsnet repeats the login
+// URL every few seconds until someone visits it, which buried everything
+// else in the daemon's log; a restarted node starts afresh and says it again.
+func onceEach(logf func(string, ...any)) func(string, ...any) {
+	var mu sync.Mutex
+	seen := map[string]bool{}
+	return func(format string, args ...any) {
+		line := fmt.Sprintf(format, args...)
+		mu.Lock()
+		if seen[line] {
+			mu.Unlock()
+			return
+		}
+		if len(seen) >= maxRemembered {
+			seen = map[string]bool{}
+		}
+		seen[line] = true
+		mu.Unlock()
+		logf("%s", line)
+	}
 }
