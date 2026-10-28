@@ -79,6 +79,14 @@ incoming `X-Outpost-*` header first, on every host and path, and the proxy
 removes the Outpost cookie. Anything new that handles a request has to come
 after that, and nothing may let a client choose the identity a service sees.
 
+**With the gateway on, a tailnet node proxies to the gateway, never to the
+service.** `serve` gives the router `gateway.LocalUpstream`, and each node then
+serves HTTPS and forwards everything there, so a service's tailnet address is
+behind the login like every other way in. A node pointed straight at the
+service is a way round it. The gateway routes and links each app by the DNS
+name its node reports (`HostLinePrefix`), not the one asked for, because
+Tailscale renames a node whose name is taken.
+
 **Never run `gofmt -w` on a directory.** `internal/manifest/manifest_test.go` is
 deliberately left unformatted and `gofmt -l .` is expected to report it and
 nothing else. A directory-wide sweep silently reformats it. Use `make fmt`,

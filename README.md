@@ -26,8 +26,9 @@ Not built: container services (`runtime = "container"` is rejected at apply
 time), Hermes `SKILL.md` generation, and the gateway's app catalog and per-app
 access rules.
 
-**Tailscale integration has been checked once against a real tailnet,** on
-macOS with an interactive login; see [Tailscale](#tailscale). New installs
+**Tailscale integration has been checked against a real tailnet,** on macOS
+with interactive logins, alone and behind the login gateway; see
+[Tailscale](#tailscale). New installs
 start with it off; see [Configuration](#configuration).
 
 ## Building
@@ -386,9 +387,13 @@ public_url = "https://outpost.example"   # the portal, as browsers see it
 # allow_insecure  = false                # see below
 ```
 
-It needs a wildcard: `*.outpost.example` resolving to the machine, and a
-certificate that covers it, whether the gateway serves TLS itself or something
-in front of it does. A plain-http `public_url` is fine on loopback, behind a
+With Tailscale on, that is all the setup it needs: each app is served at its
+own node's tailnet address (below), with that node's certificate, and the
+portal can go on the tailnet too, with
+`tailscale serve --bg http://127.0.0.1:8443` and a `public_url` of
+`https://<machine>.<tailnet>.ts.net`. Without Tailscale, it needs a wildcard:
+`*.outpost.example` resolving to the machine, and a certificate that covers
+it, whether the gateway serves TLS itself or something in front of it does. A plain-http `public_url` is fine on loopback, behind a
 proxy that terminates TLS, but with a network-facing `listen` Outpost rejects
 the config unless `allow_insecure = true`, because passwords would cross the
 network in clear.
@@ -413,6 +418,17 @@ cookie never reaches the service. The token verifies against the keys at
 old key published for a day. With the gateway on, every service also gets
 `OUTPOST_AUTH=gateway`, `OUTPOST_ISSUER` and `OUTPOST_JWKS_URL`; a running
 service picks them up at its next restart.
+
+With Tailscale on as well, a service's own tailnet address goes through the
+gateway too, so there is no way in that skips the login. Its node serves
+`https://<tailscale_name>.<tailnet>.ts.net` with the tailnet's certificate,
+redirects plain http there, and hands every request to the gateway, which
+treats that name as the app's address: the portal links to it and the login
+sends you back to it. No wildcard DNS or certificate is needed for this. If
+Tailscale gives the node a different name because the one asked for is taken
+(`yarr-1`), the gateway uses the name the node actually got. Turning the
+gateway on in an existing tailnet setup changes nodes from plain http on port
+80 to this; restart the daemon to pick it up.
 
 Not built yet: the catalog the portal will show, and per-app `allow` rules.
 Until then every user can open every app.
@@ -586,11 +602,15 @@ when the backup finishes.
 
 ## Tailscale
 
-**Checked once, by hand.** On macOS, a node joined a real tailnet through the
+**Checked by hand.** On macOS, a node joined a real tailnet through the
 interactive login URL and served its service over MagicDNS. Killing the node
 left the daemon and the service running, and the node came back without a
-new login. Killing the daemon ended the node with it. Not yet tried: an auth
-key, Linux under systemd, and more than one service at a time.
+new login. Killing the daemon ended the node with it. Then again behind the
+login gateway: the node served `https://yarr.<tailnet>.ts.net` with a
+certificate Tailscale issued on the first request, which took about half a
+minute, redirected plain http there, and sent signed-out requests to the
+portal's login. Not yet tried: an auth key, Linux under systemd, and more than
+one service at a time.
 
 ```sh
 TS_AUTHKEY=tskey-... outpost serve --tailnet
@@ -601,9 +621,15 @@ state under `~/.outpost/tsnet/<service>/` so identities persist across restarts.
 Each node runs in a child process, `outpost __tsnet-node`, so a Tailscale panic
 ends that node, which the daemon restarts, rather than the daemon.
 The node listens on the tailnet and reverse-proxies to `127.0.0.1:<port>`, so
-the supervised process never binds anything but loopback.
+the supervised process never binds anything but loopback. With the
+[login gateway](#the-login-gateway) on, it serves HTTPS and proxies to the
+gateway instead, so the tailnet address is behind the login.
 
-Without `TS_AUTHKEY`, tsnet logs a one-time login URL per service on first run.
+Without `TS_AUTHKEY`, tsnet logs a one-time login URL per service on first
+run, once each time the node starts; a daemon restart gives a new one. A node gets the name it
+asks for only if no other device on the tailnet has it, otherwise Tailscale
+appends `-1`. To take a name over from an old device, delete that device in
+the Tailscale admin console *before* logging the new node in.
 Each service costs one device on your tailnet — check your plan's limit before
 this scales past a handful. `funnel = true` is rejected.
 
@@ -677,6 +703,13 @@ finds Tailscale running. Homes with no setting keep the old behaviour, on.
 serves a portal for logging in and listing apps; managing Outpost stays in the
 CLI and the TUI. Spec §7 also has tsnet as the only way in; the gateway is
 another, and the two can run side by side.
+
+**With the gateway on, tailnet nodes go through it.** Spec §7 has each node
+reverse-proxy straight to the service on port 80. With the login gateway on,
+a node serves HTTPS with its own tailnet certificate and proxies to the
+gateway instead, so the service's tailnet address is behind the login, and
+the portal links to that address. Without the gateway, nodes behave as spec
+§7 describes.
 
 **`funnel` is rejected, not ignored.** It is accepted by the schema and refused
 at apply time with an explicit error, per spec §7.
