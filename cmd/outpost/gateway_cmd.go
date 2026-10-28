@@ -25,7 +25,11 @@ func (a *app) cmdGateway(args []string) error {
 	}
 	fmt.Fprintf(a.out, "Portal:  %s\n", st.PublicURL)
 	fmt.Fprintf(a.out, "Listen:  %s (TLS %s)\n", st.Listen, tls)
-	fmt.Fprintf(a.out, "Apps:    <name>.%s\n", st.Domain)
+	if st.Tailnet {
+		fmt.Fprintf(a.out, "Apps:    their own tailnet address, else <name>.%s\n", st.Domain)
+	} else {
+		fmt.Fprintf(a.out, "Apps:    <name>.%s\n", st.Domain)
+	}
 	if len(st.Routes) == 0 {
 		fmt.Fprintln(a.out, "\nNo services routed yet.")
 		return nil

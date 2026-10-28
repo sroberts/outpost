@@ -36,6 +36,10 @@ type Options struct {
 	Auth     *auth.Store
 	Services Services
 	Logf     func(format string, v ...any)
+	// TailnetHosts, when set, maps services to their own Tailscale DNS
+	// names. Each such service is served at https://<that name>, behind the
+	// same login, and the portal links there.
+	TailnetHosts func() map[string]string
 }
 
 // Gateway is the HTTP front door. It is an http.Handler, so tests can serve
@@ -46,6 +50,8 @@ type Gateway struct {
 	services Services
 	logf     func(format string, v ...any)
 	now      func() time.Time
+
+	tailnetHosts func() map[string]string
 
 	scheme       string // public_url's scheme
 	portalHost   string // public_url's host name, lower case
@@ -94,6 +100,7 @@ func New(opts Options) (*Gateway, error) {
 		services:     opts.Services,
 		logf:         opts.Logf,
 		now:          time.Now,
+		tailnetHosts: opts.TailnetHosts,
 		scheme:       u.Scheme,
 		portalHost:   strings.ToLower(u.Hostname()),
 		portalOrigin: u.Scheme + "://" + strings.ToLower(u.Host),
@@ -217,8 +224,12 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// appFor maps a host to its service: <name>.<domain>, one label deep.
+// appFor maps a host to its service: its tailnet address, or
+// <name>.<domain>, one label deep.
 func (g *Gateway) appFor(host string) (route, bool) {
+	if rt, ok := g.routes.forHost(host); ok {
+		return rt, true
+	}
 	name, ok := strings.CutSuffix(host, "."+g.domain)
 	if !ok || name == "" || strings.Contains(name, ".") {
 		return route{}, false
@@ -227,10 +238,19 @@ func (g *Gateway) appFor(host string) (route, bool) {
 }
 
 // appHost is the host name an app is served at.
-func (g *Gateway) appHost(name string) string { return name + "." + g.domain }
+func (g *Gateway) appHost(name string) string {
+	if rt, ok := g.routes.get(name); ok && rt.Host != "" {
+		return rt.Host
+	}
+	return name + "." + g.domain
+}
 
 // appOrigin is an app's origin as browsers see it.
 func (g *Gateway) appOrigin(name string) string {
+	if rt, ok := g.routes.get(name); ok && rt.Host != "" {
+		// The node serves HTTPS on the default port, whatever the portal's.
+		return "https://" + rt.Host
+	}
 	h := g.appHost(name)
 	if g.port != "" {
 		h = net.JoinHostPort(h, g.port)
@@ -277,6 +297,28 @@ func jwksURL(cfg config.Gateway, issuer string) string {
 		host = "127.0.0.1"
 	}
 	return "http://" + net.JoinHostPort(host, port) + jwksPath
+}
+
+// LocalUpstream is how a tailnet node on this machine reaches the gateway:
+// its listen address, on loopback when it listens everywhere, and, when it
+// serves TLS itself, the name its certificate is for.
+func LocalUpstream(cfg config.Gateway) (upstream, serverName string) {
+	host, port, err := net.SplitHostPort(cfg.ListenAddr())
+	if err != nil {
+		return "", ""
+	}
+	if a, err := netip.ParseAddr(host); host == "" || (err == nil && a.IsUnspecified()) {
+		host = "127.0.0.1"
+	}
+	addr := net.JoinHostPort(host, port)
+	if cfg.TLSCert == "" {
+		return "http://" + addr, ""
+	}
+	u, err := url.Parse(cfg.PublicURL)
+	if err != nil {
+		return "", ""
+	}
+	return "https://" + addr, u.Hostname()
 }
 
 // setupState is the first-run link: a token that lets one admin be created

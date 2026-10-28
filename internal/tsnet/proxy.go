@@ -1,6 +1,7 @@
 package tsnet
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net"
 	"net/http"
@@ -15,22 +16,35 @@ import (
 // This is deliberately separate from the tsnet node so it can be tested
 // against an ordinary local server, without a tailnet (§13).
 func newProxy(port int) *httputil.ReverseProxy {
-	target := &url.URL{Scheme: "http", Host: fmt.Sprintf("127.0.0.1:%d", port)}
+	return newProxyTo(&url.URL{Scheme: "http", Host: fmt.Sprintf("127.0.0.1:%d", port)}, "")
+}
+
+// newProxyTo builds the same proxy for any upstream: the service itself, or
+// the login gateway in front of it. serverName is the name to verify an https
+// upstream's certificate against, since it is dialled by address.
+func newProxyTo(target *url.URL, serverName string) *httputil.ReverseProxy {
+	transport := &http.Transport{
+		DialContext:           (&net.Dialer{Timeout: dialTimeout}).DialContext,
+		ResponseHeaderTimeout: 60 * time.Second,
+		IdleConnTimeout:       90 * time.Second,
+		MaxIdleConnsPerHost:   8,
+	}
+	if serverName != "" {
+		transport.TLSClientConfig = &tls.Config{ServerName: serverName, MinVersion: tls.VersionTLS12}
+	}
 
 	proxy := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(target)
 			// Preserve the tailnet hostname the client used, so services that
-			// generate absolute URLs produce reachable ones.
+			// generate absolute URLs produce reachable ones, and so the
+			// gateway can tell which app was asked for.
 			pr.Out.Host = pr.In.Host
 			pr.SetXForwarded()
 		},
-		Transport: &http.Transport{
-			DialContext:           (&net.Dialer{Timeout: dialTimeout}).DialContext,
-			ResponseHeaderTimeout: 60 * time.Second,
-			IdleConnTimeout:       90 * time.Second,
-			MaxIdleConnsPerHost:   8,
-		},
+		// Flush as data arrives, so server-sent events stream.
+		FlushInterval: -1,
+		Transport:     transport,
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			// A service that is down or restarting is the common case here, so
 			// say so plainly rather than returning a bare 500.

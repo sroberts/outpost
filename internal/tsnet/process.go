@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/exec"
 	"strconv"
@@ -34,6 +35,12 @@ const NodeCommand = "__tsnet-node"
 // including the one-time login URL.
 const ReadyLine = "outpost-tsnet-node: ready"
 
+// HostLinePrefix starts the line a node prints on stdout, before ReadyLine,
+// naming the DNS name it was given. That can differ from the hostname asked
+// for -- Tailscale appends -1 when the name is taken -- so the gateway learns
+// it from the node rather than assuming it.
+const HostLinePrefix = "outpost-tsnet-node: host "
+
 // AuthKeyEnv carries the auth key to the node. An argument would put the key
 // in the process table for any local user to read.
 const AuthKeyEnv = "OUTPOST_TSNET_AUTHKEY"
@@ -45,6 +52,12 @@ const defaultNodeStopGrace = 10 * time.Second
 // NewProxy is the reverse proxy a node serves, exported for the node process.
 func NewProxy(port int) *httputil.ReverseProxy { return newProxy(port) }
 
+// NewUpstreamProxy is the reverse proxy a node serves in front of the login
+// gateway, exported for the node process.
+func NewUpstreamProxy(target *url.URL, serverName string) *httputil.ReverseProxy {
+	return newProxyTo(target, serverName)
+}
+
 // nodeArgs are the arguments, after NodeCommand, that start a node for cfg.
 func nodeArgs(cfg nodeConfig) []string {
 	args := []string{
@@ -52,6 +65,12 @@ func nodeArgs(cfg nodeConfig) []string {
 		"--hostname", cfg.Hostname,
 		"--dir", cfg.Dir,
 		"--port", strconv.Itoa(cfg.Port),
+	}
+	if cfg.Upstream != "" {
+		args = append(args, "--upstream", cfg.Upstream)
+	}
+	if cfg.UpstreamServerName != "" {
+		args = append(args, "--upstream-server-name", cfg.UpstreamServerName)
 	}
 	if cfg.Verbose {
 		args = append(args, "--verbose")
@@ -78,10 +97,16 @@ type processNode struct {
 	done    chan struct{}
 	exitErr error // set before done closes
 
+	// host is the node's DNS name, set before the node reports ready.
+	host string
+
 	closeOnce sync.Once
 }
 
 func (p *processNode) Listener() net.Listener { return nil }
+
+// Host is the node's DNS name on the tailnet, without the trailing dot.
+func (p *processNode) Host() string { return p.host }
 
 // Done closes when the process has exited, for any reason.
 func (p *processNode) Done() <-chan struct{} { return p.done }
@@ -162,6 +187,12 @@ func (r *Router) startProcessNode(ctx context.Context, cfg nodeConfig) (tailnetN
 		for sc.Scan() {
 			if sc.Text() == ReadyLine {
 				once.Do(func() { close(ready) })
+				continue
+			}
+			// Read before ready closes, so it is set by the time the
+			// router sees the node.
+			if host, ok := strings.CutPrefix(sc.Text(), HostLinePrefix); ok {
+				p.host = strings.TrimSuffix(strings.TrimSpace(host), ".")
 				continue
 			}
 			r.logf("%s: %s", cfg.Service, sc.Text())

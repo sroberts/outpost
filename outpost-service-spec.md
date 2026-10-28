@@ -20,14 +20,18 @@ Companion documents: [`README.md`](README.md) for operating Outpost,
 - **One port.** The operator declares it in the manifest. Your service must
   listen on exactly that port.
 - **Loopback only.** Bind `127.0.0.1`, not `0.0.0.0`. Outpost reaches you on
-  `127.0.0.1:<port>`, and when Tailscale is enabled a `tsnet` node reverse-proxies
-  to that same address. Binding a public interface defeats the model: nothing
-  should be reachable except through Tailscale. An installation running with
-  `tailscale.enabled = false` reaches services on loopback only, so the same
-  rule holds.
+  `127.0.0.1:<port>`, and when Tailscale is enabled your service gets its own
+  `tsnet` node, `<tailscale_name>.<tailnet>.ts.net`, which reverse-proxies to
+  that same address. With the login gateway on as well, that node serves HTTPS
+  and passes every request through the gateway's login before it reaches you
+  (§3). Binding a public interface defeats the model: nothing should be
+  reachable except through Tailscale and the gateway. An installation running
+  with `tailscale.enabled = false` reaches services on loopback only, so the
+  same rule holds.
 - **Plain HTTP.** Outpost probes `http://127.0.0.1:<port><healthcheck>`. Do not
-  terminate TLS yourself. Tailscale provides transport security; a service that
-  only speaks HTTPS on loopback will fail every healthcheck.
+  terminate TLS yourself. Your Tailscale node terminates it, with a certificate
+  for its own name; a service that only speaks HTTPS on loopback will fail
+  every healthcheck.
 
 ### How you learn your port
 
@@ -130,6 +134,52 @@ from a file inside your storage directory that you manage yourself.
 Do not expect a config file at a well-known path, and do not require an
 interactive prompt, a TTY, or a login step at startup. Outpost starts you
 unattended.
+
+### Behind the login gateway
+
+When `OUTPOST_AUTH=gateway` is set, Outpost has already authenticated every
+request you receive, on every path, except its own healthcheck on loopback.
+This is how an operator gets one login for all their services, so:
+
+- **Present no login of your own.** Treat the request as signed in. If your
+  service has optional built-in authentication — a password flag, a users
+  table — leave it off when `OUTPOST_AUTH=gateway`, or the operator signs in
+  twice.
+- **Learn who is calling from the headers.** Every request carries:
+
+  | Header | Contents |
+  |---|---|
+  | `X-Outpost-User` | the username |
+  | `X-Outpost-Name` | display name; may be empty |
+  | `X-Outpost-Email` | may be empty |
+  | `X-Outpost-Groups` | comma-separated; may be empty |
+  | `X-Outpost-Identity` | an Ed25519-signed JWT (`alg` `EdDSA`) |
+
+  The gateway removes any `X-Outpost-*` header a client sends before setting
+  its own, so with a loopback bind (§1) the plain headers are enough. When you
+  want proof, verify the token against the keys at `OUTPOST_JWKS_URL`: `iss` is
+  `OUTPOST_ISSUER`, `aud` is the host you are being served at, `sub` is the
+  username, and it also carries `name`, `email` and `groups`. It lives for 60
+  seconds, so verify per request rather than keeping it. Trust none of these
+  headers when `OUTPOST_AUTH` is unset — nothing strips them then.
+- **Hard-code no hostname.** You are served at your node's own tailnet address,
+  `https://<tailscale_name>.<tailnet>.ts.net` — or, if Tailscale had to rename
+  the node because the name was taken, at the name it was given (`yarr-1`).
+  Without Tailscale, it is `<name>.<domain>` from the gateway's configuration.
+  `Host` is preserved and `X-Forwarded-Host` and `X-Forwarded-Proto` are set,
+  so build absolute URLs from those, or use relative ones.
+- **Leave `/.outpost/` alone.** Paths under it, on your host, belong to the
+  gateway — the sign-in callback and sign-out — and are never passed to you.
+  To offer sign-out, `POST` a same-origin form to `/.outpost/logout`; it ends
+  the user's whole Outpost login, not only yours.
+- **Leave the gateway's cookie alone.** It is called `__Host-outpost` (or
+  `outpost` on a plain-http gateway) and is removed before the request reaches
+  you. Don't name a cookie of your own either of those.
+
+Non-browser clients get no further than the login: an unauthenticated `GET`
+is redirected to the sign-in page and anything else is refused with `401`. A
+feed reader, an API token, or an MCP client on the tailnet cannot sign in
+through the gateway yet, so features that depend on one don't work through it.
 
 ### Secrets
 
@@ -270,9 +320,9 @@ Do not build expecting any of this:
 
 | Not provided | What to do instead |
 |---|---|
-| TLS | Tailscale terminates it; serve plain HTTP on loopback |
+| TLS | Your Tailscale node terminates it, with a certificate for its own name; serve plain HTTP on loopback |
 | A bind address | You bind loopback; Outpost never binds your port |
-| Authentication or authorization | Tailnet membership is the boundary; add your own if you need more. Behind the login gateway, the user arrives in `X-Outpost-*` headers; trust them only when `OUTPOST_AUTH=gateway` |
+| Authorization | With the login gateway on, Outpost authenticates every request and tells you who it is (§3), but every user can open every app; decide what each may do yourself. Without the gateway, tailnet membership is the boundary |
 | Secrets management | Read secrets from a file path given via env |
 | Service discovery | No registry; addresses are the operator's business |
 | A database, cache, or queue | Bring your own, inside your storage directory |
@@ -323,6 +373,13 @@ A service conforms when all of these are true.
 - [ ] Completes shutdown within 10 seconds
 - [ ] Runs in the foreground; never daemonizes or writes a pidfile
 - [ ] Restarts cleanly and repeatedly with no manual repair
+
+**Behind the gateway** (when `OUTPOST_AUTH=gateway`)
+- [ ] Presents no login of its own
+- [ ] Takes the user from `X-Outpost-User`, or from the verified `X-Outpost-Identity`
+- [ ] Trusts `X-Outpost-*` headers only when `OUTPOST_AUTH=gateway`
+- [ ] Hard-codes no hostname; uses relative URLs, or `Host` and `X-Forwarded-*`
+- [ ] Serves nothing under `/.outpost/` and sets no cookie named `outpost` or `__Host-outpost`
 
 **Logging**
 - [ ] Logs to stdout and stderr only
@@ -388,7 +445,7 @@ func main() {
 		fmt.Fprintln(w, "hello")
 	})
 
-	// Loopback only: Tailscale is the only way in.
+	// Loopback only: Tailscale, through the gateway, is the only way in.
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", *port))
 	if err != nil {
 		log.Fatalf("listen: %v", err) // non-zero exit: Outpost will restart us
