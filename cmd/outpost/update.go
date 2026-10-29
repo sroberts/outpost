@@ -115,10 +115,8 @@ func (a *app) cmdUpdate(args []string) error {
 	// skips prereleases, so after `--to v2.0.0-rc1` it names v1.9.0. Going
 	// back takes asking for it by tag, since a new release may have migrated
 	// data the old one can't read.
-	newer := false
-	if c, ok := compareReleases(svc.Release, rel.Tag); ok && c > 0 && *to == "" {
-		newer = true
-	}
+	order, ordered := compareReleases(svc.Release, rel.Tag)
+	newer := ordered && order > 0 && *to == ""
 	if *check {
 		switch {
 		case svc.Release == rel.Tag:
@@ -133,6 +131,9 @@ func (a *app) cmdUpdate(args []string) error {
 		if svc.Source == "" {
 			hint += " --from " + repo.String() // not recorded until an update succeeds
 		}
+		if *to != "" {
+			hint += " --to " + *to // the latest may be a different release
+		}
 		fmt.Fprintf(a.out, "Install it with `outpost update %s`.\n", hint)
 		return nil
 	}
@@ -145,7 +146,7 @@ func (a *app) cmdUpdate(args []string) error {
 			"To go back to it, `outpost update %s --to %s`.\n", name, svc.Release, repo, rel.Tag, name, rel.Tag)
 		return nil
 	}
-	if c, ok := compareReleases(svc.Release, rel.Tag); ok && c > 0 {
+	if ordered && order > 0 {
 		fmt.Fprintf(a.err, "outpost: going back from %s to %s; if %s changed its data, %s may not read it\n",
 			svc.Release, rel.Tag, svc.Release, rel.Tag)
 	}
@@ -189,6 +190,12 @@ func (a *app) cmdUpdate(args []string) error {
 		return fmt.Errorf("%s: %w", name, err)
 	}
 	defer unlock()
+	// Everything above was read before the lock, so an update that finished
+	// in between would leave this one rolling back to a manifest that no
+	// longer matches the binary on disk.
+	if current, err := os.ReadFile(path); err != nil || string(current) != string(original) {
+		return fmt.Errorf("%s changed while this update was starting; nothing was changed, run it again", path)
+	}
 
 	c := a.client()
 	daemon := c.Available()
@@ -242,8 +249,12 @@ func (a *app) cmdUpdate(args []string) error {
 	}
 	fmt.Fprintf(a.out, "installed %s %s (%s)\n", repo, rel.Tag, verified)
 
+	timeout := *wait
+	if timeout == 0 {
+		timeout = 30*time.Second + time.Duration(svc.StartGraceSeconds)*time.Second
+	}
 	back := func(restart bool, cause error) error {
-		return a.rollback(c, svc, path, original, previous, restart, cause)
+		return a.rollback(c, svc, path, original, previous, restart, timeout, cause)
 	}
 	if err := replaceFile(path, updated); err != nil {
 		return back(running, fmt.Errorf("record the release in %s: %w", path, err))
@@ -273,10 +284,6 @@ func (a *app) cmdUpdate(args []string) error {
 	if _, err := c.Restart(name); err != nil {
 		return back(true, err)
 	}
-	timeout := *wait
-	if timeout == 0 {
-		timeout = 30*time.Second + time.Duration(svc.StartGraceSeconds)*time.Second
-	}
 	fmt.Fprintf(a.err, "waiting for %s to pass its healthcheck…\n", name)
 	if _, err := waitHealthy(c, svc, before.InstanceID, timeout); err != nil {
 		return back(true, fmt.Errorf("%s %s did not come up healthy: %w", name, rel.Tag, err))
@@ -301,7 +308,7 @@ func releaseError(err error) error {
 // rollback puts the previous binary and manifest back after a failed update,
 // restarts the service on them if it was running, and returns why the update
 // failed.
-func (a *app) rollback(c *ipc.Client, svc *manifest.Service, path string, original []byte, previous string, restart bool, cause error) error {
+func (a *app) rollback(c *ipc.Client, svc *manifest.Service, path string, original []byte, previous string, restart bool, timeout time.Duration, cause error) error {
 	var problems []string
 	if err := os.Rename(previous, svc.Binary); err != nil {
 		problems = append(problems, fmt.Sprintf("restore %s: %v", svc.Binary, err))
@@ -330,7 +337,9 @@ func (a *app) rollback(c *ipc.Client, svc *manifest.Service, path string, origin
 	if _, err := c.Restart(svc.Name); err != nil {
 		return fmt.Errorf("%w; rolled back the files, but restarting failed: %v", cause, err)
 	}
-	if _, err := waitHealthy(c, svc, st.InstanceID, 30*time.Second+time.Duration(svc.StartGraceSeconds)*time.Second); err != nil {
+	// The same allowance as the new release had: --wait is usually given for a
+	// service slow to start, and the old release is no quicker.
+	if _, err := waitHealthy(c, svc, st.InstanceID, timeout); err != nil {
 		return fmt.Errorf("%w; rolled back to %s, which is not healthy either: %v", cause, orDash(svc.Release), err)
 	}
 	return fmt.Errorf("%w; rolled back to %s, which is running and healthy", cause, orDash(svc.Release))
@@ -591,7 +600,7 @@ func replaceFile(path string, body []byte) error {
 		_ = os.Remove(tmp.Name())
 		return err
 	}
-	defer os.Remove(tmp.Name()) // a no-op once renamed
+	defer func() { _ = os.Remove(tmp.Name()) }() // a no-op once renamed
 	if _, err := tmp.Write(body); err != nil {
 		_ = tmp.Close() // the write error is the one worth reporting
 		return err
