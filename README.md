@@ -147,7 +147,11 @@ backup from step 1.
 Update never goes back to an older release unless you name it with `--to`.
 GitHub's "latest" skips prereleases, so after `--to v2.0.0-rc1` the latest is
 older than what is installed; `outpost update` says so and changes nothing.
-Tags are compared as semantic versions, with or without a leading `v`.
+Tags are compared as semantic versions, with or without a leading `v`, so
+`1.2.0` and `v1.2.0` are the same release.
+
+If the binary has gone missing there is nothing to roll back to, so update asks
+for `--force`, and with it puts the binary back from the release.
 
 Only the binary changes. Args, env and the rest of the manifest are yours by
 now, so if a release's `outpost.toml` asks for something new, compare it with

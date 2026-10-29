@@ -179,3 +179,106 @@ func TestUpdate_StoppedServiceRollsBackWhenApplyFails(t *testing.T) {
 		t.Errorf("manifest not restored:\n%s", got)
 	}
 }
+
+func TestSameRelease(t *testing.T) {
+	cases := []struct {
+		a, b string
+		want bool
+	}{
+		{"v1.2.0", "v1.2.0", true},
+		{"1.2.0", "v1.2.0", true},
+		{"v1.2.0+a", "v1.2.0+b", false},
+		{"v1.2.0", "v1.2.1", false},
+		{"", "", false},
+	}
+	for _, tc := range cases {
+		if got := sameRelease(tc.a, tc.b); got != tc.want {
+			t.Errorf("sameRelease(%q, %q) = %v", tc.a, tc.b, got)
+		}
+	}
+}
+
+// A manifest that spells the tag without its v is still up to date.
+func TestUpdate_TagSpelledWithoutVIsCurrent(t *testing.T) {
+	home := t.TempDir()
+	declareInstalled(t, home, "svc", []byte("old"), freePort(t), "1.2.3")
+	useFakeGitHub(t, fakeGitHub(t, []byte("new"), "", true)) // latest is v1.2.3
+
+	stdout, _, err := runCLI(t, home, "update", "svc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "already at") || readFile(t, filepath.Join(home, "bin", "svc")) != "old" {
+		t.Errorf("stdout = %q; the same version was reinstalled", stdout)
+	}
+}
+
+// With its binary gone there is nothing to roll back to, so an update needs
+// --force, and then it is how the binary gets put back.
+func TestUpdate_MissingBinaryNeedsForce(t *testing.T) {
+	home := t.TempDir()
+	declareInstalled(t, home, "svc", []byte("old"), freePort(t), "v1.0.0")
+	bin := filepath.Join(home, "bin", "svc")
+	if err := os.Remove(bin); err != nil {
+		t.Fatal(err)
+	}
+	useFakeGitHub(t, fakeGitHub(t, []byte("new"), "", true))
+
+	_, _, err := runCLI(t, home, "update", "svc")
+	if err == nil || !strings.Contains(err.Error(), "--force") {
+		t.Fatalf("err = %v; want it to ask for --force", err)
+	}
+	stdout, _, err := runCLI(t, home, "update", "svc", "--force")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, bin); got != "new" {
+		t.Errorf("binary = %q", got)
+	}
+	if _, err := os.Stat(bin + ".previous"); !os.IsNotExist(err) {
+		t.Errorf("a .previous was made from no binary: %v", err)
+	}
+	if strings.Contains(stdout, "previous binary is kept") {
+		t.Errorf("stdout = %q", stdout)
+	}
+}
+
+func TestKeepPrevious(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "svc")
+	if err := os.WriteFile(bin, []byte("v1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prev := bin + ".previous"
+	if err := os.WriteFile(prev, []byte("v0"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := keepPrevious(bin, prev); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, prev); got != "v1" {
+		t.Errorf("previous = %q; want the current binary", got)
+	}
+}
+
+// Where hard links aren't possible the previous binary is copied instead.
+func TestKeepPrevious_CopiesWithoutLinks(t *testing.T) {
+	prev := linkFile
+	linkFile = func(string, string) error { return &os.LinkError{Op: "link", Err: os.ErrPermission} }
+	t.Cleanup(func() { linkFile = prev })
+
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "svc")
+	if err := os.WriteFile(bin, []byte("v1"), 0o751); err != nil {
+		t.Fatal(err)
+	}
+	if err := keepPrevious(bin, bin+".previous"); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, bin+".previous"); got != "v1" {
+		t.Errorf("previous = %q", got)
+	}
+	if fi, err := os.Stat(bin + ".previous"); err != nil || fi.Mode().Perm() != 0o751 {
+		t.Errorf("mode = %v, %v; want 0751", fi.Mode().Perm(), err)
+	}
+}

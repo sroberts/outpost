@@ -119,7 +119,7 @@ func (a *app) cmdUpdate(args []string) error {
 	newer := ordered && order > 0 && *to == ""
 	if *check {
 		switch {
-		case svc.Release == rel.Tag:
+		case sameRelease(svc.Release, rel.Tag):
 			fmt.Fprintf(a.out, "%s is up to date (%s from %s)\n", name, rel.Tag, repo)
 			return nil
 		case newer:
@@ -137,7 +137,7 @@ func (a *app) cmdUpdate(args []string) error {
 		fmt.Fprintf(a.out, "Install it with `outpost update %s`.\n", hint)
 		return nil
 	}
-	if svc.Release == rel.Tag && !*force {
+	if sameRelease(svc.Release, rel.Tag) && !*force {
 		fmt.Fprintf(a.out, "%s is already at %s (use --force to reinstall it)\n", name, rel.Tag)
 		return nil
 	}
@@ -163,6 +163,13 @@ func (a *app) cmdUpdate(args []string) error {
 	if !a.ownsBinary(svc.Binary) {
 		return fmt.Errorf("%s runs %s, which is outside %s; update only replaces binaries `outpost add` installed",
 			name, svc.Binary, filepath.Join(a.home, "bin"))
+	}
+
+	_, statErr := os.Stat(svc.Binary)
+	noBinary := os.IsNotExist(statErr)
+	if noBinary && !*force {
+		return fmt.Errorf("%s is missing, so there is nothing to roll back to if %s fails; "+
+			"`outpost update %s --force` installs it anyway", svc.Binary, rel.Tag, name)
 	}
 
 	desc, err := client.Descriptor(ctx, repo, rel)
@@ -226,18 +233,22 @@ func (a *app) cmdUpdate(args []string) error {
 		}
 	}
 
-	// A hard link keeps the running binary's file as it is, under a second
-	// name, at no cost; Install then renames the new one over the first name.
-	previous := svc.Binary + ".previous"
-	_ = os.Remove(previous) // only the latest previous is kept
-	if err := os.Link(svc.Binary, previous); err != nil {
-		return fmt.Errorf("keep %s to roll back to: %w", svc.Binary, err)
+	// With no binary there is nothing to roll back to, and --force has said
+	// to install anyway: it is how a deleted binary gets put back.
+	previous := ""
+	if !noBinary {
+		previous = svc.Binary + ".previous"
+		if err := keepPrevious(svc.Binary, previous); err != nil {
+			return fmt.Errorf("keep %s to roll back to: %w", svc.Binary, err)
+		}
 	}
 
 	fmt.Fprintf(a.err, "downloading %s from release %s…\n", asset.Name, rel.Tag)
 	res, err := client.Install(ctx, rel, asset, svc.Binary)
 	if err != nil {
-		_ = os.Remove(previous) // the binary was never replaced
+		if previous != "" {
+			_ = os.Remove(previous) // the binary was never replaced
+		}
 		return err
 	}
 	if res.Warning != "" {
@@ -289,7 +300,53 @@ func (a *app) cmdUpdate(args []string) error {
 		return back(true, fmt.Errorf("%s %s did not come up healthy: %w", name, rel.Tag, err))
 	}
 	fmt.Fprintf(a.out, "%s is running %s and healthy (was %s)\n", name, rel.Tag, installed)
-	fmt.Fprintf(a.out, "The previous binary is kept at %s.\n", previous)
+	if previous != "" {
+		fmt.Fprintf(a.out, "The previous binary is kept at %s.\n", previous)
+	}
+	return nil
+}
+
+// sameRelease reports whether two tags name the same release: identical, or
+// differing only in a leading v, as 1.2.0 and v1.2.0 do. Build metadata still
+// counts, since two builds of one version are not the same binary.
+func sameRelease(a, b string) bool {
+	trim := func(s string) string { return strings.TrimPrefix(strings.TrimPrefix(s, "v"), "V") }
+	return a != "" && trim(a) == trim(b)
+}
+
+// linkFile is os.Link, a variable so tests can make links fail.
+var linkFile = os.Link
+
+// keepPrevious keeps the binary under a second name to roll back to. A hard
+// link does it at no cost, and Install then renames the new binary over the
+// first name; where links aren't possible, a copy does the same.
+func keepPrevious(binary, previous string) error {
+	_ = os.Remove(previous) // only the latest previous is kept
+	if err := linkFile(binary, previous); err == nil {
+		return nil
+	}
+	src, err := os.Open(binary)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = src.Close() }() // read-only; nothing to lose
+	fi, err := src.Stat()
+	if err != nil {
+		return err
+	}
+	dst, err := os.OpenFile(previous, os.O_CREATE|os.O_EXCL|os.O_WRONLY, fi.Mode().Perm())
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(dst, src); err != nil {
+		_ = dst.Close() // the copy error is the one worth reporting
+		_ = os.Remove(previous)
+		return err
+	}
+	if err := dst.Close(); err != nil {
+		_ = os.Remove(previous) // a short copy is no use to roll back to
+		return err
+	}
 	return nil
 }
 
@@ -309,6 +366,10 @@ func releaseError(err error) error {
 // restarts the service on them if it was running, and returns why the update
 // failed.
 func (a *app) rollback(c *ipc.Client, svc *manifest.Service, path string, original []byte, previous string, restart bool, timeout time.Duration, cause error) error {
+	if previous == "" {
+		// The manifest stays as it is too, so it names what is on disk.
+		return fmt.Errorf("%w; there was no previous binary to roll back to, so the new one is left in place", cause)
+	}
 	var problems []string
 	if err := os.Rename(previous, svc.Binary); err != nil {
 		problems = append(problems, fmt.Sprintf("restore %s: %v", svc.Binary, err))
@@ -450,7 +511,7 @@ func latestColumn(ctx context.Context, client *acquire.Client, svc *manifest.Ser
 		return none.Tag + " (nothing attached yet; its build may still be uploading)"
 	case err != nil:
 		return "error: " + err.Error()
-	case rel.Tag == svc.Release:
+	case sameRelease(svc.Release, rel.Tag):
 		return rel.Tag + " (up to date)"
 	}
 	if c, ok := compareReleases(svc.Release, rel.Tag); ok && c > 0 {
