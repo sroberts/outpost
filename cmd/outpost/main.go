@@ -28,6 +28,8 @@ Commands:
   serve [--tailnet=BOOL]   run the daemon (reconcile loop + control socket)
   add <service> --binary   declare a new service from a local binary
   add <github-url>         install a service from its latest GitHub release
+  update <service>         install a newer release of it, rolling back if the
+                           new one fails its healthcheck (--check, --to TAG)
   remove <service>         undeclare a service (--purge deletes its data)
   apply                    validate manifests and reconcile
   list                     table of services and their status
@@ -151,6 +153,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return a.cmdRestore(cmdArgs)
 	case "add":
 		return a.cmdAdd(cmdArgs)
+	case "update":
+		return a.cmdUpdate(cmdArgs)
 	case "remove", "rm":
 		return a.cmdRemove(cmdArgs)
 	case "tui":

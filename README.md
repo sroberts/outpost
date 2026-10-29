@@ -116,6 +116,63 @@ outpost remove plumbline --purge    # delete its storage and backups too
 A running daemon stops a removed service on its next reconcile, because it is no
 longer declared. `--purge` asks for confirmation unless given `--yes`.
 
+## Updating a service
+
+`outpost add <github-url>` records where the binary came from, as `source` and
+`release` in the manifest, and `outpost update` installs a later release from
+there:
+
+```sh
+outpost update --check                 # every service: what is installed, what is latest
+outpost update plumbline --check       # one service; changes nothing
+outpost update plumbline               # install the latest release
+outpost update plumbline --to v1.4.0   # a particular release, which is also how to go back
+```
+
+An update:
+
+1. backs up the service's storage, because a new release may migrate its data
+   on first start (`--no-backup` skips it);
+2. downloads and verifies the release exactly as `add` does, keeping the binary
+   it replaces as `<binary>.previous`;
+3. records the new `release` in the manifest, changing only that line;
+4. restarts the service and waits for its healthcheck to pass twice in a row,
+   for up to 30 seconds plus `start_grace_seconds` (or `--wait`).
+
+**If the new release does not come up healthy, the old binary and manifest are
+put back** and the service is restarted on them. Data is not rolled back: if
+the new release changed it before failing, `outpost restore` puts back the
+backup from step 1.
+
+Update never goes back to an older release unless you name it with `--to`.
+GitHub's "latest" skips prereleases, so after `--to v2.0.0-rc1` the latest is
+older than what is installed; `outpost update` says so and changes nothing.
+Tags are compared as semantic versions, with or without a leading `v`, so
+`1.2.0` and `v1.2.0` are the same release.
+
+If the binary has gone missing there is nothing to roll back to, so update asks
+for `--force`, and with it puts the binary back from the release.
+
+Only the binary changes. Args, env and the rest of the manifest are yours by
+now, so if a release's `outpost.toml` asks for something new, compare it with
+`outpost add <url> --print` and edit the manifest yourself. Update only ever
+replaces a binary under `~/.outpost/bin/`, never one declared with `--binary`
+from somewhere else. A service you stopped gets the new binary and stays
+stopped; one the supervisor halted after a crash loop is restarted, since an
+update is a likely fix. With no daemon running, the binary and manifest are
+updated and nothing is restarted, backed up or checked.
+
+A service added before Outpost recorded sources, or whose binary you put in
+`~/.outpost/bin/` yourself, has no `source`. Name it once and it is recorded:
+
+```sh
+outpost update yarr --from github.com/sroberts/yarr
+```
+
+A release that has just been published may not have its binaries attached
+yet, while its build uploads them; update says so and changes nothing. Nothing
+updates on its own: automatic updates remain out of scope (spec.md §1).
+
 ## The service contract
 
 Outpost does not care what a service does internally. It requires that the
@@ -145,6 +202,8 @@ runtime        = "process"          # "process" | "container"
 binary         = "/opt/outpost/bin/plumbline"
 args           = ["serve", "--port", "8081"]
 env            = { LOG_LEVEL = "info" }
+source         = "sroberts/plumbline"          # written by `outpost add <url>`
+release        = "v1.3.0"                      # rewritten by `outpost update`
 
 # runtime = "container" — not implemented yet, rejected at apply time
 # image          = "koreader/kosync:latest"
@@ -174,6 +233,8 @@ start_grace_seconds = 30
 | `backoff_seconds` | `5` | Doubles per consecutive restart, capped at 300s |
 | `start_grace_seconds` | `30` | Healthcheck failures do not count during this window |
 | `funnel` | `false` | `true` is rejected — deferred, not designed out |
+| `source` | — | GitHub `owner/repo` the binary came from; what `outpost update` fetches |
+| `release` | — | Release tag installed. Neither field changes what runs, so editing them restarts nothing |
 
 `outpost apply` validates the whole set and fails loudly rather than
 half-applying. It checks for duplicate names, ports and Tailscale names,
@@ -213,6 +274,8 @@ The grace covers slow healthchecks, not a process that exits.
 outpost serve [--tailnet=BOOL]   run the daemon (reconcile loop + control socket)
 outpost add <name> --binary ...  declare a new service from a local binary
 outpost add <github-url>         install from the latest GitHub release
+outpost update <service>         install a newer release, rolling back if it fails
+                                 its healthcheck (--check, --to TAG, --from REPO)
 outpost remove <name> [--purge]  undeclare a service, optionally deleting its data
 outpost apply                    validate manifests and reconcile
 outpost list                     table of services and their status
@@ -713,7 +776,12 @@ updated_at)`. This adds `desired` (your start/stop intent), `restart_epoch` (how
 `outpost restart` reaches the daemon) and `halted` (whether the supervisor has
 given up). They are load-bearing, not incidental.
 
-**The CLI differs from spec §12.** Added: `serve`, `add`, `remove`,
+**The manifest has `source` and `release`.** Not in spec §5. `outpost add`
+writes them when it installs from a release, and `outpost update` reads them.
+Neither affects what runs. Updating stays a command you run; spec §1's
+deferral of automatic updates still stands.
+
+**The CLI differs from spec §12.** Added: `serve`, `add`, `update`, `remove`,
 `install`, `uninstall`, `config`, `version`, `user`, `auth`, `gateway`,
 `--home` / `$OUTPOST_HOME`, `logs --events`, `backup --list`,
 `backup --schedule`, `--tailnet`. `restore` takes the timestamp as optional,

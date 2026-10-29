@@ -381,6 +381,12 @@ A service conforms when all of these are true.
 - [ ] Hard-codes no hostname; uses relative URLs, or `Host` and `X-Forwarded-*`
 - [ ] Serves nothing under `/.outpost/` and sets no cookie named `outpost` or `__Host-outpost`
 
+**Updates** (when installed from a release, §14)
+- [ ] Every release has its binaries attached by the time it is published
+- [ ] Asset names keep the same shape from one release to the next
+- [ ] Data migrations finish before the healthcheck passes, and a failed one exits non-zero
+- [ ] A new release still accepts the args and env an earlier `outpost.toml` declared
+
 **Logging**
 - [ ] Logs to stdout and stderr only
 - [ ] Does not buffer log output for long periods
@@ -663,9 +669,36 @@ Every field is optional, and an operator's explicit flag always wins over what
 you declare here — `--healthcheck /ready` overrides your `healthcheck`. What
 you put here are defaults, not requirements.
 
+### Updates
+
+`outpost add` records your repository and the release it installed, and
+`outpost update <service>` later installs a newer release the same way: it
+picks your asset by the same rules, verifies it against the same checksums,
+replaces the binary, restarts you, and puts the old binary back if you do not
+pass your healthcheck. Four things follow for you:
+
+- **Attach the binaries before the release is published.** Update takes the
+  latest release, and one with nothing attached yet is refused until it has
+  something. Create it as a draft and publish once the uploads are done, or
+  upload in the same workflow step that creates it.
+- **Keep asset names the same shape.** Update chooses your asset by the same
+  rules as `add`, so a renaming those rules cannot place breaks every
+  operator's next update.
+- **Migrate data before you report healthy, and exit non-zero if it fails.**
+  The operator's storage is backed up just before the update, and a release
+  that never passes its healthcheck is rolled back. But only the binary goes
+  back, so a migration that succeeds and then leaves you unhealthy hands the
+  previous release data it may not read. Fail before you change anything if
+  you can.
+- **Stay compatible with your old `outpost.toml`.** An update replaces only the
+  binary; the manifest keeps the args and env your descriptor declared when the
+  service was first added. Changing them in a later release reaches new
+  installs, not existing ones, so keep accepting the old ones (or say in your
+  release notes what operators should edit).
+
 ### What this does not do
 
-Upgrades are not handled: `outpost add` on a service that already exists
-refuses unless given `--force`. Private repositories work if the operator has
-the `gh` CLI authenticated, or `GITHUB_TOKEN` set; Outpost stores no
-credentials of its own.
+Adding a service that already exists refuses unless given `--force`; to move
+an installed service to a newer release, use `outpost update`. Private
+repositories work if the operator has the `gh` CLI authenticated, or
+`GITHUB_TOKEN` set; Outpost stores no credentials of its own.
