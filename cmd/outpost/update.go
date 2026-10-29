@@ -116,7 +116,11 @@ func (a *app) cmdUpdate(args []string) error {
 			return nil
 		}
 		fmt.Fprintf(a.out, "%s: %s installed, %s available from %s\n", name, installed, rel.Tag, repo)
-		fmt.Fprintf(a.out, "Install it with `outpost update %s`.\n", name)
+		hint := name
+		if svc.Source == "" {
+			hint += " --from " + repo.String() // not recorded until an update succeeds
+		}
+		fmt.Fprintf(a.out, "Install it with `outpost update %s`.\n", hint)
 		return nil
 	}
 	if svc.Release == rel.Tag && !*force {

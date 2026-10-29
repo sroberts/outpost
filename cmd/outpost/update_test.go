@@ -434,3 +434,19 @@ func TestUpdate_ReleaseWithoutThisPlatformChangesNothing(t *testing.T) {
 		t.Error("a release with nothing for this platform changed something")
 	}
 }
+
+// Until an update succeeds the source is not recorded, so the suggested
+// command has to carry it.
+func TestUpdate_CheckWithFromSuggestsACommandThatWorks(t *testing.T) {
+	home := t.TempDir()
+	declareInstalled(t, home, "svc", []byte("old"), freePort(t), "")
+	useFakeGitHub(t, fakeGitHub(t, []byte("new"), "", true))
+
+	stdout, _, err := runCLI(t, home, "update", "svc", "--check", "--from", "o/r")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "`outpost update svc --from o/r`") {
+		t.Errorf("stdout = %q", stdout)
+	}
+}
