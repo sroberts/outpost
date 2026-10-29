@@ -144,6 +144,11 @@ put back** and the service is restarted on them. Data is not rolled back: if
 the new release changed it before failing, `outpost restore` puts back the
 backup from step 1.
 
+Update never goes back to an older release unless you name it with `--to`.
+GitHub's "latest" skips prereleases, so after `--to v2.0.0-rc1` the latest is
+older than what is installed; `outpost update` says so and changes nothing.
+Tags are compared as semantic versions, with or without a leading `v`.
+
 Only the binary changes. Args, env and the rest of the manifest are yours by
 now, so if a release's `outpost.toml` asks for something new, compare it with
 `outpost add <url> --print` and edit the manifest yourself. Update only ever

@@ -11,9 +11,12 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
+	"syscall"
 	"text/tabwriter"
 	"time"
 
+	"github.com/BurntSushi/toml"
 	"github.com/sroberts/outpost/internal/acquire"
 	"github.com/sroberts/outpost/internal/ipc"
 	"github.com/sroberts/outpost/internal/manifest"
@@ -42,6 +45,9 @@ func (a *app) cmdUpdate(args []string) error {
 	positional, err := parseOptionalService(fs, "update", args)
 	if err != nil {
 		return err
+	}
+	if *wait < 0 {
+		return fmt.Errorf("update: --wait must not be negative")
 	}
 	switch {
 	case len(positional) > 1:
@@ -100,19 +106,26 @@ func (a *app) cmdUpdate(args []string) error {
 	} else {
 		rel, err = client.LatestRelease(ctx, repo)
 	}
-	var none *acquire.NoAssetsError
-	if errors.As(err, &none) {
-		return fmt.Errorf("release %s of %s has nothing attached to install yet; if it was just published, "+
-			"its build may still be uploading. Try again later, or `--to` an earlier release", none.Tag, none.Repo)
-	}
 	if err != nil {
-		return err
+		return releaseError(err)
 	}
 
 	installed := orDash(svc.Release)
+	// The latest release can be older than the installed one: GitHub's latest
+	// skips prereleases, so after `--to v2.0.0-rc1` it names v1.9.0. Going
+	// back takes asking for it by tag, since a new release may have migrated
+	// data the old one can't read.
+	newer := false
+	if c, ok := compareReleases(svc.Release, rel.Tag); ok && c > 0 && *to == "" {
+		newer = true
+	}
 	if *check {
-		if svc.Release == rel.Tag {
+		switch {
+		case svc.Release == rel.Tag:
 			fmt.Fprintf(a.out, "%s is up to date (%s from %s)\n", name, rel.Tag, repo)
+			return nil
+		case newer:
+			fmt.Fprintf(a.out, "%s is at %s, newer than %s's latest release, %s\n", name, svc.Release, repo, rel.Tag)
 			return nil
 		}
 		fmt.Fprintf(a.out, "%s: %s installed, %s available from %s\n", name, installed, rel.Tag, repo)
@@ -126,6 +139,22 @@ func (a *app) cmdUpdate(args []string) error {
 	if svc.Release == rel.Tag && !*force {
 		fmt.Fprintf(a.out, "%s is already at %s (use --force to reinstall it)\n", name, rel.Tag)
 		return nil
+	}
+	if newer {
+		fmt.Fprintf(a.out, "%s is at %s, newer than %s's latest release, %s; nothing to update.\n"+
+			"To go back to it, `outpost update %s --to %s`.\n", name, svc.Release, repo, rel.Tag, name, rel.Tag)
+		return nil
+	}
+	if c, ok := compareReleases(svc.Release, rel.Tag); ok && c > 0 {
+		fmt.Fprintf(a.err, "outpost: going back from %s to %s; if %s changed its data, %s may not read it\n",
+			svc.Release, rel.Tag, svc.Release, rel.Tag)
+	}
+
+	// Check the manifest edit before anything changes, so one this can't make
+	// cleanly stops the update rather than its rollback.
+	updated := setRelease(original, repo.String(), rel.Tag)
+	if err := checkRecorded(updated, repo.String(), rel.Tag); err != nil {
+		return fmt.Errorf("%s: can't record the new release: %w; nothing was changed", path, err)
 	}
 
 	// Replacing a binary Outpost did not put there could mean overwriting
@@ -153,16 +182,22 @@ func (a *app) cmdUpdate(args []string) error {
 		return err
 	}
 
+	// Two updates of one service at once would each keep the other's binary
+	// as the one to roll back to.
+	unlock, err := lockUpdate(svc.Binary)
+	if err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	defer unlock()
+
 	c := a.client()
 	daemon := c.Available()
-	var before string
 	running := false
 	if daemon {
 		st, err := c.Status(name)
 		if err != nil {
 			return err
 		}
-		before = st.InstanceID
 		// Halted or backing off counts: a crash loop is a reason to update,
 		// and the restart below clears the halt.
 		running = st.Desired != state.DesiredStopped
@@ -207,8 +242,11 @@ func (a *app) cmdUpdate(args []string) error {
 	}
 	fmt.Fprintf(a.out, "installed %s %s (%s)\n", repo, rel.Tag, verified)
 
-	if err := replaceFile(path, setRelease(original, repo.String(), rel.Tag)); err != nil {
-		return a.rollback(c, svc, path, original, previous, "", fmt.Errorf("record the release in %s: %w", path, err))
+	back := func(restart bool, cause error) error {
+		return a.rollback(c, svc, path, original, previous, restart, cause)
+	}
+	if err := replaceFile(path, updated); err != nil {
+		return back(running, fmt.Errorf("record the release in %s: %w", path, err))
 	}
 
 	switch {
@@ -217,36 +255,53 @@ func (a *app) cmdUpdate(args []string) error {
 		return nil
 	case !running:
 		if _, err := c.Apply(); err != nil {
-			return err
+			return back(false, err)
 		}
 		fmt.Fprintf(a.out, "\n%s is not running; it runs %s when started.\n", name, rel.Tag)
 		return nil
 	}
 
 	if _, err := c.Apply(); err != nil {
-		return a.rollback(c, svc, path, original, previous, "", err)
+		return back(true, err)
+	}
+	// The instance to wait past is the one running now: the backup above
+	// stopped and restarted the service, so any earlier one is long gone.
+	before, err := c.Status(name)
+	if err != nil {
+		return back(true, err)
 	}
 	if _, err := c.Restart(name); err != nil {
-		return a.rollback(c, svc, path, original, previous, "", err)
+		return back(true, err)
 	}
 	timeout := *wait
 	if timeout == 0 {
 		timeout = 30*time.Second + time.Duration(svc.StartGraceSeconds)*time.Second
 	}
 	fmt.Fprintf(a.err, "waiting for %s to pass its healthcheck…\n", name)
-	id, err := waitHealthy(c, svc, before, timeout)
-	if err != nil {
-		return a.rollback(c, svc, path, original, previous, id,
-			fmt.Errorf("%s %s did not come up healthy: %w", name, rel.Tag, err))
+	if _, err := waitHealthy(c, svc, before.InstanceID, timeout); err != nil {
+		return back(true, fmt.Errorf("%s %s did not come up healthy: %w", name, rel.Tag, err))
 	}
 	fmt.Fprintf(a.out, "%s is running %s and healthy (was %s)\n", name, rel.Tag, installed)
 	fmt.Fprintf(a.out, "The previous binary is kept at %s.\n", previous)
 	return nil
 }
 
+// releaseError rewords a release with nothing attached: for an update that
+// usually means its build is still uploading, not that the project publishes
+// no binaries.
+func releaseError(err error) error {
+	var none *acquire.NoAssetsError
+	if errors.As(err, &none) {
+		return fmt.Errorf("release %s of %s has nothing attached to install yet; if it was just published, "+
+			"its build may still be uploading. Try again later, or `--to` an earlier release", none.Tag, none.Repo)
+	}
+	return err
+}
+
 // rollback puts the previous binary and manifest back after a failed update,
-// restarts the service on them, and returns why the update failed.
-func (a *app) rollback(c *ipc.Client, svc *manifest.Service, path string, original []byte, previous, failedID string, cause error) error {
+// restarts the service on them if it was running, and returns why the update
+// failed.
+func (a *app) rollback(c *ipc.Client, svc *manifest.Service, path string, original []byte, previous string, restart bool, cause error) error {
 	var problems []string
 	if err := os.Rename(previous, svc.Binary); err != nil {
 		problems = append(problems, fmt.Sprintf("restore %s: %v", svc.Binary, err))
@@ -263,25 +318,38 @@ func (a *app) rollback(c *ipc.Client, svc *manifest.Service, path string, origin
 	if _, err := c.Apply(); err != nil {
 		return fmt.Errorf("%w; rolled back the files, but the daemon would not reload them: %v", cause, err)
 	}
+	if !restart {
+		return fmt.Errorf("%w; rolled back to %s", cause, orDash(svc.Release))
+	}
+	// Whatever is running now may be the failed release, so only an instance
+	// started after this point is the rolled-back one.
+	st, err := c.Status(svc.Name)
+	if err != nil {
+		return fmt.Errorf("%w; rolled back the files, but the daemon did not answer: %v", cause, err)
+	}
 	if _, err := c.Restart(svc.Name); err != nil {
 		return fmt.Errorf("%w; rolled back the files, but restarting failed: %v", cause, err)
 	}
-	if _, err := waitHealthy(c, svc, failedID, 30*time.Second+time.Duration(svc.StartGraceSeconds)*time.Second); err != nil {
+	if _, err := waitHealthy(c, svc, st.InstanceID, 30*time.Second+time.Duration(svc.StartGraceSeconds)*time.Second); err != nil {
 		return fmt.Errorf("%w; rolled back to %s, which is not healthy either: %v", cause, orDash(svc.Release), err)
 	}
 	return fmt.Errorf("%w; rolled back to %s, which is running and healthy", cause, orDash(svc.Release))
 }
 
+// maxUpdateRestarts is how many times a new release may be restarted while
+// waitHealthy watches before it counts as crash-looping. One is allowed: the
+// daemon can restart a slow starter on its own.
+const maxUpdateRestarts = 2
+
 // waitHealthy waits for an instance other than before to pass the service's
 // healthcheck twice in a row, the same probe the daemon makes. It returns the
-// newest instance it saw, healthy or not, so a rollback can tell its own
-// restart from the failed one.
+// newest instance it saw, healthy or not.
 func waitHealthy(c *ipc.Client, svc *manifest.Service, before string, timeout time.Duration) (string, error) {
 	url := fmt.Sprintf("http://127.0.0.1:%d%s", svc.Port, svc.Healthcheck)
 	probe := &http.Client{Timeout: 2 * time.Second}
 	deadline := time.Now().Add(timeout)
 	var id string
-	passes := 0
+	passes, restarts := 0, 0
 	last := errors.New("it did not start")
 	for time.Now().Before(deadline) {
 		time.Sleep(updatePoll)
@@ -294,8 +362,12 @@ func waitHealthy(c *ipc.Client, svc *manifest.Service, before string, timeout ti
 			continue
 		}
 		if id != "" && st.InstanceID != id {
-			// Passing once and then dying is not healthy.
-			return st.InstanceID, fmt.Errorf("it exited and was restarted")
+			// Both passes have to come from one instance: passing once and
+			// then dying is not healthy.
+			if restarts++; restarts >= maxUpdateRestarts {
+				return st.InstanceID, fmt.Errorf("it kept exiting and was restarted %d times", restarts)
+			}
+			passes = 0
 		}
 		id = st.InstanceID
 
@@ -328,30 +400,54 @@ func (a *app) checkAll() error {
 	defer cancel()
 	client := acquireClient()
 
-	tw := tabwriter.NewWriter(a.out, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "SERVICE\tSOURCE\tINSTALLED\tLATEST")
-	for _, svc := range services {
+	// One slow lookup shouldn't use up the others' time, so they run a few
+	// at a time and print in manifest order.
+	latest := make([]string, len(services))
+	sem := make(chan struct{}, 4)
+	var wg sync.WaitGroup
+	for i, svc := range services {
 		if svc.Source == "" {
-			fmt.Fprintf(tw, "%s\t-\t-\tnot installed from a release\n", svc.Name)
+			latest[i] = "not installed from a release"
 			continue
 		}
-		latest := ""
-		repo, err := acquire.ParseRepo(svc.Source)
-		if err == nil {
-			var rel *acquire.Release
-			if rel, err = client.LatestRelease(ctx, repo); err == nil {
-				latest = rel.Tag
-				if rel.Tag == svc.Release {
-					latest += " (up to date)"
-				}
-			}
-		}
-		if err != nil {
-			latest = "error: " + err.Error()
-		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", svc.Name, svc.Source, orDash(svc.Release), latest)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			latest[i] = latestColumn(ctx, client, svc)
+		}()
+	}
+	wg.Wait()
+
+	tw := tabwriter.NewWriter(a.out, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "SERVICE\tSOURCE\tINSTALLED\tLATEST")
+	for i, svc := range services {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", svc.Name, orDash(svc.Source), orDash(svc.Release), latest[i])
 	}
 	return tw.Flush()
+}
+
+// latestColumn is what checkAll says about one service's latest release.
+func latestColumn(ctx context.Context, client *acquire.Client, svc *manifest.Service) string {
+	repo, err := acquire.ParseRepo(svc.Source)
+	if err != nil {
+		return "error: " + err.Error()
+	}
+	rel, err := client.LatestRelease(ctx, repo)
+	var none *acquire.NoAssetsError
+	switch {
+	case errors.As(err, &none):
+		return none.Tag + " (nothing attached yet; its build may still be uploading)"
+	case err != nil:
+		return "error: " + err.Error()
+	case rel.Tag == svc.Release:
+		return rel.Tag + " (up to date)"
+	}
+	if c, ok := compareReleases(svc.Release, rel.Tag); ok && c > 0 {
+		return rel.Tag + " (older than installed)"
+	}
+	return rel.Tag
 }
 
 // ownsBinary reports whether path is inside the directory `outpost add`
@@ -369,8 +465,38 @@ func (a *app) ownsBinary(path string) bool {
 	return err == nil && rel != "." && !strings.HasPrefix(rel, "..") && !filepath.IsAbs(rel)
 }
 
-// topLevelKey matches a key at the top of a manifest, before any [table].
-var topLevelKey = regexp.MustCompile(`^\s*(source|release)\s*=`)
+// topLevelKey matches a source or release key, bare or quoted, and captures
+// what follows the =.
+var topLevelKey = regexp.MustCompile(`^\s*(?:(source|release)|"(source|release)"|'(source|release)')\s*=(.*)$`)
+
+// trailingComment returns the comment after a string value, such as
+// `  # pinned` in `"v1"  # pinned`, or "" if there is none.
+func trailingComment(value string) string {
+	v := strings.TrimSpace(value)
+	end := -1
+	switch {
+	case strings.HasPrefix(v, `"`):
+		for i := 1; i < len(v); i++ {
+			if v[i] == '\\' {
+				i++
+			} else if v[i] == '"' {
+				end = i
+				break
+			}
+		}
+	case strings.HasPrefix(v, "'"):
+		if i := strings.IndexByte(v[1:], '\''); i >= 0 {
+			end = i + 1
+		}
+	}
+	if end < 0 {
+		return ""
+	}
+	if rest := strings.TrimSpace(v[end+1:]); strings.HasPrefix(rest, "#") {
+		return "  " + rest
+	}
+	return ""
+}
 
 // setRelease records source and release in a manifest, changing only those
 // lines so the operator's own edits and comments survive. A missing key goes
@@ -389,10 +515,11 @@ func setRelease(body []byte, source, release string) []byte {
 		}
 	}
 	for i := 0; i < end; i++ {
-		if m := topLevelKey.FindStringSubmatch(lines[i]); m != nil {
-			if v, ok := want[m[1]]; ok {
-				lines[i] = fmt.Sprintf("%-14s = %s\n", m[1], tomlString(v))
-				delete(want, m[1])
+		if m := topLevelKey.FindStringSubmatch(strings.TrimRight(lines[i], "\r\n")); m != nil {
+			key := m[1] + m[2] + m[3] // only one of them matched
+			if v, ok := want[key]; ok {
+				lines[i] = fmt.Sprintf("%-14s = %s%s\n", key, tomlString(v), trailingComment(m[4]))
+				delete(want, key)
 			}
 		}
 	}
@@ -409,11 +536,59 @@ func setRelease(body []byte, source, release string) []byte {
 	return []byte(strings.Join(out, ""))
 }
 
+// checkRecorded reports whether a rewritten manifest still parses and records
+// the given source and release, for a manifest setRelease can't edit cleanly,
+// such as one setting release in a multi-line string.
+func checkRecorded(body []byte, source, release string) error {
+	var got struct {
+		Source  string `toml:"source"`
+		Release string `toml:"release"`
+	}
+	if _, err := toml.Decode(string(body), &got); err != nil {
+		return err
+	}
+	if got.Source != source || got.Release != release {
+		return fmt.Errorf("the edit would record source %q and release %q", got.Source, got.Release)
+	}
+	return nil
+}
+
+// lockUpdate takes a lock beside a service's binary for the length of an
+// update. The lock is the kernel's, so a crashed update leaves none behind.
+func lockUpdate(binary string) (func(), error) {
+	f, err := os.OpenFile(filepath.Join(filepath.Dir(binary), "."+filepath.Base(binary)+".update-lock"),
+		os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		_ = f.Close() // the lock is the error that matters
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, errors.New("another update of it is already running")
+		}
+		return nil, fmt.Errorf("lock for update: %w", err)
+	}
+	return func() { _ = f.Close() }, nil // closing releases the lock
+}
+
 // replaceFile writes body to path by way of a rename, so a crash cannot leave
-// a half-written manifest for the daemon to load.
+// a half-written manifest for the daemon to load. A symlinked manifest has its
+// target rewritten, so the link stays a link, and the file keeps its mode.
 func replaceFile(path string, body []byte) error {
+	if target, err := filepath.EvalSymlinks(path); err == nil {
+		path = target
+	}
+	mode := os.FileMode(0o600) // what manifests are written with
+	if fi, err := os.Stat(path); err == nil {
+		mode = fi.Mode().Perm()
+	}
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".outpost-manifest-*")
 	if err != nil {
+		return err
+	}
+	if err := tmp.Chmod(mode); err != nil {
+		_ = tmp.Close() // the chmod error is the one worth reporting
+		_ = os.Remove(tmp.Name())
 		return err
 	}
 	defer os.Remove(tmp.Name()) // a no-op once renamed
@@ -424,6 +599,5 @@ func replaceFile(path string, body []byte) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	// CreateTemp's 0600 is already what manifests are written with.
 	return os.Rename(tmp.Name(), path)
 }
