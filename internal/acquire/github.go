@@ -162,15 +162,53 @@ func (c *Client) LatestRelease(ctx context.Context, repo Repo) (*Release, error)
 	default:
 		return nil, fmt.Errorf("%s: GitHub returned %s", repo, resp.Status)
 	}
+	return decodeRelease(resp.Body, repo)
+}
 
+// ReleaseByTag returns the release with the given tag. Unlike LatestRelease it
+// takes a prerelease too: an operator who names a tag has chosen it.
+func (c *Client) ReleaseByTag(ctx context.Context, repo Repo, tag string) (*Release, error) {
+	url := fmt.Sprintf("%s/repos/%s/%s/releases/tags/%s",
+		strings.TrimSuffix(c.BaseURL, "/"), repo.Owner, repo.Name, neturl.PathEscape(tag))
+	resp, err := c.get(ctx, url, "application/vnd.github+json")
+	if err != nil {
+		return nil, fmt.Errorf("query release %s of %s: %w", tag, repo, err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+	case http.StatusNotFound:
+		return nil, fmt.Errorf("%s has no release tagged %q, or it is not visible with the credentials found", repo, tag)
+	case http.StatusUnauthorized, http.StatusForbidden:
+		return nil, fmt.Errorf("%s: GitHub refused the request (%s); the token may be expired or lack access", repo, resp.Status)
+	default:
+		return nil, fmt.Errorf("%s: GitHub returned %s", repo, resp.Status)
+	}
+	return decodeRelease(resp.Body, repo)
+}
+
+func decodeRelease(body io.Reader, repo Repo) (*Release, error) {
 	var rel Release
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&rel); err != nil {
+	if err := json.NewDecoder(io.LimitReader(body, 4<<20)).Decode(&rel); err != nil {
 		return nil, fmt.Errorf("decode release for %s: %w", repo, err)
 	}
 	if len(rel.Assets) == 0 {
-		return nil, fmt.Errorf("release %s of %s publishes no assets; build it yourself and use --binary", rel.Tag, repo)
+		return nil, &NoAssetsError{Repo: repo, Tag: rel.Tag}
 	}
 	return &rel, nil
+}
+
+// NoAssetsError is a release with nothing attached to install. For `add` that
+// usually means the project does not publish binaries; for an update it more
+// often means the release's build has not finished uploading them.
+type NoAssetsError struct {
+	Repo Repo
+	Tag  string
+}
+
+func (e *NoAssetsError) Error() string {
+	return fmt.Sprintf("release %s of %s publishes no assets; build it yourself and use --binary", e.Tag, e.Repo)
 }
 
 // Descriptor fetches the repository's outpost.toml.
@@ -216,4 +254,18 @@ func (c *Client) Descriptor(ctx context.Context, repo Repo, rel *Release) (*Desc
 		return nil, fmt.Errorf("read %s: %w", DescriptorName, err)
 	}
 	return ParseDescriptor(body)
+}
+
+// NoPlatformAssetError is a release with nothing built for this platform. For
+// `add` the fix is usually the descriptor's asset pattern; for an update it is
+// usually a build that failed for this platform alone.
+type NoPlatformAssetError struct {
+	Tag          string
+	GOOS, GOARCH string
+}
+
+func (e *NoPlatformAssetError) Error() string {
+	return fmt.Sprintf("release %s publishes no asset for %s/%s; "+
+		"name one with `asset = \"...${GOOS}-${GOARCH}\"` in %s, or use --binary",
+		e.Tag, e.GOOS, e.GOARCH, DescriptorName)
 }

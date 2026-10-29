@@ -152,6 +152,7 @@ func (a *app) addFromRepo(ref string, opts addOptions) error {
 	if err := a.validateAgainstExisting(svc, name); err != nil {
 		return err
 	}
+	svc.Source, svc.Release = repo.String(), rel.Tag
 
 	body := renderManifest(svc)
 	if opts.dryRun {

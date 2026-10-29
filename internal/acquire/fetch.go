@@ -104,9 +104,7 @@ func (c *Client) SelectAsset(rel *Release, d *Descriptor) (Asset, error) {
 	case 1:
 		return matches[0], nil
 	case 0:
-		return Asset{}, fmt.Errorf("release %s publishes no asset for %s/%s; "+
-			"name one with `asset = \"...${GOOS}-${GOARCH}\"` in %s, or use --binary",
-			rel.Tag, c.GOOS, c.GOARCH, DescriptorName)
+		return Asset{}, &NoPlatformAssetError{Tag: rel.Tag, GOOS: c.GOOS, GOARCH: c.GOARCH}
 	}
 
 	// Releases routinely ship variants beside the plain build -- a _gui, a

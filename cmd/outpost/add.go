@@ -307,6 +307,12 @@ func renderManifest(s *manifest.Service) string {
 	fmt.Fprintf(&b, "name           = %s\n", tomlString(s.Name))
 	fmt.Fprintf(&b, "runtime        = %s\n", tomlString(s.Runtime))
 	fmt.Fprintf(&b, "binary         = %s\n", tomlString(s.Binary))
+	if s.Source != "" {
+		fmt.Fprintf(&b, "source         = %s\n", tomlString(s.Source))
+	}
+	if s.Release != "" {
+		fmt.Fprintf(&b, "release        = %s\n", tomlString(s.Release))
+	}
 	if len(s.Args) > 0 {
 		fmt.Fprintf(&b, "args           = %s\n", tomlStrings(s.Args))
 	}

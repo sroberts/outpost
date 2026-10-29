@@ -29,6 +29,11 @@ type Service struct {
 	// StartGraceSeconds is how long after a start the healthcheck may fail
 	// without counting against the service, for anything slow to bind its port.
 	StartGraceSeconds uint `toml:"start_grace_seconds"`
+	// Source and Release say where `outpost add` got the binary: a GitHub
+	// owner/repo and the release tag. `outpost update` reads them to know what
+	// to fetch. Neither affects what runs, so neither restarts the service.
+	Source  string `toml:"source"`
+	Release string `toml:"release"`
 
 	// root is the Outpost home that a relative storage path resolves against.
 	// Unexported so TOML cannot set it: it comes from where the manifest was
