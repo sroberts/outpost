@@ -21,8 +21,25 @@ type route struct {
 	Port   int
 	Status string
 	// Host is the service's own address on the tailnet, when it has one;
-	// the app is then served there rather than at <name>.<domain>.
+	// the app is then served there rather than at Addr.
 	Host string
+	// Addr is the host name the gateway serves the app at: the manifest's
+	// hostname, or <subdomain>.<domain> with the subdomain defaulting to
+	// the service name.
+	Addr string
+
+	// What the catalog shows and checks, from the manifest.
+	Title       string
+	Description string
+	Hidden      bool
+	Allow       []string
+	PublicPaths []string
+
+	// What the supervisor says, for explaining a service that isn't up.
+	Desired      string
+	Halted       bool
+	RestartCount int
+	NextAttempt  time.Time
 }
 
 type routeTable struct {
@@ -98,11 +115,36 @@ func (g *Gateway) refreshRoutes(ctx context.Context) {
 			}
 			continue
 		}
-		r := route{Name: s.Name, Port: s.Port, Status: s.Status}
+		r := route{
+			Name: s.Name, Port: s.Port, Status: s.Status,
+			Title: s.Title, Description: s.Description, Hidden: s.Hidden,
+			Allow: s.Allow, PublicPaths: s.PublicPaths,
+			Desired: s.Desired, Halted: s.Halted, RestartCount: s.RestartCount, NextAttempt: s.NextAttempt,
+		}
+		r.Addr = s.Hostname
+		if r.Addr == "" {
+			sub := s.Subdomain
+			if sub == "" {
+				sub = s.Name
+			}
+			r.Addr = sub + "." + g.domain
+		}
+		if other, taken := byHost[r.Addr]; taken {
+			// Validation catches two manifests naming one address, but not a
+			// hostname that happens to equal another app's subdomain address.
+			key := "addr:" + s.Name
+			if !g.routes.skipped[key] {
+				g.routes.skipped[key] = true
+				g.logf("gateway: %s and %s both want %s; only %s is served there", other, s.Name, r.Addr, other)
+			}
+			continue
+		}
+		byHost[r.Addr] = s.Name
 		if h := strings.ToLower(hosts[s.Name]); h != "" {
 			r.Host = h
 			byHost[h] = s.Name
 		}
+		g.warnUnknownAllow(s.Name, s.Allow)
 		byName[s.Name] = r
 		sorted = append(sorted, r)
 	}

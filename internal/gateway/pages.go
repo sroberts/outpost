@@ -2,23 +2,52 @@ package gateway
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"html/template"
 	"net/http"
+	"strings"
 )
 
-//go:embed templates/*.html static/portal.css
+//go:embed templates/*.html static/portal.css static/catalog.js static/lighthouse.webp
 var assets embed.FS
 
-const cssPath = "/.outpost/static/portal.css"
+const (
+	cssPath = "/.outpost/static/portal.css"
+	// jsPath is the catalog's filter, its only script. It's a file rather
+	// than inline because the pages' CSP allows scripts from 'self' only.
+	jsPath = "/.outpost/static/catalog.js"
+	// artPath is the lighthouse from the Outpost header, cropped, for the
+	// sign-in page.
+	artPath = "/.outpost/static/lighthouse.webp"
+)
 
 // pages are the portal's templates, each parsed with the shared layout.
 type pages map[string]*template.Template
 
+// assetURLs carry a hash of each file, so a browser holding an hour-old copy
+// from before an upgrade asks for the new one instead.
+var (
+	cssURL = versioned(cssPath, "static/portal.css")
+	jsURL  = versioned(jsPath, "static/catalog.js")
+	artURL = versioned(artPath, "static/lighthouse.webp")
+)
+
+func versioned(urlPath, file string) string {
+	body, err := assets.ReadFile(file)
+	if err != nil {
+		return urlPath
+	}
+	sum := sha256.Sum256(body)
+	return urlPath + "?v=" + hex.EncodeToString(sum[:6])
+}
+
 func loadPages() (pages, error) {
 	p := pages{}
-	for _, name := range []string{"login", "setup", "portal", "message"} {
-		t, err := template.ParseFS(assets, "templates/layout.html", "templates/"+name+".html")
+	for _, name := range []string{"login", "setup", "portal", "message", "account"} {
+		t, err := template.New(name).Funcs(template.FuncMap{"lower": strings.ToLower}).
+			ParseFS(assets, "templates/layout.html", "templates/"+name+".html")
 		if err != nil {
 			return nil, err
 		}
@@ -31,31 +60,40 @@ func loadPages() (pages, error) {
 type pageData struct {
 	Title    string
 	Error    string
+	Notice   string // a quiet confirmation, such as being signed out
 	App      string
+	AppTitle string
 	Next     string
 	Username string
 
 	Token       string
 	MinPassword int
 
-	Who   string
-	Admin bool
-	Apps  []appLink
+	Who      string
+	Admin    bool
+	Stations []station
+	Up, Down int
+	Search   bool
 
 	Message  string
 	Link     string
 	LinkText string
-}
+	// Station, on a message page about one app, draws it as it stands.
+	Station *station
 
-type appLink struct {
-	Name   string
-	URL    string
-	Status string
-	Up     bool
+	// Filled in by render for every page.
+	CSS, JS, Art string // the assets' versioned URLs
+	Portal       string // what the portal calls itself
+	Host         string // the portal's address, for reading
+	Home         string // the catalog's URL
 }
 
 // render writes a page with the headers every gateway page carries.
 func (g *Gateway) render(w http.ResponseWriter, r *http.Request, status int, name string, d pageData) {
+	d.CSS, d.JS, d.Art = cssURL, jsURL, artURL
+	d.Portal = g.cfg.PortalName()
+	d.Host = strings.TrimPrefix(strings.TrimPrefix(g.portalOrigin, "https://"), "http://")
+	d.Home = g.portalLink()
 	var buf bytes.Buffer
 	if err := g.pages[name].ExecuteTemplate(&buf, "layout", d); err != nil {
 		g.logf("gateway: render %s: %v", name, err)
@@ -91,6 +129,26 @@ func (g *Gateway) serveCSS(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/css; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	_, _ = w.Write(body) // a client that hung up has nothing to be told
+}
+
+func (g *Gateway) serveJS(w http.ResponseWriter, r *http.Request) {
+	g.serveAsset(w, r, "static/catalog.js", "text/javascript; charset=utf-8")
+}
+
+func (g *Gateway) serveArt(w http.ResponseWriter, r *http.Request) {
+	g.serveAsset(w, r, "static/lighthouse.webp", "image/webp")
+}
+
+func (g *Gateway) serveAsset(w http.ResponseWriter, _ *http.Request, file, contentType string) {
+	body, err := assets.ReadFile(file)
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", "public, max-age=3600")
 	_, _ = w.Write(body) // a client that hung up has nothing to be told

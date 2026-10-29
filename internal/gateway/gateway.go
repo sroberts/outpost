@@ -224,23 +224,19 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// appFor maps a host to its service: its tailnet address, or
-// <name>.<domain>, one label deep.
+// appFor maps a host to its service: its tailnet address, its hostname, or
+// <subdomain>.<domain>.
 func (g *Gateway) appFor(host string) (route, bool) {
-	if rt, ok := g.routes.forHost(host); ok {
-		return rt, true
-	}
-	name, ok := strings.CutSuffix(host, "."+g.domain)
-	if !ok || name == "" || strings.Contains(name, ".") {
-		return route{}, false
-	}
-	return g.routes.get(name)
+	return g.routes.forHost(host)
 }
 
 // appHost is the host name an app is served at.
 func (g *Gateway) appHost(name string) string {
-	if rt, ok := g.routes.get(name); ok && rt.Host != "" {
-		return rt.Host
+	if rt, ok := g.routes.get(name); ok {
+		if rt.Host != "" {
+			return rt.Host
+		}
+		return rt.Addr
 	}
 	return name + "." + g.domain
 }

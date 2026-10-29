@@ -8,11 +8,13 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"path"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/sroberts/outpost/internal/auth"
+	"github.com/sroberts/outpost/internal/manifest"
 )
 
 // reservedPrefix is the gateway's own corner of every app host.
@@ -31,8 +33,46 @@ func (g *Gateway) serveApp(w http.ResponseWriter, r *http.Request, rt route) {
 			http.NotFound(w, r)
 			return
 		}
+		if g.isPublic(r, rt) {
+			g.proxyPublic(w, r, rt)
+			return
+		}
 		g.proxyApp(w, r, rt)
 	}
+}
+
+// isPublic reports whether the request is for one of the app's public_paths.
+// Only a path already in its simplest form counts: "/webhook/../admin" names
+// /admin to the app, so it gets no exemption, and neither does an escaped
+// slash or backslash that the app might decode into one.
+func (g *Gateway) isPublic(r *http.Request, rt route) bool {
+	if len(rt.PublicPaths) == 0 {
+		return false
+	}
+	p := r.URL.Path
+	clean := path.Clean(p)
+	if strings.HasSuffix(p, "/") && clean != "/" {
+		clean += "/"
+	}
+	raw := strings.ToLower(r.URL.EscapedPath())
+	if clean != p || strings.Contains(raw, "%2f") || strings.Contains(raw, "%5c") || strings.Contains(p, "\\") {
+		return false
+	}
+	return manifest.MatchPublicPath(rt.PublicPaths, p)
+}
+
+// proxyPublic passes a request on with no identity at all: whatever the
+// client sent as X-Outpost-* is already gone, and the Outpost cookie goes
+// too, so the app can't mistake it for a signed-in one.
+func (g *Gateway) proxyPublic(w http.ResponseWriter, r *http.Request, rt route) {
+	removeCookie(r.Header, g.cookieName)
+	ctx := context.WithValue(r.Context(), targetKey{}, target{
+		name:   rt.Name,
+		port:   rt.Port,
+		host:   g.rawHost(r),
+		client: g.clientIP(r),
+	})
+	g.proxy.ServeHTTP(w, r.WithContext(ctx))
 }
 
 // callback trades a one-time code from the portal for a session on this
@@ -46,19 +86,28 @@ func (g *Gateway) callback(w http.ResponseWriter, r *http.Request, rt route) {
 	q := r.URL.Query()
 	next := safeNext(q.Get("next"))
 	again := g.loginURL(rt.Name, next)
+	// The portal sends someone still signed in straight on, so the way out
+	// of a stale link reads as continuing, not as signing in.
+	onward := "Continue to " + g.titleOf(rt.Name)
 
 	key := g.clientIP(r)
 	if d := g.codeThrottle.wait(g.now(), key); d > 0 {
 		g.message(w, r, http.StatusTooManyRequests, "Slow down",
 			fmt.Sprintf("Too many sign-in attempts from here. Try again in %d seconds.", int(d.Seconds()+0.999)),
-			again, "Sign in again")
+			again, onward)
 		return
 	}
 	p, ok := g.codes.redeem(q.Get("code"), rt.Name, g.now())
 	if !ok {
 		g.codeThrottle.fail(g.now(), key)
 		g.message(w, r, http.StatusBadRequest, "Sign-in link expired",
-			"This sign-in link has expired or was already used.", again, "Sign in again")
+			"This sign-in link has expired or was already used.", again, onward)
+		return
+	}
+	// The allow list may have changed in the minute since the code was
+	// minted.
+	if u, err := g.auth.GetUser(p.user); err == nil && !allowed(u, rt) {
+		g.denied(w, r, rt)
 		return
 	}
 	tok, err := g.auth.CreateSession(p.user, rt.Name, p.parent, r.UserAgent())
@@ -67,7 +116,7 @@ func (g *Gateway) callback(w http.ResponseWriter, r *http.Request, rt route) {
 		// in the minute since the code was minted.
 		g.logf("gateway: %s: callback for %s: %v", rt.Name, p.user, err)
 		g.message(w, r, http.StatusBadRequest, "Sign in again",
-			"Your sign-in ended before it reached this app.", again, "Sign in again")
+			"Your sign-in ended before it reached this app.", again, "Sign in")
 		return
 	}
 	if old, err := r.Cookie(g.cookieName); err == nil {
@@ -83,11 +132,12 @@ func (g *Gateway) callback(w http.ResponseWriter, r *http.Request, rt route) {
 func (g *Gateway) appLogout(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		g.message(w, r, http.StatusMethodNotAllowed, "Sign out from the button",
+			"Signing out takes a button, so a link elsewhere can't sign you out.", g.portalLink(), "Back to apps")
 		return
 	}
 	if !g.sameOrigin(r) {
-		http.Error(w, "cross-origin request refused", http.StatusForbidden)
+		g.crossOrigin(w, r)
 		return
 	}
 	if c, err := r.Cookie(g.cookieName); err == nil {
@@ -96,7 +146,7 @@ func (g *Gateway) appLogout(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	g.clearCookie(w)
-	http.Redirect(w, r, g.portalOrigin+"/login", http.StatusSeeOther)
+	http.Redirect(w, r, g.signedOutURL(), http.StatusSeeOther)
 }
 
 // proxyApp sends a logged-in request on to the service, saying who it's
@@ -109,10 +159,15 @@ func (g *Gateway) proxyApp(w http.ResponseWriter, r *http.Request, rt route) {
 			return
 		}
 		// A redirect would turn a POST into a GET and lose its body.
-		http.Error(w, "sign in at "+g.portalOrigin, http.StatusUnauthorized)
+		g.message(w, r, http.StatusUnauthorized, "Sign in first",
+			"This needs you to be signed in. Sign in, then try it again.", g.loginURL(rt.Name, "/"), "Sign in")
 		return
 	}
 	g.touch(tok, s)
+	if !allowed(u, rt) {
+		g.denied(w, r, rt)
+		return
+	}
 
 	idTok, err := g.identityToken(u, rt.Name)
 	if err != nil {
@@ -129,6 +184,7 @@ func (g *Gateway) proxyApp(w http.ResponseWriter, r *http.Request, rt route) {
 		port:   rt.Port,
 		host:   g.rawHost(r),
 		client: g.clientIP(r),
+		admin:  u.Admin,
 	})
 	g.proxy.ServeHTTP(w, r.WithContext(ctx))
 }
@@ -151,6 +207,9 @@ type target struct {
 	port   int
 	host   string // as the client asked for it, port included
 	client string
+	// admin is whether the caller may be told how to look closer if the
+	// app doesn't answer. The cookie is gone by then, so it's decided here.
+	admin bool
 }
 
 func (g *Gateway) newProxy() *httputil.ReverseProxy {
@@ -180,7 +239,31 @@ func (g *Gateway) newProxy() *httputil.ReverseProxy {
 				return // the client went away; nobody to tell
 			}
 			g.logf("gateway: %s: %v", t.name, err)
-			http.Error(w, t.name+" isn't responding right now. Try again in a moment.", http.StatusBadGateway)
+			g.unavailable(w, r, t.name, t.admin)
 		},
 	}
+}
+
+// unavailable is the page for an app the proxy couldn't reach. It says what
+// the supervisor knows, so a service that has stopped isn't described as
+// merely slow.
+func (g *Gateway) unavailable(w http.ResponseWriter, r *http.Request, name string, admin bool) {
+	title := g.titleOf(name)
+	d := pageData{
+		Title:    title + " is unavailable",
+		Message:  title + " didn't answer. It may be busy or starting; try again in a moment.",
+		Link:     g.portalLink(),
+		LinkText: "Back to apps",
+	}
+	if rt, ok := g.routes.get(name); ok {
+		if state, label, reason := g.describe(rt); state != stateUp {
+			d.Message = ""
+			st := station{Name: rt.Name, Title: title, State: state, Label: label, Reason: reason}
+			if admin {
+				st.Command = "outpost status " + rt.Name
+			}
+			d.Station = &st
+		}
+	}
+	g.render(w, r, http.StatusBadGateway, "message", d)
 }

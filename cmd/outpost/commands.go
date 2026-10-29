@@ -69,7 +69,7 @@ func (a *app) validateManifests() ([]*manifest.Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	opts := manifest.Options{RequireTailscale: a.config.TailscaleEnabled()}
+	opts := manifest.Options{RequireTailscale: a.config.TailscaleEnabled(), RequireDNSName: a.config.Gateway.Enabled}
 	if errs := manifest.ValidateWith(services, opts); len(errs) > 0 {
 		var b strings.Builder
 		fmt.Fprintf(&b, "%d manifest error(s):", len(errs))

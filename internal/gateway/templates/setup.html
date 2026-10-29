@@ -1,20 +1,27 @@
 {{define "body"}}
-<main class="narrow">
-<h1>Set up Outpost</h1>
-<p class="lede">Create the first admin. This link works once, until an admin exists or the daemon restarts.</p>
-{{if .Error}}<p class="error" role="alert">{{.Error}}</p>{{end}}
+<main class="door">
+<div class="hub">
+<span class="lamp" aria-hidden="true"></span>
+<h1>Set up {{.Portal}}</h1>
+<p class="tally">{{.Host}}</p>
+</div>
+<section class="panel" aria-labelledby="first">
+<h2 id="first">Create the first admin</h2>
+<p class="lede">This link works once, until an admin exists or the daemon restarts.</p>
+{{if .Error}}<p class="error" id="form-error" role="alert">{{.Error}}</p>{{end}}
 <form method="post" action="/setup">
 <input type="hidden" name="token" value="{{.Token}}">
 <label>Username
-<input name="username" value="{{.Username}}" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus>
+<input name="username" value="{{.Username}}" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus{{if .Error}} aria-describedby="form-error"{{end}}>
 </label>
 <label>Password <span class="hint">at least {{.MinPassword}} characters</span>
-<input name="password" type="password" autocomplete="new-password" minlength="{{.MinPassword}}" required>
+<input name="password" type="password" autocomplete="new-password" minlength="{{.MinPassword}}" required{{if .Error}} aria-describedby="form-error"{{end}}>
 </label>
 <label>Password again
 <input name="confirm" type="password" autocomplete="new-password" minlength="{{.MinPassword}}" required>
 </label>
 <button type="submit">Create admin</button>
 </form>
+</section>
 </main>
 {{end}}

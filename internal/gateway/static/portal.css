@@ -1,86 +1,211 @@
+/* The Service Line: the Outpost header made into the working page. Service
+   health is drawn as one transit line from the lamp to a station per app.
+   Night only: the night ground is the world, not a theme of it. */
 :root {
-  --bg: #f7f7f5;
-  --surface: #ffffff;
-  --text: #1c1c1a;
-  --muted: #6b6b66;
-  --line: #deded8;
-  --accent: #2f5d50;
-  --accent-text: #ffffff;
-  --error: #a32020;
-  --up: #2f7d4a;
-  color-scheme: light dark;
+  --night: #141a21;
+  --enamel-hi: #222c36;
+  --rule: #26313b;
+  --porcelain: #f3f1e9;
+  --dim: #a3abb1;
+  --beam: #79a59d;
+  --lamp: #f1c191;
+  --lamp-core: #fff3df;
+  --porcelain-press: #d9d6cc;
+  --down-plate: #b8402a;
+  --down: #d9583b;
+  --down-ink: #f29a85;
+  --field-edge: #6f7c87;
+  --line-w: 6px;
+  --stop: 26px;
+  --gutter: 20px;
+  --measure: 40rem;
+  color-scheme: dark;
+  scrollbar-color: var(--rule) var(--night);
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #161615;
-    --surface: #1f1f1d;
-    --text: #ecece6;
-    --muted: #9a9a92;
-    --line: #34342f;
-    --accent: #7fb8a4;
-    --accent-text: #10201b;
-    --error: #f08a8a;
-    --up: #7fcf96;
-  }
-}
-* { box-sizing: border-box; }
+*, *::before, *::after { box-sizing: border-box; }
+html { background: var(--night); -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  min-height: 100vh;
+  background: var(--night);
+  color: var(--porcelain);
+  font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  caret-color: var(--lamp);
 }
-main { max-width: 44rem; margin: 0 auto; padding: 2rem 1rem; }
-main.narrow { max-width: 24rem; padding-top: 12vh; }
-h1 { font-size: 1.5rem; margin: 0 0 0.5rem; }
-.lede, .hint, .empty { color: var(--muted); }
-.hint { font-size: 0.875rem; }
-.error { color: var(--error); }
-form { display: grid; gap: 1rem; margin-top: 1.5rem; }
-label { display: grid; gap: 0.25rem; font-weight: 500; }
+::selection { background: var(--lamp); color: var(--night); }
+a { color: var(--porcelain); text-decoration-color: var(--beam); text-underline-offset: 3px; }
+:focus-visible { outline: 2px solid var(--lamp); outline-offset: 3px; border-radius: 4px; }
+code, .addr, .tally, .home, .cmd {
+  font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+.sr {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip-path: inset(50%); white-space: nowrap;
+}
+.skip {
+  position: absolute; left: var(--gutter); top: -4rem; z-index: 2;
+  background: var(--lamp); color: var(--night); padding: 0.6rem 1rem; border-radius: 6px;
+  font-weight: 650; text-decoration: none;
+}
+.skip:focus { top: 0.75rem; }
+
+/* The rail: where you are, and you. */
+.rail { border-bottom: 1px solid var(--rule); }
+.rail-in {
+  max-width: calc(var(--measure) + 2 * var(--gutter)); margin: 0 auto;
+  display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem var(--gutter);
+}
+.home {
+  margin-right: auto; min-width: 0; padding: 0.75rem 0;
+  color: var(--dim); font-size: 13px; text-decoration: none;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.home:hover { color: var(--porcelain); }
+.acct { display: flex; gap: 0.5rem; align-items: center; flex: none; }
+.acct form { margin: 0; }
+.pill {
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0 0.95rem;
+  border: 1px solid var(--rule); border-radius: 999px; background: none;
+  color: var(--porcelain); font: inherit; font-size: 14px; text-decoration: none; cursor: pointer;
+  white-space: nowrap;
+}
+.pill:hover { border-color: var(--beam); background: none; }
+.pill.quiet { color: var(--dim); }
+.pill.quiet:hover { color: var(--porcelain); }
+
+/* Pages. */
+.page, .door {
+  max-width: calc(var(--measure) + 2 * var(--gutter)); margin: 0 auto; padding: 1.75rem var(--gutter) 3rem;
+}
+.door { max-width: calc(26rem + 2 * var(--gutter)); padding-top: max(2rem, 8vh); }
+h1, h2 { margin: 0; line-height: 1.1; letter-spacing: -0.015em; }
+h1 { font-size: 28px; font-weight: 750; text-wrap: balance; }
+h2 { font-size: 19px; font-weight: 680; }
+.lede, .hint, .empty { color: var(--dim); }
+.lede { margin: 0.4rem 0 0; }
+.hint { font-size: 13px; font-weight: 400; }
+.empty { margin: 1.5rem 0 0; }
+
+/* The hub: the lamp, and what this place is called. */
+.hub { display: grid; grid-template-columns: 44px 1fr; column-gap: 14px; align-items: center; }
+.hub > :not(.lamp) { grid-column: 2; }
+.hub.bare { display: block; }
+.hub-name { margin: 0; font-size: 28px; font-weight: 750; line-height: 1.1; letter-spacing: -0.015em; }
+.lamp {
+  grid-row: 1 / span 2; width: 44px; height: 44px; border-radius: 50%;
+  background: radial-gradient(circle at 50% 45%, var(--lamp-core) 0 22%, var(--lamp) 60%);
+  box-shadow: 0 0 0 6px rgba(241, 193, 145, 0.16), 0 0 30px 2px rgba(241, 193, 145, 0.4);
+}
+.tally { margin: 0.3rem 0 0; font-size: 12px; color: var(--beam); }
+
+/* The lighthouse from the header, faded into the night at its edges. */
+.plate {
+  display: block; width: calc(100% + 2 * var(--gutter)); height: auto; margin: -1rem calc(-1 * var(--gutter)) 0.5rem;
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 12%, #000 88%, transparent), linear-gradient(transparent, #000 20%, #000 65%, transparent);
+  -webkit-mask-composite: source-in;
+  mask-image: linear-gradient(to right, transparent, #000 12%, #000 88%, transparent), linear-gradient(transparent, #000 20%, #000 65%, transparent);
+  mask-composite: intersect;
+}
+
+/* The line, from the lamp down through every station. Each station draws
+   the stretch above it, so the line ends exactly at the last one and a
+   station that's down can break its own stretch. */
+.line { list-style: none; margin: 1.25rem 0 0; padding: 0; }
+.stop { position: relative; }
+.stop::before {
+  content: ""; position: absolute; left: calc((44px - var(--line-w)) / 2); top: 0; bottom: 0;
+  width: var(--line-w); background: var(--beam);
+}
+.stop:first-child::before { top: -1.25rem; }
+/* The line stops at the last station that's up; below a down one it runs
+   on, broken, to the end of its row. */
+.stop:not(.down):last-child::before { bottom: auto; height: calc(13px + var(--stop) / 2); border-radius: 0 0 3px 3px; }
+.stop:not(.down):first-child:last-child::before { height: calc(1.25rem + 13px + var(--stop) / 2); }
+.solo { margin-top: 1rem; }
+.solo .stop::before { top: 0; }
+.stop + .stop .row { border-top: 1px solid var(--rule); }
+.row {
+  display: grid; grid-template-columns: 44px 1fr; column-gap: 14px;
+  min-height: 72px; padding: 13px 0; color: inherit; text-decoration: none;
+}
+a.row:hover .name { text-decoration: underline; text-decoration-color: var(--beam); text-decoration-thickness: 2px; text-underline-offset: 4px; }
+a.row:hover .mark { transform: scale(1.15); }
+.mark {
+  position: relative; z-index: 1; justify-self: center; margin-top: 1px;
+  width: var(--stop); height: var(--stop); border-radius: 50%;
+  border: var(--line-w) solid var(--beam); background: var(--porcelain);
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.body { min-width: 0; display: grid; gap: 3px; }
+.top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.6rem; }
+.name { font-size: 21px; font-weight: 650; line-height: 1.15; overflow-wrap: anywhere; }
+.meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.15rem 1rem; font-size: 14px; color: var(--dim); }
+.addr { font-size: 12px; color: var(--beam); overflow-wrap: anywhere; }
+.meta .addr { margin-left: auto; text-align: right; }
+.tag, .state {
+  font-size: 11px; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase;
+  border-radius: 3px; padding: 2px 6px; align-self: center;
+}
+.tag { color: var(--dim); border: 1px solid var(--rule); }
+
+/* Starting: the station half lit, on its way back. */
+.starting .mark { background: var(--night); }
+.starting .mark::after {
+  content: ""; position: absolute; inset: 3px; border-radius: 50%; background: var(--beam);
+}
+.starting .state { color: var(--beam); border: 1px solid var(--beam); }
+.starting .why { color: var(--dim); }
+
+/* Down: the station hollow and red, and the line broken where it stands. */
+.down .mark { background: var(--night); border-color: var(--down); }
+.down::before { background: repeating-linear-gradient(transparent 0 7px, var(--beam) 7px 14px); }
+.down .state { color: var(--porcelain); background: var(--down-plate); }
+.why { font-size: 14px; color: var(--down-ink); }
+.cmd {
+  justify-self: start; margin-top: 4px; font-size: 12px; color: var(--porcelain);
+  background: var(--enamel-hi); border: 1px solid var(--rule); border-radius: 4px; padding: 3px 7px;
+  user-select: all;
+}
+.row > .body > a.addr { justify-self: start; margin-top: 2px; padding: 0.35rem 0; min-height: 24px; }
+
+/* The filter, once the line is long. */
+.filter { display: grid; gap: 0.35rem; margin-top: 1.25rem; font-size: 14px; color: var(--dim); }
+
+/* Panels and forms: sign in, set up, account, messages. */
+.panel { margin-top: 1.75rem; padding-top: 1.5rem; border-top: 1px solid var(--rule); }
+.page .panel { margin-top: 1.5rem; }
+.panel > p { margin: 0.6rem 0 0; }
+.door .hub + .panel { margin-top: 1.5rem; }
+form { display: grid; gap: 1rem; margin-top: 1.1rem; }
+label { display: grid; gap: 0.35rem; font-weight: 550; font-size: 15px; }
 input {
-  font: inherit;
-  padding: 0.6rem 0.7rem;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--surface);
-  color: var(--text);
+  font: inherit; color: var(--porcelain); background: var(--night);
+  min-height: 46px; padding: 0.6rem 0.75rem;
+  border: 1px solid var(--field-edge); border-radius: 6px;
 }
-button {
-  font: inherit;
-  padding: 0.6rem 1rem;
-  border: 0;
-  border-radius: 6px;
-  background: var(--accent);
-  color: var(--accent-text);
-  cursor: pointer;
+input:hover { border-color: var(--beam); }
+input:focus-visible { outline-offset: 1px; border-color: var(--lamp); }
+input[aria-invalid="true"] { border-color: var(--down-ink); }
+button, .button {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: 46px; padding: 0 1.1rem; border: 0; border-radius: 6px;
+  background: var(--porcelain); color: var(--night);
+  font: inherit; font-weight: 680; text-decoration: none; cursor: pointer;
 }
-button.quiet { background: none; color: var(--muted); padding: 0.25rem 0.5rem; }
-.bar {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid var(--line);
-  background: var(--surface);
+button:hover, .button:hover { background: var(--porcelain-press); }
+button.ghost { background: none; color: var(--down-ink); border: 1px solid rgba(242, 154, 133, 0.6); }
+button.ghost:hover { background: rgba(217, 88, 59, 0.12); }
+.error { margin: 0.75rem 0 0; color: var(--down-ink); font-weight: 550; }
+.notice { margin: 0.75rem 0 0; color: var(--beam); }
+.lede strong { color: var(--porcelain); }
+
+@media (min-width: 42rem) {
+  :root { --gutter: 28px; }
+  h1 { font-size: 32px; }
+  .page { padding-top: 2.25rem; }
 }
-.bar form { margin: 0; }
-.brand { font-weight: 600; margin-right: auto; }
-.who { color: var(--muted); }
-.apps { list-style: none; padding: 0; margin: 1.5rem 0 0; display: grid; gap: 0.5rem; }
-.apps a {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.9rem 1rem;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
-  color: inherit;
-  text-decoration: none;
+@media (prefers-reduced-motion: reduce) {
+  .mark { transition: none; }
 }
-.apps a:hover, .apps a:focus-visible { border-color: var(--accent); }
-.name { font-weight: 500; overflow-wrap: anywhere; }
-.status { color: var(--muted); }
-.status.up { color: var(--up); }
-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em; }
+.onward { margin-top: 1.25rem; }

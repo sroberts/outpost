@@ -33,6 +33,15 @@ type ServiceStatus struct {
 	Backoff       int       `json:"backoff_seconds"`
 	// NextAttempt is set while a service is waiting out its restart backoff.
 	NextAttempt time.Time `json:"next_attempt,omitempty"`
+
+	// Catalog fields from the manifest, for the gateway.
+	Title       string   `json:"title,omitempty"`
+	Description string   `json:"description,omitempty"`
+	Subdomain   string   `json:"subdomain,omitempty"`
+	Hostname    string   `json:"hostname,omitempty"`
+	Allow       []string `json:"allow,omitempty"`
+	Hidden      bool     `json:"hidden,omitempty"`
+	PublicPaths []string `json:"public_paths,omitempty"`
 }
 
 // ErrNotRunning is returned when the reconcile loop is not draining commands.
@@ -162,6 +171,13 @@ func (s *Supervisor) statusOf(name string) ServiceStatus {
 		st.Storage = svc.ExpandStorage()
 		st.RestartPolicy = svc.RestartPolicy
 		st.Backoff = int(svc.BackoffSeconds)
+		st.Title = svc.Title
+		st.Description = svc.Description
+		st.Subdomain = svc.Subdomain
+		st.Hostname = svc.Hostname
+		st.Allow = svc.Allow
+		st.Hidden = svc.Hidden
+		st.PublicPaths = svc.PublicPaths
 	}
 	if rec, found, err := s.store.GetService(name); err == nil && found {
 		st.Status = rec.Status

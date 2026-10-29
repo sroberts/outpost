@@ -1,0 +1,35 @@
+{{define "body"}}
+{{template "rail" .}}
+<main class="page">
+<h1>Account</h1>
+<p class="lede">Signed in as <strong>{{.Who}}</strong>{{if ne .Who .Username}}, username <code>{{.Username}}</code>{{end}}.{{if .Admin}} As an admin you can open every app.{{end}}</p>
+{{if .Notice}}<p class="notice" role="status">{{.Notice}}</p>{{end}}
+<section class="panel" aria-labelledby="pw">
+<h2 id="pw">Change password</h2>
+{{if .Error}}<p class="error" id="form-error" role="alert">{{.Error}}</p>{{end}}
+<form method="post" action="/account">
+<input type="hidden" name="action" value="password">
+<input type="hidden" name="username" value="{{.Username}}" autocomplete="username">
+<label>Current password
+<input name="current" type="password" autocomplete="current-password" required{{if .Error}} aria-describedby="form-error"{{end}}>
+</label>
+<label>New password <span class="hint">at least {{.MinPassword}} characters</span>
+<input name="password" type="password" autocomplete="new-password" minlength="{{.MinPassword}}" required>
+</label>
+<label>New password again
+<input name="confirm" type="password" autocomplete="new-password" minlength="{{.MinPassword}}" required>
+</label>
+<button type="submit">Change password</button>
+</form>
+<p class="hint">Changing it signs out every other device.</p>
+</section>
+<section class="panel" aria-labelledby="all">
+<h2 id="all">Sign out everywhere</h2>
+<p>Ends every session on every device, this one included, and every app you were signed in to.</p>
+<form method="post" action="/account">
+<input type="hidden" name="action" value="everywhere">
+<button class="ghost" type="submit">Sign out everywhere</button>
+</form>
+</section>
+</main>
+{{end}}

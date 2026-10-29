@@ -1,7 +1,7 @@
 # Design: users, a gateway, and an app catalog
 
 Status: being built. PR 1, the auth store (#39); PR 1b, the Tailscale default
-(#40); PR 2, the gateway (#41). PRs 3 and 4 not started.
+(#40); PR 2, the gateway (#41); PR 3, the catalog. PR 4 not started.
 Branch: `feat/users-and-catalog`
 Date: 2026-10-25
 
@@ -519,7 +519,7 @@ Sections that no longer hold once this lands:
 
 ## Changes during implementation
 
-PRs #39, #40 and #41 built the first three delivery steps. Where they differ
+PRs #39, #40, #41 and the catalog PR built the first four delivery steps. Where they differ
 from the sections above, the code is current and this list says why. The rest
 of the design stands.
 
@@ -571,3 +571,31 @@ of the design stands.
   with PR 3's manifest validation.
 - **Deferred:** the `login`, `login-failed` and `user` activity-feed events.
   They need a supervisor API for events that aren't about a service.
+
+**The catalog (PR 3)**
+
+- **The portal draws apps as stations on one line**, not cards: the look
+  chosen for the portal (`.impeccable/surfaces/`), grown from the Outpost
+  header. Each shows its title, description, address and state, as designed.
+- **States carry a reason.** "Unavailable" became three words the supervisor
+  can back: running, starting or restarting, and down, with why ("Stopped
+  after 3 crashes", "Stopped on purpose", "Not answering its health check").
+  An admin also sees `outpost status <app>`.
+- **A down app's address stays a link**, set small under the reason, so the
+  app can still be opened by hand; the row itself isn't one.
+- **Icons are deferred.** The station marks each app; serving icon files is
+  still the open question it was.
+- **Unknown `allow` names are logged by the daemon**, once each, rather than
+  warned about by `outpost apply`, which as a client can't see `auth.db`.
+- **A service name that isn't a DNS label** is now a manifest error with the
+  gateway on, unless `subdomain` or `hostname` gives it an address, as the
+  #41 note above promised.
+- **Changing a password ends every other session**, as `outpost user passwd`
+  already did, and the browser that changed it gets a fresh one.
+- **The portal's name is configurable** (`[gateway] name`), so the sign-in
+  page says whose Outpost it is.
+- **Error responses are pages.** The 502, 405, 401, 403 and unknown-path
+  answers render the message page with a way back to the apps, instead of
+  plain text; the setup link's 404 stays bare so a probe learns nothing.
+- **Asset URLs carry a content hash**, so a browser holding an hour-old
+  stylesheet from before an upgrade fetches the new one.

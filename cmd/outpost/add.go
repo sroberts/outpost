@@ -225,7 +225,7 @@ func (a *app) validateAgainstExisting(svc *manifest.Service, name string) error 
 		set = append(set, other)
 	}
 
-	opts := manifest.Options{RequireTailscale: a.config.TailscaleEnabled()}
+	opts := manifest.Options{RequireTailscale: a.config.TailscaleEnabled(), RequireDNSName: a.config.Gateway.Enabled}
 	if errs := manifest.ValidateWith(set, opts); len(errs) > 0 {
 		var b strings.Builder
 		fmt.Fprintf(&b, "the resulting manifest set would be invalid:")
@@ -332,6 +332,29 @@ func renderManifest(s *manifest.Service) string {
 	}
 	if s.StartGraceSeconds > 0 {
 		fmt.Fprintf(&b, "start_grace_seconds = %d\n", s.StartGraceSeconds)
+	}
+	// What the gateway's catalog shows; a release's outpost.toml can set the
+	// first three.
+	if s.Title != "" {
+		fmt.Fprintf(&b, "title          = %s\n", tomlString(s.Title))
+	}
+	if s.Description != "" {
+		fmt.Fprintf(&b, "description    = %s\n", tomlString(s.Description))
+	}
+	if len(s.PublicPaths) > 0 {
+		fmt.Fprintf(&b, "public_paths   = %s\n", tomlStrings(s.PublicPaths))
+	}
+	if s.Subdomain != "" {
+		fmt.Fprintf(&b, "subdomain      = %s\n", tomlString(s.Subdomain))
+	}
+	if s.Hostname != "" {
+		fmt.Fprintf(&b, "hostname       = %s\n", tomlString(s.Hostname))
+	}
+	if len(s.Allow) > 0 {
+		fmt.Fprintf(&b, "allow          = %s\n", tomlStrings(s.Allow))
+	}
+	if s.Hidden {
+		b.WriteString("hidden         = true\n")
 	}
 	return b.String()
 }

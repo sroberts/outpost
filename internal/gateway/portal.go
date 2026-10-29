@@ -29,6 +29,12 @@ func (g *Gateway) servePortal(w http.ResponseWriter, r *http.Request) {
 		}
 	case "/logout":
 		g.logout(w, r)
+	case "/account":
+		if r.Method == http.MethodPost {
+			g.accountSubmit(w, r)
+		} else {
+			g.accountPage(w, r)
+		}
 	case "/setup":
 		if r.Method == http.MethodPost {
 			g.setupSubmit(w, r)
@@ -39,8 +45,13 @@ func (g *Gateway) servePortal(w http.ResponseWriter, r *http.Request) {
 		g.serveJWKS(w, r)
 	case cssPath:
 		g.serveCSS(w, r)
+	case jsPath:
+		g.serveJS(w, r)
+	case artPath:
+		g.serveArt(w, r)
 	default:
-		http.NotFound(w, r)
+		g.message(w, r, http.StatusNotFound, "Nothing here",
+			"There's no page at this address.", g.portalLink(), "Back to apps")
 	}
 }
 
@@ -53,20 +64,24 @@ func (g *Gateway) home(w http.ResponseWriter, r *http.Request) {
 	}
 	g.touch(tok, s)
 
-	var apps []appLink
-	for _, rt := range g.routes.all() {
-		apps = append(apps, appLink{
-			Name:   rt.Name,
-			URL:    g.appOrigin(rt.Name) + "/",
-			Status: rt.Status,
-			Up:     rt.Status == "running",
-		})
+	sts := g.stations(u)
+	up, down := tally(sts)
+	g.render(w, r, http.StatusOK, "portal", pageData{
+		Title:    "Apps",
+		Who:      displayName(u),
+		Admin:    u.Admin,
+		Stations: sts,
+		Up:       up,
+		Down:     down,
+		Search:   len(sts) >= searchFrom,
+	})
+}
+
+func displayName(u auth.User) string {
+	if u.DisplayName != "" {
+		return u.DisplayName
 	}
-	who := u.DisplayName
-	if who == "" {
-		who = u.Username
-	}
-	g.render(w, r, http.StatusOK, "portal", pageData{Title: "Apps", Who: who, Admin: u.Admin, Apps: apps})
+	return u.Username
 }
 
 // loginPage shows the form, or carries on at once for someone already
@@ -80,12 +95,24 @@ func (g *Gateway) loginPage(w http.ResponseWriter, r *http.Request) {
 		g.continueTo(w, r, tok, u, app, next)
 		return
 	}
-	g.render(w, r, http.StatusOK, "login", pageData{Title: "Sign in", App: app, Next: next})
+	d := pageData{Title: "Sign in", App: app, AppTitle: g.titleOf(app), Next: next}
+	if q.Get("out") == "1" {
+		d.Notice = "You're signed out of every app."
+	}
+	g.render(w, r, http.StatusOK, "login", d)
+}
+
+// titleOf is what to call a routed app in words.
+func (g *Gateway) titleOf(name string) string {
+	if rt, ok := g.routes.get(name); ok && rt.Title != "" {
+		return rt.Title
+	}
+	return name
 }
 
 func (g *Gateway) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	if !g.sameOrigin(r) {
-		http.Error(w, "cross-origin request refused", http.StatusForbidden)
+		g.crossOrigin(w, r)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxForm)
@@ -97,7 +124,7 @@ func (g *Gateway) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	password := r.PostForm.Get("password")
 	app := g.knownApp(r.PostForm.Get("app"))
 	next := safeNext(r.PostForm.Get("next"))
-	form := pageData{Title: "Sign in", App: app, Next: next, Username: username}
+	form := pageData{Title: "Sign in", App: app, AppTitle: g.titleOf(app), Next: next, Username: username}
 
 	keys := []string{"user:" + username, "ip:" + g.clientIP(r)}
 	if d := g.throttle.wait(g.now(), keys...); d > 0 {
@@ -143,11 +170,12 @@ func (g *Gateway) loginSubmit(w http.ResponseWriter, r *http.Request) {
 func (g *Gateway) logout(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		g.message(w, r, http.StatusMethodNotAllowed, "Sign out from the button",
+			"Signing out takes the Sign out button, so a link elsewhere can't sign you out.", g.portalLink(), "Back to apps")
 		return
 	}
 	if !g.sameOrigin(r) {
-		http.Error(w, "cross-origin request refused", http.StatusForbidden)
+		g.crossOrigin(w, r)
 		return
 	}
 	if c, err := r.Cookie(g.cookieName); err == nil {
@@ -156,7 +184,13 @@ func (g *Gateway) logout(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	g.clearCookie(w)
-	http.Redirect(w, r, "/login", http.StatusSeeOther)
+	http.Redirect(w, r, g.signedOutURL(), http.StatusSeeOther)
+}
+
+// crossOrigin answers a form posted from another site.
+func (g *Gateway) crossOrigin(w http.ResponseWriter, r *http.Request) {
+	g.message(w, r, http.StatusForbidden, "Refused",
+		"That form came from another site, so Outpost didn't act on it.", g.portalLink(), "Back to apps")
 }
 
 // setupValid reports whether tok is the live first-run token. Once anyone
@@ -195,7 +229,7 @@ func (g *Gateway) setupPage(w http.ResponseWriter, r *http.Request) {
 
 func (g *Gateway) setupSubmit(w http.ResponseWriter, r *http.Request) {
 	if !g.sameOrigin(r) {
-		http.Error(w, "cross-origin request refused", http.StatusForbidden)
+		g.crossOrigin(w, r)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxForm)

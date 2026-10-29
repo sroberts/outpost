@@ -1,0 +1,434 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-29T03:19:43+00:00",
+  "title": "Design System: Outpost",
+  "extensions": {
+    "colorMeta": {
+      "night": {
+        "role": "neutral",
+        "displayName": "Enamel Night",
+        "canonical": "#141a21",
+        "oklch": "oklch(21.5% 0.017 253)",
+        "tonalRamp": [
+          "#070c12",
+          "#1f262d",
+          "#3c434b",
+          "#5b626b",
+          "#7b838c",
+          "#9ea6af",
+          "#c2cad4",
+          "#e7effa"
+        ]
+      },
+      "enamel-hi": {
+        "role": "neutral",
+        "displayName": "Raised Enamel",
+        "canonical": "#222c36",
+        "oklch": "oklch(28.8% 0.023 249)",
+        "tonalRamp": [
+          "#040c14",
+          "#1c2630",
+          "#39434e",
+          "#57636e",
+          "#788490",
+          "#9aa7b3",
+          "#becbd8",
+          "#e3f0fe"
+        ]
+      },
+      "rule": {
+        "role": "neutral",
+        "displayName": "Rule",
+        "canonical": "#26313b",
+        "oklch": "oklch(30.7% 0.024 246)",
+        "tonalRamp": [
+          "#040c14",
+          "#1c2630",
+          "#38434e",
+          "#57636e",
+          "#778490",
+          "#9aa7b3",
+          "#bdcbd8",
+          "#e2f1fe"
+        ]
+      },
+      "porcelain": {
+        "role": "neutral",
+        "displayName": "Porcelain",
+        "canonical": "#f3f1e9",
+        "oklch": "oklch(95.7% 0.011 95)",
+        "tonalRamp": [
+          "#0d0b06",
+          "#27251f",
+          "#44423c",
+          "#63615a",
+          "#84827b",
+          "#a7a59e",
+          "#cbc9c1",
+          "#f1efe7"
+        ]
+      },
+      "porcelain-press": {
+        "role": "neutral",
+        "displayName": "Porcelain Pressed",
+        "canonical": "#d9d6cc",
+        "oklch": "oklch(87.6% 0.014 93)",
+        "tonalRamp": [
+          "#0d0b05",
+          "#27251d",
+          "#44423a",
+          "#646158",
+          "#858279",
+          "#a8a59b",
+          "#ccc9bf",
+          "#f1eee4"
+        ]
+      },
+      "dim": {
+        "role": "neutral",
+        "displayName": "Dim Porcelain",
+        "canonical": "#a3abb1",
+        "oklch": "oklch(73.7% 0.013 240)",
+        "tonalRamp": [
+          "#070c10",
+          "#20262b",
+          "#3c4348",
+          "#5b6268",
+          "#7c8389",
+          "#9ea6ac",
+          "#c2cad1",
+          "#e7f0f6"
+        ]
+      },
+      "field-edge": {
+        "role": "neutral",
+        "displayName": "Field Edge",
+        "canonical": "#6f7c87",
+        "oklch": "oklch(57.9% 0.023 244)",
+        "tonalRamp": [
+          "#040c14",
+          "#1b262f",
+          "#38444d",
+          "#56636e",
+          "#77848f",
+          "#99a7b3",
+          "#bdcbd7",
+          "#e2f1fd"
+        ]
+      },
+      "beam": {
+        "role": "primary",
+        "displayName": "Beam Teal",
+        "canonical": "#79a59d",
+        "oklch": "oklch(68.8% 0.049 182)",
+        "tonalRamp": [
+          "#00110d",
+          "#002d27",
+          "#204b44",
+          "#406b63",
+          "#618c85",
+          "#83b0a7",
+          "#a7d4cc",
+          "#cbfaf1"
+        ]
+      },
+      "lamp": {
+        "role": "secondary",
+        "displayName": "Lamp Amber",
+        "canonical": "#f1c191",
+        "oklch": "oklch(84.2% 0.083 66)",
+        "tonalRamp": [
+          "#200000",
+          "#3f1900",
+          "#5f3701",
+          "#815728",
+          "#a4784a",
+          "#c99b6c",
+          "#efbf8f",
+          "#ffe4b3"
+        ]
+      },
+      "lamp-core": {
+        "role": "secondary",
+        "displayName": "Lamp Core",
+        "canonical": "#fff3df",
+        "oklch": "oklch(96.8% 0.029 81)",
+        "tonalRamp": [
+          "#110a00",
+          "#2c2414",
+          "#4a4130",
+          "#6a604f",
+          "#8c816f",
+          "#afa491",
+          "#d3c8b4",
+          "#f9edd9"
+        ]
+      },
+      "down": {
+        "role": "tertiary",
+        "displayName": "Signal Red",
+        "canonical": "#d9583b",
+        "oklch": "oklch(62.3% 0.168 34)",
+        "tonalRamp": [
+          "#2d0000",
+          "#500000",
+          "#74210e",
+          "#994330",
+          "#bf6550",
+          "#e68872",
+          "#ffac95",
+          "#ffd1b9"
+        ]
+      },
+      "down-plate": {
+        "role": "tertiary",
+        "displayName": "Signal Red Plate",
+        "canonical": "#b8402a",
+        "oklch": "oklch(53.8% 0.159 33)",
+        "tonalRamp": [
+          "#2d0000",
+          "#510000",
+          "#742111",
+          "#994332",
+          "#bf6552",
+          "#e68874",
+          "#ffac97",
+          "#ffd1bb"
+        ]
+      },
+      "down-ink": {
+        "role": "tertiary",
+        "displayName": "Signal Red Ink",
+        "canonical": "#f29a85",
+        "oklch": "oklch(77.0% 0.111 34)",
+        "tonalRamp": [
+          "#2b0000",
+          "#4e0000",
+          "#712514",
+          "#954634",
+          "#bb6855",
+          "#e18b76",
+          "#ffaf99",
+          "#ffd4bd"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Portal name in the hub and each page's h1 (28px, 32px from 42rem)."
+      },
+      "headline-wide": {
+        "displayName": "Headline Wide",
+        "purpose": "Headline at the 42rem breakpoint."
+      },
+      "station-name": {
+        "displayName": "Station Name",
+        "purpose": "Each app's name on the line."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Panel headings."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Prose, ledes, messages."
+      },
+      "field-label": {
+        "displayName": "Field Label",
+        "purpose": "Form labels stacked above fields."
+      },
+      "meta": {
+        "displayName": "Meta",
+        "purpose": "Station descriptions, down reasons, pill text."
+      },
+      "hint": {
+        "displayName": "Hint",
+        "purpose": "Field hints and footnotes."
+      },
+      "status-label": {
+        "displayName": "Status Label",
+        "purpose": "Uppercase state label and HIDDEN tag beside a station name only."
+      },
+      "mono-host": {
+        "displayName": "Mono Host",
+        "purpose": "The host in the rail."
+      },
+      "mono-small": {
+        "displayName": "Mono Small",
+        "purpose": "Addresses, the tally, commands."
+      }
+    },
+    "shadows": [
+      {
+        "name": "lamp-glow",
+        "value": "0 0 0 6px rgba(241, 193, 145, 0.16), 0 0 30px 2px rgba(241, 193, 145, 0.4)",
+        "purpose": "The hub lamp only; the system's single shadow."
+      }
+    ],
+    "motion": [
+      {
+        "name": "station-hover",
+        "value": "transform 0.2s cubic-bezier(0.16, 1, 0.3, 1); scale(1.15)",
+        "purpose": "A running station grows slightly on row hover. Removed under prefers-reduced-motion: reduce."
+      },
+      {
+        "name": "line",
+        "value": "none",
+        "purpose": "The line and its stations never animate."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "wide",
+        "value": "42rem",
+        "purpose": "Gutter 20px to 28px, h1 28px to 32px, page top padding 1.75rem to 2.25rem."
+      }
+    ],
+    "focus": {
+      "value": "outline: 2px solid #f1c191; outline-offset: 3px; border-radius: 4px",
+      "fieldValue": "outline-offset: 1px; border-color: #f1c191"
+    },
+    "plate": {
+      "asset": "internal/gateway/static/lighthouse.webp",
+      "provenance": "internal/gateway/static/lighthouse.webp.json (cropped from docs/outpost-header.jpg)",
+      "mask": "linear-gradient(to right, transparent, #000 12%, #000 88%, transparent) intersected with linear-gradient(transparent, #000 20%, #000 65%, transparent)",
+      "use": "Sign-in door, full-bleed past the gutters, decorative (empty alt)."
+    },
+    "constraints": [
+      "Night only; color-scheme: dark; no light rendition.",
+      "CSP default-src 'self': no inline style attributes or inline scripts; one external script, loaded only when the filter is needed.",
+      "Assets embedded in the binary and served with a content-hash version in their URL.",
+      "No fetched fonts, icons or images."
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one filled action per form: porcelain on night.",
+      "html": "<div class=\"ds-ground\"><button class=\"ds-btn\">Sign in</button></div>",
+      "css": ":host{--night:#141a21;--enamel-hi:#222c36;--rule:#26313b;--porcelain:#f3f1e9;--dim:#a3abb1;--beam:#79a59d;--lamp:#f1c191;--down:#d9583b;--down-ink:#f29a85;--field-edge:#6f7c87;--line-w:6px;--stop:26px;} .ds-ground{background:var(--night);padding:20px;} .ds-btn{display:inline-flex;align-items:center;justify-content:center;min-height:46px;padding:0 1.1rem;border:0;border-radius:6px;background:var(--porcelain);color:var(--night);font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:16px;font-weight:680;cursor:pointer;} .ds-btn:hover{background:#d9d6cc;} .ds-btn:focus-visible{outline:2px solid var(--lamp);outline-offset:3px;}"
+    },
+    {
+      "name": "Destructive Ghost Button",
+      "kind": "button",
+      "refersTo": "button-destructive",
+      "description": "Destructive actions only (sign out everywhere): red ink outline.",
+      "html": "<div class=\"ds-ground\"><button class=\"ds-btn-ghost\">Sign out everywhere</button></div>",
+      "css": ":host{--night:#141a21;--enamel-hi:#222c36;--rule:#26313b;--porcelain:#f3f1e9;--dim:#a3abb1;--beam:#79a59d;--lamp:#f1c191;--down:#d9583b;--down-ink:#f29a85;--field-edge:#6f7c87;--line-w:6px;--stop:26px;} .ds-ground{background:var(--night);padding:20px;} .ds-btn-ghost{display:inline-flex;align-items:center;min-height:46px;padding:0 1.1rem;border-radius:6px;background:none;color:var(--down-ink);border:1px solid rgba(242,154,133,0.6);font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:16px;font-weight:680;cursor:pointer;} .ds-btn-ghost:hover{background:rgba(217,88,59,0.12);} .ds-btn-ghost:focus-visible{outline:2px solid var(--lamp);outline-offset:3px;}"
+    },
+    {
+      "name": "Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Label stacked over a night field; beam on hover, amber on focus, red ink when invalid.",
+      "html": "<div class=\"ds-ground\"><label class=\"ds-label\">Username<input class=\"ds-input\" value=\"scott\"></label><label class=\"ds-label\">Password<input class=\"ds-input ds-bad\" type=\"password\" value=\"xxxxxxxx\"></label></div>",
+      "css": ":host{--night:#141a21;--enamel-hi:#222c36;--rule:#26313b;--porcelain:#f3f1e9;--dim:#a3abb1;--beam:#79a59d;--lamp:#f1c191;--down:#d9583b;--down-ink:#f29a85;--field-edge:#6f7c87;--line-w:6px;--stop:26px;} .ds-ground{background:var(--night);padding:20px;display:grid;gap:1rem;max-width:26rem;} .ds-label{display:grid;gap:0.35rem;color:var(--porcelain);font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:15px;font-weight:550;} .ds-input{font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:16px;color:var(--porcelain);background:var(--night);min-height:46px;padding:0.6rem 0.75rem;border:1px solid var(--field-edge);border-radius:6px;} .ds-input:hover{border-color:var(--beam);} .ds-input:focus-visible{outline:2px solid var(--lamp);outline-offset:1px;border-color:var(--lamp);} .ds-bad{border-color:var(--down-ink);}"
+    },
+    {
+      "name": "Rail",
+      "kind": "nav",
+      "refersTo": "pill",
+      "description": "Host in dim mono left; account pill and quiet sign-out pill right; one rule beneath.",
+      "html": "<div class=\"ds-ground\"><div class=\"ds-rail\"><a class=\"ds-home\" href=\"#\">outpost.example:18443</a><a class=\"ds-pill\" href=\"#\">Scott</a><button class=\"ds-pill ds-quiet\">Sign out</button></div></div>",
+      "css": ":host{--night:#141a21;--enamel-hi:#222c36;--rule:#26313b;--porcelain:#f3f1e9;--dim:#a3abb1;--beam:#79a59d;--lamp:#f1c191;--down:#d9583b;--down-ink:#f29a85;--field-edge:#6f7c87;--line-w:6px;--stop:26px;} .ds-ground{background:var(--night);} .ds-rail{display:flex;align-items:center;gap:0.5rem;padding:0.6rem 20px;border-bottom:1px solid var(--rule);} .ds-home{margin-right:auto;min-width:0;padding:0.75rem 0;color:var(--dim);font-size:13px;text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:ui-monospace,'SF Mono',SFMono-Regular,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums;} .ds-home:hover{color:var(--porcelain);} .ds-pill{display:inline-flex;align-items:center;min-height:44px;padding:0 0.95rem;border:1px solid var(--rule);border-radius:999px;background:none;color:var(--porcelain);font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:14px;text-decoration:none;cursor:pointer;white-space:nowrap;} .ds-pill:hover{border-color:var(--beam);} .ds-quiet{color:var(--dim);} .ds-quiet:hover{color:var(--porcelain);} .ds-pill:focus-visible,.ds-home:focus-visible{outline:2px solid var(--lamp);outline-offset:3px;border-radius:4px;}"
+    },
+    {
+      "name": "Hub",
+      "kind": "custom",
+      "refersTo": "lamp",
+      "description": "The lamp beside the portal name, tally beneath in beam mono.",
+      "html": "<div class=\"ds-ground\"><div class=\"ds-hub\"><span class=\"ds-lamp\"></span><h1 class=\"ds-h1\">Scott's Outpost</h1><p class=\"ds-tally\">3 running · 2 not running</p></div></div>",
+      "css": ":host{--night:#141a21;--enamel-hi:#222c36;--rule:#26313b;--porcelain:#f3f1e9;--dim:#a3abb1;--beam:#79a59d;--lamp:#f1c191;--down:#d9583b;--down-ink:#f29a85;--field-edge:#6f7c87;--line-w:6px;--stop:26px;} .ds-ground{background:var(--night);padding:28px 20px;} .ds-hub{display:grid;grid-template-columns:44px 1fr;column-gap:14px;align-items:center;} .ds-hub>:not(.ds-lamp){grid-column:2;} .ds-lamp{grid-row:1/span 2;width:44px;height:44px;border-radius:50%;background:radial-gradient(circle at 50% 45%,#fff3df 0 22%,var(--lamp) 60%);box-shadow:0 0 0 6px rgba(241,193,145,0.16),0 0 30px 2px rgba(241,193,145,0.4);} .ds-h1{margin:0;color:var(--porcelain);font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:28px;font-weight:750;line-height:1.1;letter-spacing:-0.015em;} .ds-tally{margin:0.3rem 0 0;font-size:12px;color:var(--beam);font-family:ui-monospace,'SF Mono',SFMono-Regular,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums;}"
+    },
+    {
+      "name": "Service Line",
+      "kind": "custom",
+      "refersTo": "station-mark-up",
+      "description": "One station per app in three states: up (solid), restarting (half lit), down (hollow red, broken stretch).",
+      "html": "<div class=\"ds-ground\"><ol class=\"ds-line\"><li class=\"ds-stop\"><a class=\"ds-row\" href=\"#\"><span class=\"ds-mark\"></span><span class=\"ds-body\"><span class=\"ds-top\"><span class=\"ds-name\">KOSync</span></span><span class=\"ds-meta\"><span>Reading progress</span><span class=\"ds-addr\">kosync.example:18443</span></span></span></a></li><li class=\"ds-stop ds-starting\"><div class=\"ds-row\"><span class=\"ds-mark\"></span><span class=\"ds-body\"><span class=\"ds-top\"><span class=\"ds-name\">Photos</span><span class=\"ds-state\">Restarting</span></span><span class=\"ds-why\">Crashed; trying again in 3s</span><code class=\"ds-cmd\">outpost status photos</code></span></div></li><li class=\"ds-stop ds-down\"><div class=\"ds-row\"><span class=\"ds-mark\"></span><span class=\"ds-body\"><span class=\"ds-top\"><span class=\"ds-name\">notes</span><span class=\"ds-state\">Down</span></span><span class=\"ds-why\">Stopped on purpose</span><code class=\"ds-cmd\">outpost status notes</code></span></div></li></ol></div>",
+      "css": ":host{--night:#141a21;--enamel-hi:#222c36;--rule:#26313b;--porcelain:#f3f1e9;--dim:#a3abb1;--beam:#79a59d;--lamp:#f1c191;--down:#d9583b;--down-ink:#f29a85;--field-edge:#6f7c87;--line-w:6px;--stop:26px;} .ds-ground{background:var(--night);padding:8px 20px 20px;color:var(--porcelain);font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:16px;line-height:1.4;} .ds-line{list-style:none;margin:0;padding:0;} .ds-stop{position:relative;} .ds-stop::before{content:'';position:absolute;left:calc((44px - var(--line-w))/2);top:0;bottom:0;width:var(--line-w);background:var(--beam);} .ds-stop+.ds-stop .ds-row{border-top:1px solid var(--rule);} .ds-row{display:grid;grid-template-columns:44px 1fr;column-gap:14px;min-height:72px;padding:13px 0;color:inherit;text-decoration:none;} a.ds-row:hover .ds-name{text-decoration:underline;text-decoration-color:var(--beam);text-decoration-thickness:2px;text-underline-offset:4px;} a.ds-row:hover .ds-mark{transform:scale(1.15);} a.ds-row:focus-visible{outline:2px solid var(--lamp);outline-offset:3px;border-radius:4px;} .ds-mark{position:relative;z-index:1;justify-self:center;margin-top:1px;width:var(--stop);height:var(--stop);border-radius:50%;border:var(--line-w) solid var(--beam);background:var(--porcelain);transition:transform 0.2s cubic-bezier(0.16,1,0.3,1);} @media (prefers-reduced-motion:reduce){.ds-mark{transition:none;}} .ds-body{min-width:0;display:grid;gap:3px;} .ds-top{display:flex;flex-wrap:wrap;align-items:baseline;gap:0.25rem 0.6rem;} .ds-name{font-size:21px;font-weight:650;line-height:1.15;} .ds-meta{display:flex;flex-wrap:wrap;justify-content:space-between;gap:0.15rem 1rem;font-size:14px;color:var(--dim);} .ds-addr{margin-left:auto;font-size:12px;color:var(--beam);font-family:ui-monospace,'SF Mono',SFMono-Regular,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums;} .ds-state{font-size:11px;font-weight:650;letter-spacing:0.06em;text-transform:uppercase;border-radius:3px;padding:2px 6px;align-self:center;} .ds-starting .ds-mark{background:var(--night);} .ds-starting .ds-mark::after{content:'';position:absolute;inset:3px;border-radius:50%;background:var(--beam);} .ds-starting .ds-state{color:var(--beam);border:1px solid var(--beam);} .ds-starting .ds-why{color:var(--dim);} .ds-down .ds-mark{background:var(--night);border-color:var(--down);} .ds-down::before{background:repeating-linear-gradient(transparent 0 7px,var(--beam) 7px 14px);} .ds-down .ds-state{color:var(--porcelain);background:#b8402a;} .ds-why{font-size:14px;color:var(--down-ink);} .ds-cmd{justify-self:start;margin-top:4px;font-size:12px;color:var(--porcelain);background:var(--enamel-hi);border:1px solid var(--rule);border-radius:4px;padding:3px 7px;user-select:all;font-family:ui-monospace,'SF Mono',SFMono-Regular,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums;}"
+    },
+    {
+      "name": "Hidden Tag",
+      "kind": "chip",
+      "refersTo": "tag",
+      "description": "Admin-only marker beside a station name.",
+      "html": "<div class=\"ds-ground\"><span class=\"ds-name\">plumbline</span> <span class=\"ds-tag\">Hidden</span></div>",
+      "css": ":host{--night:#141a21;--enamel-hi:#222c36;--rule:#26313b;--porcelain:#f3f1e9;--dim:#a3abb1;--beam:#79a59d;--lamp:#f1c191;--down:#d9583b;--down-ink:#f29a85;--field-edge:#6f7c87;--line-w:6px;--stop:26px;} .ds-ground{background:var(--night);padding:20px;color:var(--porcelain);font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;} .ds-name{font-size:21px;font-weight:650;} .ds-tag{font-size:11px;font-weight:650;letter-spacing:0.06em;text-transform:uppercase;border-radius:3px;padding:2px 6px;color:var(--dim);border:1px solid var(--rule);vertical-align:middle;}"
+    },
+    {
+      "name": "Panel",
+      "kind": "card",
+      "refersTo": "",
+      "description": "Not a card: a section opened by a single rule, heading, prose, form.",
+      "html": "<div class=\"ds-ground\"><section class=\"ds-panel\"><h2 class=\"ds-h2\">Sign out everywhere</h2><p class=\"ds-p\">Ends every session on every device, this one included.</p></section></div>",
+      "css": ":host{--night:#141a21;--enamel-hi:#222c36;--rule:#26313b;--porcelain:#f3f1e9;--dim:#a3abb1;--beam:#79a59d;--lamp:#f1c191;--down:#d9583b;--down-ink:#f29a85;--field-edge:#6f7c87;--line-w:6px;--stop:26px;} .ds-ground{background:var(--night);padding:8px 20px 20px;color:var(--porcelain);font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:16px;line-height:1.4;} .ds-panel{margin-top:1.5rem;padding-top:1.5rem;border-top:1px solid var(--rule);} .ds-h2{margin:0;font-size:19px;font-weight:680;line-height:1.1;letter-spacing:-0.015em;} .ds-p{margin:0.6rem 0 0;}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Service Line",
+    "overview": "The Outpost header made into the working page. Service health is drawn as one transit line that leaves a lit lamp and runs down the left edge through a station per app. A running app is a solid porcelain station on an unbroken line; an app on its way back is a half-lit station; an app that is down is a hollow red station with the line broken through its stretch. The operator reads the state of the whole place from the shape of the line before reading a word.\n\nThe world is night only. The dark ground is not a theme of something lighter; there is no light rendition and none is planned. Everything sits on one flat enamel-night plane, divided by thin rules rather than boxed into cards, with the lamp as the single source of glow. The density is a phone held in one hand: generous 72px station rows, 44px-plus tap targets, a single narrow column capped at 40rem.\n\nIt is embedded in the binary and served under a strict CSP (`default-src 'self'`), so the system is built from what one stylesheet, one small script and one raster can carry: system fonts, CSS shapes, no fetched assets, nothing inline. It refuses the homelab icon-tile grid and the bare link list.",
+    "keyCharacteristics": [
+      "One continuous line (6px, beam teal) from the lamp to the last running station; status is drawn, not badged alone.",
+      "Night ground only; porcelain ink; a single amber lamp.",
+      "Rules, not cards; flat, with the lamp glow as the only shadow.",
+      "System sans for everything people read; monospace only for machine strings.",
+      "Phone first: 72px station rows, 44px minimum controls, one column.",
+      "Still: the line never animates."
+    ],
+    "rules": [
+      {
+        "name": "The One Lamp Rule",
+        "body": "Amber belongs to the lamp and to the operator's own instruments (focus ring, caret, selection, skip link). It never marks a status, a link, a heading or a button.",
+        "section": "colors"
+      },
+      {
+        "name": "The Red Means Down Rule",
+        "body": "Signal Red is spent only on a down station and on destructive actions; its ink variant also carries form errors and invalid fields. A screen with nothing down and nothing destructive shows no red.",
+        "section": "colors"
+      },
+      {
+        "name": "The Night Only Rule",
+        "body": "There is one rendition, dark, declared with `color-scheme: dark`. Do not add a light theme or a `prefers-color-scheme` switch.",
+        "section": "colors"
+      },
+      {
+        "name": "The Machine Strings Rule",
+        "body": "Monospace is for the host, app addresses, the hub tally, and `outpost` commands or usernames in `code`. Names, descriptions and prose are never mono.",
+        "section": "typography"
+      },
+      {
+        "name": "The Status Label Rule",
+        "body": "Uppercase tracked text is reserved for the state label and the hidden tag sitting beside a station name. It is never used as a heading or a label above a heading.",
+        "section": "typography"
+      },
+      {
+        "name": "The One Glow Rule",
+        "body": "Nothing casts a shadow except the lamp. Cards, buttons, inputs and stations are flat.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** draw service state on the line: solid for up, half-lit for starting, a hollow red station and a broken stretch for down.",
+      "**Do** keep every interactive control at least 44px tall (pills 44px, buttons and inputs 46px, station rows 72px); inline links in rows keep at least a 24px target.",
+      "**Do** separate content with 1px rules in the rule colour, never with boxes.",
+      "**Do** put the address, host, tally and commands in monospace with tabular figures, and nothing else.",
+      "**Do** give every destructive action the red ghost button and every primary action the porcelain button.",
+      "**Do** keep motion to the station's hover scale (0.2s, cubic-bezier(0.16, 1, 0.3, 1)) and turn it off under `prefers-reduced-motion: reduce`.",
+      "**Do** ship styles and scripts as files from the binary, versioned by a hash of their content, so the CSP stays `default-src 'self'`."
+    ],
+    "donts": [
+      "**Don't** use amber for anything but the lamp, the focus ring, the caret, the selection and the skip link.",
+      "**Don't** use red for anything but a down station, destructive actions, and form errors.",
+      "**Don't** animate the line: no pulsing stations, flowing dashes or loading shimmer.",
+      "**Don't** put apps in cards or icon tiles; an app is a station on the line.",
+      "**Don't** add shadows other than the lamp's glow.",
+      "**Don't** write inline `style` attributes or inline `<script>`; the CSP forbids them.",
+      "**Don't** fetch fonts, icons or images from anywhere; everything is embedded.",
+      "**Don't** add a light theme."
+    ]
+  }
+}

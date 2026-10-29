@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/sroberts/outpost/internal/manifest"
 )
 
 // DescriptorName is the file a service publishes to describe how to run it.
@@ -41,6 +43,12 @@ type Descriptor struct {
 	// StartGraceSeconds is how long the service may take to answer its
 	// healthcheck before a failure counts against it.
 	StartGraceSeconds uint `toml:"start_grace_seconds"`
+	// Title and Description are what the gateway's catalog shows. A
+	// publisher may set them, and public_paths, but not who may open the app
+	// or where it's served: allow, subdomain and hostname are the operator's.
+	Title       string   `toml:"title"`
+	Description string   `toml:"description"`
+	PublicPaths []string `toml:"public_paths"`
 	// Asset names the release asset holding the binary, as a template over
 	// ${GOOS} and ${GOARCH}. Absent means match on a name containing both,
 	// which is what a conventional Go release already produces.
@@ -74,6 +82,11 @@ func (d *Descriptor) validate() error {
 	if d.StartGraceSeconds > maxStartGraceSeconds {
 		return fmt.Errorf("%s: start_grace_seconds %d is longer than the %d-second maximum",
 			DescriptorName, d.StartGraceSeconds, maxStartGraceSeconds)
+	}
+	for _, p := range d.PublicPaths {
+		if err := manifest.ValidPublicPath(p); err != nil {
+			return fmt.Errorf("%s: %w", DescriptorName, err)
+		}
 	}
 	switch d.RestartPolicy {
 	case "", "on-failure", "always", "never":
