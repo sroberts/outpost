@@ -379,6 +379,7 @@ the service receives says who sent it. It's off unless you turn it on:
 [gateway]
 enabled    = true
 public_url = "https://outpost.example"   # the portal, as browsers see it
+# name            = "Home Outpost"       # what the portal calls itself; defaults to Outpost
 # listen          = "127.0.0.1:8443"     # where the daemon listens
 # domain          = "outpost.example"    # apps at <name>.<domain>; defaults to public_url's host
 # tls_cert        = "/path/to/fullchain.pem"   # serve TLS directly; leave both unset
@@ -430,8 +431,44 @@ Tailscale gives the node a different name because the one asked for is taken
 gateway on in an existing tailnet setup changes nodes from plain http on port
 80 to this; restart the daemon to pick it up.
 
-Not built yet: the catalog the portal will show, and per-app `allow` rules.
-Until then every user can open every app.
+### The catalog
+
+After signing in, the portal lists the apps you can open as stations on one
+line, running apps first. An app that isn't up shows why ("Stopped after 3
+crashes", "Stopped on purpose"), and an admin also sees the `outpost status`
+command to look closer. Past a dozen apps a filter appears. The account page
+changes your password, which signs out every other device, and signs you out
+everywhere at once.
+
+What the catalog shows, and who may open an app, come from optional manifest
+fields:
+
+```toml
+title        = "Yarr"                      # what the catalog calls it; defaults to the name
+description  = "RSS reader"                # one line under the title
+subdomain    = "rss"                       # serve at rss.<domain> instead of <name>.<domain>
+hostname     = "yarr.tail1234.ts.net"      # or a full hostname instead (not both)
+allow        = ["alice", "group:family"]   # who may open it; empty means everyone
+hidden       = true                        # leave it out of the catalog (still reachable)
+public_paths = ["/webhook/*", "/feed.xml"] # served without a login
+```
+
+- **`allow`** is checked on every request and before a sign-in link is
+  issued; someone not on it gets a plain "No access" page. Admins reach every
+  app and see every one, hidden ones marked. A name that matches no user or
+  group yet is logged, not refused, so a manifest can come first.
+- **`public_paths`** are for webhooks and feeds that carry their own
+  credentials. A pattern is an exact path or a prefix ending in `/*`.
+  Requests there still have every `X-Outpost-*` header and Outpost's cookie
+  removed, and only a path already in its simplest form matches, so
+  `/webhook/../admin` gets no exemption.
+- A release's `outpost.toml` may set `title`, `description` and
+  `public_paths`, which `outpost add` copies into the manifest. Who gets in and
+  where the app lives stay the operator's call.
+- With the gateway on, a service name that can't be a DNS label is a manifest
+  error unless `subdomain` or `hostname` gives it an address.
+
+Not built yet: app icons. The catalog marks each app with its station.
 
 ## Layout
 

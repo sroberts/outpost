@@ -13,3 +13,11 @@
 *.test
 *.out
 coverage.*
+
+# Impeccable working files: screenshots, mock-ups, decision rounds and
+# critique snapshots. DESIGN.md, design.json and surface briefs are kept.
+.impeccable/critique/
+.impeccable/mocks/
+.impeccable/questions/
+.impeccable/review/
+.impeccable/live/

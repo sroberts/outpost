@@ -30,6 +30,16 @@ type Service struct {
 	// without counting against the service, for anything slow to bind its port.
 	StartGraceSeconds uint `toml:"start_grace_seconds"`
 
+	// What the gateway's catalog shows and who may reach the app; see
+	// catalog.go. All optional.
+	Title       string   `toml:"title"`
+	Description string   `toml:"description"`
+	Subdomain   string   `toml:"subdomain"`
+	Hostname    string   `toml:"hostname"`
+	Allow       []string `toml:"allow"`
+	Hidden      bool     `toml:"hidden"`
+	PublicPaths []string `toml:"public_paths"`
+
 	// root is the Outpost home that a relative storage path resolves against.
 	// Unexported so TOML cannot set it: it comes from where the manifest was
 	// loaded, never from the manifest's own contents.
@@ -110,6 +120,9 @@ func (s *Service) validateWith(opts Options) []error {
 	} else if escapesRoot(s.Storage) {
 		errs = append(errs, fmt.Errorf("storage %q climbs above the Outpost root; use an absolute path if that is deliberate", s.Storage))
 	}
+	if opts.RequireDNSName && s.Name != "" && s.Subdomain == "" && s.Hostname == "" && !validLabel(s.Name) {
+		errs = append(errs, fmt.Errorf("name %q can't be a DNS label (a-z, 0-9 and '-'), so the gateway has no address for it; rename the service or set subdomain", s.Name))
+	}
 	if opts.RequireTailscale && s.TailscaleName == "" {
 		errs = append(errs, fmt.Errorf("tailscale_name is required (or set tailscale.enabled = false in config.toml)"))
 	}
@@ -149,6 +162,8 @@ func (s *Service) validateWith(opts Options) []error {
 		errs = append(errs, fmt.Errorf("funnel is not supported in v1"))
 	}
 
+	errs = append(errs, s.validateCatalog()...)
+
 	return errs
 }
 
@@ -157,6 +172,10 @@ type Options struct {
 	// RequireTailscale makes tailscale_name mandatory. False when the
 	// installation is not using Tailscale at all (config.toml).
 	RequireTailscale bool
+	// RequireDNSName makes a service name that can't be a DNS label an
+	// error, unless subdomain or hostname gives the app its address. Set when
+	// the gateway is on, which serves apps at <name>.<domain>.
+	RequireDNSName bool
 }
 
 // DefaultOptions is the strictest set: Tailscale in use.
@@ -174,6 +193,7 @@ func ValidateWith(services []*Service, opts Options) []error {
 	names := make(map[string]bool)
 	ports := make(map[int]bool)
 	tsNames := make(map[string]bool)
+	hosts := make(map[string]string) // gateway address to the service that has it
 
 	for _, svc := range services {
 		// Per-service validation
@@ -198,6 +218,15 @@ func ValidateWith(services []*Service, opts Options) []error {
 				errs = append(errs, fmt.Errorf("%s: duplicate tailscale_name %q", svc.Name, svc.TailscaleName))
 			}
 			tsNames[svc.TailscaleName] = true
+		}
+
+		// Two services at one gateway address would leave the second
+		// unreachable, with nothing saying why.
+		addr := svc.GatewayAddress()
+		if other, taken := hosts[addr]; taken {
+			errs = append(errs, fmt.Errorf("%s: gateway address %q is already %s's", svc.Name, addr, other))
+		} else {
+			hosts[addr] = svc.Name
 		}
 	}
 

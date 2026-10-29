@@ -1,17 +1,39 @@
 {{define "body"}}
-<header class="bar">
-<span class="brand">Outpost</span>
-<span class="who">{{.Who}}</span>
-<form method="post" action="/logout"><button class="quiet" type="submit">Sign out</button></form>
-</header>
-<main>
-<h1>Apps</h1>
-{{if .Apps}}
-<ul class="apps">
-{{range .Apps}}<li><a href="{{.URL}}"><span class="name">{{.Name}}</span><span class="status{{if .Up}} up{{end}}">{{.Status}}</span></a></li>
-{{end}}</ul>
+<a class="skip" href="#line">Skip to apps</a>
+{{template "rail" .}}
+<main class="page">
+<div class="hub">
+<span class="lamp" aria-hidden="true"></span>
+<h1>{{.Portal}}</h1>
+<p class="tally">{{.Up}} running{{if .Down}} · {{.Down}} not running{{end}}</p>
+</div>
+{{if .Search}}<label class="filter" hidden>Filter apps
+<input id="filter" type="search" autocomplete="off" spellcheck="false" hidden>
+</label>{{end}}
+{{if .Stations}}
+<ol class="line" id="line">
+{{range .Stations}}<li class="stop {{.State}}" data-find="{{lower .Title}} {{lower .Name}} {{lower .Description}}">
+{{if eq .State "up"}}<a class="row" href="{{.URL}}">
+<span class="mark" aria-hidden="true"></span>
+<span class="body">
+<span class="top"><span class="name">{{.Title}}</span>{{if .Hidden}}<span class="tag">Hidden</span>{{end}}<span class="sr">, {{.Label}}</span></span>
+<span class="meta">{{if .Description}}<span class="desc">{{.Description}}</span>{{end}}<span class="addr">{{.Addr}}</span></span>
+</span>
+</a>{{else}}<div class="row">
+<span class="mark" aria-hidden="true"></span>
+<span class="body">
+<span class="top"><span class="name">{{.Title}}</span>{{if .Hidden}}<span class="tag">Hidden</span>{{end}}<span class="state">{{.Label}}</span></span>
+<span class="why">{{.Reason}}</span>
+{{if .Command}}<code class="cmd">{{.Command}}</code>{{end}}
+<a class="addr" href="{{.URL}}">{{.Addr}}<span class="sr"> (open anyway)</span></a>
+</span>
+</div>{{end}}
+</li>
+{{end}}</ol>
+<p id="nomatch" class="empty" hidden>No apps match that.</p>
 {{else}}
-<p class="empty">No apps here yet.{{if .Admin}} Add one with <code>outpost add</code>.{{end}}</p>
+<p class="empty">{{if .Admin}}No apps yet. Add one with <code>outpost add</code>.{{else}}You don't have access to any apps yet.{{end}}</p>
 {{end}}
 </main>
+{{if .Search}}<script src="{{.JS}}" defer></script>{{end}}
 {{end}}

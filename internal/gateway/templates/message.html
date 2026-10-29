@@ -1,7 +1,24 @@
 {{define "body"}}
-<main class="narrow">
-<h1>{{.Title}}</h1>
-<p>{{.Message}}</p>
-{{if .Link}}<p><a href="{{.Link}}">{{.LinkText}}</a></p>{{end}}
+<main class="door">
+<div class="hub">
+<span class="lamp" aria-hidden="true"></span>
+<p class="hub-name">{{.Portal}}</p>
+<p class="tally">{{.Host}}</p>
+</div>
+<section class="panel" aria-labelledby="what">
+<h1 id="what">{{.Title}}</h1>
+{{if .Message}}<p>{{.Message}}</p>{{end}}
+{{with .Station}}<ol class="line solo">
+<li class="stop {{.State}}"><div class="row">
+<span class="mark" aria-hidden="true"></span>
+<span class="body">
+<span class="top"><span class="name">{{.Title}}</span><span class="state">{{.Label}}</span></span>
+<span class="why">{{.Reason}}</span>
+{{if .Command}}<code class="cmd">{{.Command}}</code>{{end}}
+</span>
+</div></li>
+</ol>{{end}}
+{{if .Link}}<p class="onward"><a class="button" href="{{.Link}}">{{.LinkText}}</a></p>{{end}}
+</section>
 </main>
 {{end}}

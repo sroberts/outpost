@@ -3,12 +3,22 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light dark">
-<title>{{.Title}} · Outpost</title>
-<link rel="stylesheet" href="/.outpost/static/portal.css">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#141a21">
+<title>{{.Title}} · {{.Portal}}</title>
+<link rel="stylesheet" href="{{.CSS}}">
 </head>
 <body>
 {{template "body" .}}
 </body>
 </html>
 {{end}}
+{{define "rail"}}<header class="rail">
+<div class="rail-in">
+<a class="home" href="{{.Home}}"><span class="sr">Apps on </span>{{.Host}}</a>
+{{if .Who}}<nav class="acct" aria-label="Account">
+<a class="pill" href="/account"><span class="sr">Account: </span>{{.Who}}</a>
+<form method="post" action="/logout"><button class="pill quiet" type="submit">Sign out</button></form>
+</nav>{{end}}
+</div>
+</header>{{end}}

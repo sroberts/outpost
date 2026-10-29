@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"net/url"
 	"strings"
+	"unicode"
 )
 
 // DefaultGatewayListen is where the gateway listens when listen is unset:
@@ -32,6 +33,9 @@ type Gateway struct {
 	// TrustedProxies may set X-Forwarded-For, -Host and -Proto. Unset means
 	// loopback only; an empty list trusts nobody.
 	TrustedProxies []string `toml:"trusted_proxies"`
+	// Name is what the portal calls itself, on the sign-in page and above
+	// the apps. Defaults to "Outpost".
+	Name string `toml:"name"`
 	// AllowInsecure permits a plain-http public_url on a non-loopback
 	// listen address, which sends passwords across the network in clear.
 	AllowInsecure bool `toml:"allow_insecure"`
@@ -43,6 +47,17 @@ func (g Gateway) ListenAddr() string {
 		return DefaultGatewayListen
 	}
 	return g.Listen
+}
+
+// maxName bounds the portal's name; it heads a phone screen.
+const maxName = 60
+
+// PortalName is Name, or the default.
+func (g Gateway) PortalName() string {
+	if g.Name == "" {
+		return "Outpost"
+	}
+	return g.Name
 }
 
 // AppDomain is the parent domain of app hosts.
@@ -104,6 +119,14 @@ func (g Gateway) validate() error {
 	}
 	if err := validHostname(u.Hostname()); err != nil {
 		return fmt.Errorf("public_url: %w", err)
+	}
+	if len([]rune(g.Name)) > maxName {
+		return fmt.Errorf("name is %d characters; keep it to %d", len([]rune(g.Name)), maxName)
+	}
+	for _, r := range g.Name {
+		if !unicode.IsPrint(r) {
+			return errors.New("name must be one line of printable text")
+		}
 	}
 	if g.Domain != "" {
 		if err := validHostname(g.Domain); err != nil {
@@ -181,6 +204,7 @@ func (g Gateway) render(b *strings.Builder) {
 	b.WriteString("# A login front door: sign in once at public_url, then reach each\n")
 	b.WriteString("# service at <name>.<domain>, which is told who is calling.\n")
 	fmt.Fprintf(b, "enabled = %t\n", g.Enabled)
+	b.WriteString("# What the portal calls itself; defaults to Outpost.\n")
 	optional := func(key, val, example string) {
 		if val != "" {
 			fmt.Fprintf(b, "%s = %q\n", key, val)
@@ -188,6 +212,7 @@ func (g Gateway) render(b *strings.Builder) {
 			fmt.Fprintf(b, "# %s = %q\n", key, example)
 		}
 	}
+	optional("name", g.Name, "Home Outpost")
 	optional("listen", g.Listen, DefaultGatewayListen)
 	optional("public_url", g.PublicURL, "https://outpost.example")
 	b.WriteString("# Apps are served at <name>.<domain>; defaults to public_url's host.\n")

@@ -283,6 +283,9 @@ func (a *app) serviceFromDescriptor(name, binary string, port int, desc *acquire
 		RestartPolicy:     policy,
 		MCP:               mcp,
 		StartGraceSeconds: desc.StartGraceSeconds,
+		Title:             desc.Title,
+		Description:       desc.Description,
+		PublicPaths:       desc.PublicPaths,
 	}
 	svc.Env = withOutpostPort(svc.Env, port)
 	svc.SetRoot(a.home)

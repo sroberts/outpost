@@ -8,13 +8,13 @@ web
 
 ## Users
 
-- **The operator.** The person who runs the Outpost daemon on their own machine
-  (a Mac Mini now, a Linux box later). Comfortable with TOML manifests, a CLI
-  and a terminal dashboard. Manages services and users from the CLI, and uses
-  the portal like anyone else.
-- **A few technical friends.** People the operator gives an account to. They
-  are at home with self-hosted tools and need no hand-holding; their job on the
-  portal is to sign in once and open the app they came for.
+- **The operator, almost always.** The person who runs the Outpost daemon on
+  their own machine (a Mac Mini now, a Linux box later). Comfortable with TOML
+  manifests, a CLI and a terminal dashboard. Manages services and users from
+  the CLI, and uses the portal, mostly from a phone, as their own front door
+  to their apps.
+- **Occasionally, other accounts.** People the operator gives an account to.
+  The portal works for them, but they don't drive its design.
 
 ## Product Purpose
 
@@ -29,8 +29,9 @@ answers "what can I use here?" at a glance, and reach every app you're allowed
 to use with no further prompts. Each app is told who is calling and never has
 to implement login itself.
 
-Success is the operator's own stack running unattended, and the people they
-share it with getting from the portal to an app without friction.
+Success is the operator's own stack running unattended, and the operator
+getting from the portal to an app in one tap, seeing at once what's down and
+why.
 
 ## Positioning
 
@@ -61,16 +62,10 @@ without a rewrite.
   SQLite state, the CLI and TUI, autostart under launchd and systemd,
   backup/restore, users (argon2id passwords, sessions), and the login gateway
   with setup, login, logout, single sign-on across app hosts, identity headers
-  and an Ed25519-signed identity token.
-- **Planned (design PR 3, `docs/design/gateway-users-catalog.md`):** the app
-  catalog on the portal, driven by new optional manifest fields (`title`,
-  `description`, `icon`, `subdomain`, `hostname`, `allow`, `hidden`,
-  `public_paths`); an account page; an access-denied page. One card per app the
-  user may open, showing an icon or lettermark, title, description, address
-  and status (running, starting, or unavailable with a one-line reason);
-  running first, then alphabetical; a search box only past about a dozen apps,
-  as the only JavaScript, with the page working without it. Until then every
-  user can open every app, and the portal is a bare list of links.
+  and an Ed25519-signed identity token; the app catalog (design PR 3), with
+  per-app `allow` rules, `public_paths`, `subdomain`/`hostname`, `hidden`, an
+  account page and an access-denied page.
+- **Not built:** app icons; the station marks each app.
 - **Ships in the binary.** Portal pages are Go `html/template` files and CSS
   embedded in the single static binary: no JavaScript build step, no CDN, no
   external fonts or assets. Pages must work offline on a LAN.
@@ -83,9 +78,8 @@ without a rewrite.
 - **Terminology:** service (a declared, supervised process), manifest (its
   TOML file), app (a service as people reach it through the gateway), portal,
   catalog, operator.
-- **Undecided:** how icon files are served to the portal, and what a
-  publisher-set `public_paths` may cover; both are open questions on the
-  design.
+- **Undecided:** how icon files are served to the portal, an open question
+  on the design.
 
 ## Brand Commitments
 
@@ -101,7 +95,7 @@ without a rewrite.
   committed visual design.
 - Real services to show in a catalog: `yarr` (an RSS reader) runs under
   Outpost today.
-- No users beyond the operator and friends, no testimonials, no metrics. Don't
+- No users beyond the operator and an occasional account, no testimonials, no metrics. Don't
   invent them.
 
 ## Product Principles

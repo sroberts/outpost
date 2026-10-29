@@ -135,7 +135,7 @@ func (a *app) cmdServe(args []string) error {
 		ServicesDir:     a.servicesDir(),
 		BackupDir:       a.backupsDir(),
 		Tailnet:         router,
-		ManifestOptions: manifest.Options{RequireTailscale: useTailnet},
+		ManifestOptions: manifest.Options{RequireTailscale: useTailnet, RequireDNSName: a.config.Gateway.Enabled},
 		Store:           store,
 		ProcessRuntime:  procs,
 		Interval:        *interval,
