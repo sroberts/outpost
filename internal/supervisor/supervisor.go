@@ -413,25 +413,11 @@ func (s *Supervisor) reloadAndTick(ctx context.Context) {
 func (s *Supervisor) tickLocked(ctx context.Context) {
 	s.ticks++
 
-	// Stop and forget anything no longer declared.
+	// Stop anything no longer declared.
 	for name, st := range s.tracked {
-		if _, ok := s.desired[name]; ok {
-			continue
+		if _, ok := s.desired[name]; !ok {
+			s.retireLocked(ctx, name, st)
 		}
-		s.logf("stopping %s: removed from manifest", name)
-		if st.handle != nil {
-			if err := s.runtimeFor(st.svc).Stop(ctx, st.handle); err != nil {
-				s.recordError(name, fmt.Sprintf("stop: %v", err))
-			}
-		}
-		if s.tailnet != nil {
-			_ = s.tailnet.Detach(ctx, name)
-		}
-		s.event(name, state.EventStopped, "removed from manifest")
-		if err := s.store.DeleteService(name); err != nil {
-			s.logf("outpost: %v", err)
-		}
-		delete(s.tracked, name)
 	}
 
 	s.probes = s.probeAll(ctx)
@@ -445,6 +431,33 @@ func (s *Supervisor) tickLocked(ctx context.Context) {
 			s.logf("outpost: prune events: %v", err)
 		}
 	}
+}
+
+// retireLocked stops a service whose manifest is gone. Its row and events
+// stay, marked removed, so the history is still there to read (#32); `outpost
+// remove` clears them, and restoring the manifest brings the service back.
+// Reconcile-loop goroutine only.
+func (s *Supervisor) retireLocked(ctx context.Context, name string, st *svcState) {
+	s.logf("stopping %s: removed from manifest", name)
+	if st.handle != nil {
+		if err := s.runtimeFor(st.svc).Stop(ctx, st.handle); err != nil {
+			s.recordError(name, fmt.Sprintf("stop: %v", err))
+		}
+	}
+	if s.tailnet != nil {
+		_ = s.tailnet.Detach(ctx, name)
+	}
+	s.event(name, state.EventStopped, "removed from manifest")
+	if err := s.store.UpsertService(state.ServiceRecord{
+		Name:          name,
+		Runtime:       st.svc.Runtime,
+		Status:        StatusRemoved,
+		RestartCount:  st.restartCount,
+		LastStartedAt: st.startedAt,
+	}); err != nil {
+		s.logf("outpost: %v", err)
+	}
+	delete(s.tracked, name)
 }
 
 // reconcileService drives one service toward its desired state.

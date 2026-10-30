@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"net"
@@ -251,10 +252,11 @@ func (a *app) cmdRemove(args []string) error {
 
 	path := filepath.Join(a.servicesDir(), name+".toml")
 	svc, err := manifest.Load(path)
+	// Load wraps the error, which os.IsNotExist does not see through.
+	if errors.Is(err, os.ErrNotExist) {
+		return a.removeUndeclared(name, *purge, *yes)
+	}
 	if err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("no service %q declared in %s", name, a.servicesDir())
-		}
 		return err
 	}
 
@@ -263,10 +265,17 @@ func (a *app) cmdRemove(args []string) error {
 	}
 	fmt.Fprintf(a.out, "removed %s\n", path)
 
-	// The daemon stops the service on its next reconcile, because it is no
-	// longer declared.
+	// Left to the reconcile loop, the service would be stopped but its row
+	// kept, marked removed (#32); removing it on purpose clears that too.
 	if c := a.client(); c.Available() {
-		fmt.Fprintln(a.out, "The running daemon will stop it within one interval.")
+		if _, err := c.Forget(name); err != nil {
+			fmt.Fprintf(a.err, "outpost: the daemon could not clear %s: %v\n", name, err)
+			fmt.Fprintln(a.out, "The running daemon will stop it within one interval.")
+		} else {
+			fmt.Fprintf(a.out, "The daemon stopped %s and cleared its record.\n", name)
+		}
+	} else {
+		fmt.Fprintf(a.out, "No daemon is running; once one is, `outpost list` shows %s as removed until `outpost remove %s` clears it.\n", name, name)
 	}
 
 	if !*purge {
@@ -274,13 +283,33 @@ func (a *app) cmdRemove(args []string) error {
 		fmt.Fprintln(a.out, "Delete it too with `outpost remove "+name+" --purge`.")
 		return nil
 	}
+	return a.purge(name, []string{svc.ExpandStorage(), filepath.Join(a.backupsDir(), name)}, *yes)
+}
 
-	// Purging destroys data that backups may be the only other copy of, so
-	// confirm unless told not to.
-	storage := svc.ExpandStorage()
-	backups := filepath.Join(a.backupsDir(), name)
-	if !*yes {
-		fmt.Fprintf(a.out, "\nThis will permanently delete:\n  %s\n  %s\n", storage, backups)
+// removeUndeclared clears a service whose manifest is already gone, which the
+// daemon keeps listing as removed (#32). Without the manifest Outpost cannot
+// know where its storage was, so --purge can only take its backups.
+func (a *app) removeUndeclared(name string, purge, yes bool) error {
+	c := a.client()
+	if !c.Available() {
+		return fmt.Errorf("no service %q declared in %s", name, a.servicesDir())
+	}
+	if _, err := c.Forget(name); err != nil {
+		return err
+	}
+	fmt.Fprintf(a.out, "cleared %s: its manifest was already gone, and the daemon no longer lists it\n", name)
+	if !purge {
+		return nil
+	}
+	fmt.Fprintln(a.out, "Its storage directory was named in the manifest, so Outpost cannot tell where it is; delete it by hand if you want it gone.")
+	return a.purge(name, []string{filepath.Join(a.backupsDir(), name)}, yes)
+}
+
+// purge deletes a removed service's data. Backups may be the only other copy,
+// so it confirms unless told not to.
+func (a *app) purge(name string, dirs []string, yes bool) error {
+	if !yes {
+		fmt.Fprintf(a.out, "\nThis will permanently delete:\n  %s\n", strings.Join(dirs, "\n  "))
 		fmt.Fprint(a.out, "Type the service name to confirm: ")
 		var typed string
 		// A read error leaves typed empty, which fails the comparison below —
@@ -291,7 +320,7 @@ func (a *app) cmdRemove(args []string) error {
 		}
 	}
 
-	for _, dir := range []string{storage, backups} {
+	for _, dir := range dirs {
 		if err := os.RemoveAll(dir); err != nil {
 			return fmt.Errorf("remove %s: %w", dir, err)
 		}

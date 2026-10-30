@@ -165,6 +165,12 @@ func (c *Client) Restart(name string) (string, error) {
 	return resp.Message, err
 }
 
+// Forget clears the record and history of a service whose manifest is gone.
+func (c *Client) Forget(name string) (string, error) {
+	resp, err := c.do(Request{Command: CmdForget, Service: name})
+	return resp.Message, err
+}
+
 // Apply reloads manifests and reconciles.
 func (c *Client) Apply() ([]supervisor.ServiceStatus, error) {
 	resp, err := c.do(Request{Command: CmdApply})

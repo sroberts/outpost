@@ -130,6 +130,13 @@ func (s *Supervisor) List(ctx context.Context) ([]ServiceStatus, error) {
 	return v.([]ServiceStatus), nil
 }
 
+// StatusRemoved is a service whose manifest is gone but whose record, and
+// history, the store still holds (#32). It is stopped and stays stopped:
+// `outpost remove` clears it, and restoring the manifest brings it back. It
+// covers a manifest deleted while the daemon was down too, which the loop
+// never saw go.
+const StatusRemoved = "removed"
+
 // listLocked builds the status list. Reconcile-loop goroutine only.
 func (s *Supervisor) listLocked() []ServiceStatus {
 	var out []ServiceStatus
@@ -153,7 +160,7 @@ func (s *Supervisor) listLocked() []ServiceStatus {
 		out = append(out, ServiceStatus{
 			Name:         rec.Name,
 			Runtime:      rec.Runtime,
-			Status:       rec.Status,
+			Status:       StatusRemoved,
 			Desired:      rec.Desired,
 			Halted:       rec.Halted,
 			InstanceID:   rec.InstanceID,
@@ -314,6 +321,10 @@ func (s *Supervisor) statusOf(name string) ServiceStatus {
 	if tracked, ok := s.tracked[name]; ok {
 		st.NextAttempt = tracked.nextAttempt
 	}
+	if _, declared := s.desired[name]; !declared {
+		st.Status = StatusRemoved
+		st.InstanceID = ""
+	}
 	if st.Status == "" {
 		st.Status = "unknown"
 	}
@@ -349,13 +360,51 @@ func (s *Supervisor) RestartService(ctx context.Context, name string) error {
 func (s *Supervisor) mutate(ctx context.Context, name string, fn func(*Supervisor) error) error {
 	_, err := s.submit(ctx, func(s *Supervisor) (any, error) {
 		if _, ok := s.desired[name]; !ok {
-			return nil, fmt.Errorf("no such service %q", name)
+			return nil, s.undeclared(name)
 		}
 		if err := fn(s); err != nil {
 			return nil, err
 		}
 		s.reconcileService(ctx, s.desired[name])
 		return nil, nil
+	})
+	return err
+}
+
+// undeclared is the error for acting on a service with no manifest: a removed
+// one gets told how to bring it back or clear it, rather than "no such
+// service" for something `outpost list` is showing. Reconcile-loop goroutine
+// only.
+func (s *Supervisor) undeclared(name string) error {
+	if _, found, _ := s.store.GetService(name); found {
+		return fmt.Errorf("%s was removed: its manifest is gone. Restore the manifest to run it again, or clear it with `outpost remove %s`", name, name)
+	}
+	return fmt.Errorf("no such service %q", name)
+}
+
+// Forget clears what the daemon remembers of a service whose manifest is gone:
+// its row and its events. It re-reads the manifests first, so one deleted a
+// moment ago counts as gone and its service is stopped before it is forgotten.
+// A service that is still declared is refused, since deleting the manifest is
+// what removes it.
+func (s *Supervisor) Forget(ctx context.Context, name string) error {
+	_, err := s.submit(ctx, func(s *Supervisor) (any, error) {
+		if _, err := s.reloadLocked(ctx); err != nil {
+			return nil, err
+		}
+		if _, ok := s.desired[name]; ok {
+			return nil, fmt.Errorf("%s is still declared; delete its manifest to remove it", name)
+		}
+		st, tracked := s.tracked[name]
+		if _, found, err := s.store.GetService(name); err != nil {
+			return nil, err
+		} else if !found && !tracked {
+			return nil, fmt.Errorf("no such service %q", name)
+		}
+		if tracked {
+			s.retireLocked(ctx, name, st)
+		}
+		return nil, s.store.DeleteService(name)
 	})
 	return err
 }

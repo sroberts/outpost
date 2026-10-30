@@ -201,8 +201,13 @@ func TestApply_StopsServiceRemovedFromManifest(t *testing.T) {
 	if got := h.rt.stopCount("alpha"); got != 1 {
 		t.Errorf("stop count = %d; want 1", got)
 	}
-	if _, ok, _ := h.store.GetService("alpha"); ok {
-		t.Error("state row survived removal from the manifest")
+	// The row stays, marked removed, so its history can still be read (#32).
+	rec, ok, _ := h.store.GetService("alpha")
+	if !ok {
+		t.Fatal("state row was dropped on removal from the manifest; want it kept as removed")
+	}
+	if rec.Status != StatusRemoved || rec.InstanceID != "" {
+		t.Errorf("row after removal = status %q, instance %q; want removed with no instance", rec.Status, rec.InstanceID)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/sroberts/outpost/internal/runtime"
+	"github.com/sroberts/outpost/internal/supervisor"
 )
 
 // Colours adapt to light and dark terminals rather than assuming dark.
@@ -67,6 +68,8 @@ func statusMark(status string) string {
 		return "✖"
 	case runtime.StatusStopped:
 		return "○"
+	case supervisor.StatusRemoved:
+		return "✕"
 	default:
 		return "·"
 	}
