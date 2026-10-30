@@ -128,9 +128,16 @@ func (a *app) setTailscale(on bool) error {
 	if on {
 		a.warnMissingTailscaleNames()
 	}
-	// Compared with what the daemon started with, not with the file's
-	// previous value: the file may have changed since the daemon started.
-	// A daemon too old to report its settings gets the unconditional hint.
+	a.hintRestart()
+	return nil
+}
+
+// hintRestart says, after a change to config.toml, whether the daemon needs
+// a restart to see it. Compared with what the daemon started with, not with
+// the file's previous value: the file may have changed since the daemon
+// started. A daemon too old to report its settings gets the unconditional
+// hint.
+func (a *app) hintRestart() {
 	running, err := a.client().DaemonConfig()
 	switch {
 	case err != nil:
@@ -140,7 +147,6 @@ func (a *app) setTailscale(on bool) error {
 	case running != a.config.Fingerprint():
 		fmt.Fprintln(a.out, "  the daemon is running with the settings it started with; restart it to apply this: `outpost daemon restart`")
 	}
-	return nil
 }
 
 // saveTailscale writes the setting, keeping everything else in the file.

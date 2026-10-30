@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"tailscale.com/ipn"
 	"tailscale.com/tsnet"
 
 	outposttsnet "github.com/sroberts/outpost/internal/tsnet"
@@ -64,8 +65,19 @@ func Run(ctx context.Context, cfg Config, ready, logs io.Writer) error {
 		return fmt.Errorf("start tsnet node %q: %w", cfg.Hostname, err)
 	}
 	// Block until the node is actually usable, so a node that never registers
-	// is retried by the daemon rather than reported as attached.
+	// is retried by the daemon rather than reported as attached. Meanwhile any
+	// login URL goes to the daemon too, which shows it in `outpost status`.
+	upCtx, stopWatching := context.WithCancel(ctx)
+	watched := make(chan struct{})
+	go func() {
+		defer close(watched)
+		reportLogin(upCtx, server, ready)
+	}()
 	status, err := server.Up(ctx)
+	// Stopped before anything else is written to ready, which this goroutine
+	// also writes to.
+	stopWatching()
+	<-watched
 	if err != nil {
 		return fmt.Errorf("tsnet node %q did not come up: %w", cfg.Hostname, err)
 	}
@@ -127,6 +139,36 @@ func Run(ctx context.Context, cfg Config, ready, logs io.Writer) error {
 			_ = srv.Shutdown(shutdown)
 		}
 		return nil
+	}
+}
+
+// reportLogin prints outposttsnet.LoginLinePrefix and the URL to out each
+// time the node is given a new login URL, until ctx ends. tsnet logs the URL
+// too, but as prose meant for a person; this is the line the daemon reads.
+// The node comes up without it, so a failure here only costs the report.
+func reportLogin(ctx context.Context, server *tsnet.Server, out io.Writer) {
+	lc, err := server.LocalClient()
+	if err != nil {
+		return
+	}
+	watcher, err := lc.WatchIPNBus(ctx, ipn.NotifyInitialState)
+	if err != nil {
+		return
+	}
+	defer func() { _ = watcher.Close() }() // finished with it either way
+	last := ""
+	for {
+		n, err := watcher.Next()
+		if err != nil {
+			return
+		}
+		if n.BrowseToURL == nil || *n.BrowseToURL == "" || *n.BrowseToURL == last {
+			continue
+		}
+		last = *n.BrowseToURL
+		if _, err := fmt.Fprintln(out, outposttsnet.LoginLinePrefix+last); err != nil {
+			return
+		}
 	}
 }
 

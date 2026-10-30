@@ -113,12 +113,12 @@ func (a *app) cmdServe(args []string) error {
 			return err
 		}
 		defer r.Close()
-		router = r
+		router = reportingRouter{r}
 		tailnetHosts = r.Hosts
 
 		if authKey == "" {
-			fmt.Fprintln(a.out, "outpost: no Tailscale auth key; each new service will log a one-time login URL")
-			fmt.Fprintln(a.out, "outpost: set TS_AUTHKEY, or run without Tailscale via `outpost config --tailscale off`")
+			fmt.Fprintln(a.out, "outpost: no Tailscale auth key; a service's node that needs a login shows the URL in `outpost status <service>`")
+			fmt.Fprintln(a.out, "outpost: set one with `outpost config --authkey`, or run without Tailscale via `outpost config --tailscale off`")
 		}
 	} else {
 		fmt.Fprintln(a.out, "outpost: Tailscale is disabled; services stay on loopback")
@@ -285,4 +285,14 @@ func (a *app) supervisorPID() (int, bool) {
 		return pid, false
 	}
 	return pid, true
+}
+
+// reportingRouter lets the supervisor ask the router how each node is doing,
+// for `outpost list` and `status`. The router's states are the supervisor's
+// own names for them.
+type reportingRouter struct{ *outposttsnet.Router }
+
+func (r reportingRouter) TailnetStatus(name string) (supervisor.TailnetStatus, bool) {
+	ns, ok := r.NodeStatus(name)
+	return supervisor.TailnetStatus{State: ns.State, Host: ns.Host, LoginURL: ns.LoginURL, Error: ns.Error}, ok
 }

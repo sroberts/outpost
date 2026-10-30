@@ -291,10 +291,15 @@ func (m Model) detail() string {
 		if v == "" {
 			return
 		}
-		b.WriteString("  " + labelStyle.Render(pad(k, 10)) + valueStyle.Render(v) + "\n")
+		// Cut to the line, as log lines are: a value that wraps, such as a
+		// tailnet node's last error, pushes everything below it down.
+		b.WriteString("  " + labelStyle.Render(pad(k, 10)) + valueStyle.Render(truncate(v, m.width-12)) + "\n")
 	}
 	m.serviceGateway(s, kv)
-	kv("tailscale", s.TailscaleName)
+	kv("tailscale", s.TailnetDetail())
+	if s.Tailnet != nil {
+		kv("login", s.Tailnet.LoginURL)
+	}
 	kv("storage", s.Storage)
 	kv("instance", s.InstanceID)
 	if s.Source != "" {
