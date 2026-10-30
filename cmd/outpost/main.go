@@ -65,6 +65,7 @@ Users:
   user admin <name> on|off grant or revoke admin
   auth rotate-key          replace the key that signs identity tokens
   gateway status           the gateway's addresses and the apps it routes
+  gateway activity [-n N]  sign-ins, failures and refusals at the gateway
 
 Flags:
   --home <dir>             Outpost root (default $OUTPOST_HOME or ~/.outpost)

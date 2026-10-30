@@ -177,6 +177,7 @@ func (a *app) cmdServe(args []string) error {
 			Config:   a.config.Gateway,
 			Auth:     authStore,
 			Services: sup,
+			Events:   sup,
 			Logf:     func(format string, v ...any) { fmt.Fprintf(a.out, format+"\n", v...) },
 
 			TailnetHosts: tailnetHosts,

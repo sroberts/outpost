@@ -40,6 +40,9 @@ type Options struct {
 	// names. Each such service is served at https://<that name>, behind the
 	// same login, and the portal links there.
 	TailnetHosts func() map[string]string
+	// Events, when set, receives sign-ins, failures, denials and account
+	// changes for the activity feed.
+	Events Events
 }
 
 // Gateway is the HTTP front door. It is an http.Handler, so tests can serve
@@ -74,6 +77,7 @@ type Gateway struct {
 	proxy        *httputil.ReverseProxy
 	pages        pages
 	checks       chan struct{} // slots for concurrent password hashing
+	activity     *activity
 
 	ln  net.Listener
 	srv *http.Server
@@ -114,6 +118,7 @@ func New(opts Options) (*Gateway, error) {
 	if g.logf == nil {
 		g.logf = func(string, ...any) {}
 	}
+	g.activity = newActivity(opts.Events, g.logf, func() time.Time { return g.now() })
 	// A __Host- cookie must be Secure, and a browser drops a Secure cookie
 	// set over plain http, so http setups use a plain name.
 	g.cookieName = "outpost"
@@ -162,6 +167,12 @@ func (g *Gateway) Serve(ctx context.Context) error {
 	}
 	g.refreshRoutes(ctx)
 	go g.keepRoutesFresh(ctx)
+	// The daemon closes the stores once Serve returns, so the feed's last
+	// writes have to be done by then, however Serve ends.
+	activityCtx, stopActivity := context.WithCancel(ctx)
+	activityDone := make(chan struct{})
+	go func() { defer close(activityDone); g.activity.run(activityCtx) }()
+	defer func() { stopActivity(); <-activityDone }()
 
 	g.srv = &http.Server{
 		Handler:           g,

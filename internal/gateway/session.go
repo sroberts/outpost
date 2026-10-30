@@ -147,7 +147,7 @@ func (g *Gateway) continueTo(w http.ResponseWriter, r *http.Request, portalTok s
 	// Checked before a code exists, so someone not on the list never gets a
 	// session on the app's host at all.
 	if rt, ok := g.routes.get(app); ok && !allowed(u, rt) {
-		g.denied(w, r, rt)
+		g.denied(w, r, rt, u)
 		return
 	}
 	code, err := g.codes.mint(pendingCode{user: u.Username, app: app, parent: portalTok}, g.now())

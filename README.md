@@ -313,6 +313,7 @@ outpost user disable|enable <name>
 outpost user logout <name>       end every session the user has
 outpost auth rotate-key          replace the key that signs identity tokens
 outpost gateway status           the portal address and the apps it routes
+outpost gateway activity [-n N]  sign-ins, failures and refusals at the gateway
 ```
 
 Passwords are typed at a prompt with no echo, never on the command line, and
@@ -499,6 +500,16 @@ Tailscale gives the node a different name because the one asked for is taken
 (`yarr-1`), the gateway uses the name the node actually got. Turning the
 gateway on in an existing tailnet setup changes nodes from plain http on port
 80 to this; restart the daemon to pick it up.
+
+What the gateway decides goes in the activity feed, and `outpost gateway
+activity` shows it: who signed in or out and from which address, failed and
+throttled sign-ins, refused apps, password changes, and use of the setup link.
+A failure is recorded the first time; repeats of the same one within ten
+minutes become a single line, such as
+`4 more failed sign-ins for "alice" from 192.0.2.7 since 21:14`. Throttled
+attempts are counted by address alone, whatever name they try. A name
+someone typed at the sign-in form is shown quoted, with control characters
+escaped. `outpost user list` shows each user's last sign-in.
 
 ### The catalog
 
