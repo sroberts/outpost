@@ -2,6 +2,9 @@ package supervisor
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -179,5 +182,66 @@ func TestForget_RefusesDeclaredAndUnknown(t *testing.T) {
 	}
 	if err := h.sup.Forget(context.Background(), "nobody"); err == nil || !strings.Contains(err.Error(), "no such service") {
 		t.Errorf("Forget of an unknown service: %v", err)
+	}
+}
+
+// A row left by a daemon that died can name a process that outlived it.
+// Without the manifest there is nothing to match it against, so Forget keeps
+// the row, the only trace of it, rather than dropping it.
+func TestForget_KeepsARowWhoseProcessIsStillAlive(t *testing.T) {
+	h := newHarness(t)
+	live := strconv.Itoa(os.Getpid())
+	if err := h.store.UpsertService(state.ServiceRecord{Name: "ghost", Runtime: "process", Status: "running", InstanceID: live}); err != nil {
+		t.Fatal(err)
+	}
+	h.apply()
+
+	err := h.sup.Forget(context.Background(), "ghost")
+	if err == nil || !strings.Contains(err.Error(), "pid "+live) {
+		t.Fatalf("Forget of a row whose pid is alive: %v", err)
+	}
+	if _, ok, _ := h.store.GetService("ghost"); !ok {
+		t.Error("the row was dropped anyway")
+	}
+	if st, _ := listed(t, h, "ghost"); st.InstanceID != live {
+		t.Errorf("list hides the live instance: %+v", st)
+	}
+	if st, _ := h.sup.Status(context.Background(), "ghost"); st.InstanceID != live {
+		t.Errorf("status hides the live instance: %+v", st)
+	}
+}
+
+// One broken manifest makes Forget say why it can't clear anything yet,
+// rather than claiming the service is still declared.
+func TestForget_ReportsAnUnloadableManifestSet(t *testing.T) {
+	h := newHarness(t)
+	h.writeManifest("alpha", "")
+	h.apply()
+	h.tick()
+	h.removeManifest("alpha")
+	if err := os.WriteFile(filepath.Join(h.dir, "services", "beta.toml"), []byte("port = \"not a number\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := h.sup.Forget(context.Background(), "alpha")
+	if err == nil || !strings.Contains(err.Error(), "could not be reloaded") {
+		t.Errorf("Forget with a broken manifest alongside: %v", err)
+	}
+}
+
+// A restored manifest stops reading as removed at once, before the next
+// reconcile writes the row.
+func TestRemoved_RestoredManifestIsNotRemovedBeforeTheNextTick(t *testing.T) {
+	h := newHarness(t)
+	h.writeManifest("alpha", "")
+	h.apply()
+	h.tick()
+	h.removeManifest("alpha")
+	h.apply()
+	h.tick()
+
+	h.writeManifest("alpha", "")
+	h.apply()
+	if st, _ := h.sup.Status(context.Background(), "alpha"); st.Status == StatusRemoved {
+		t.Errorf("a declared service reads as removed: %+v", st)
 	}
 }

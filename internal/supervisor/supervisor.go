@@ -438,15 +438,7 @@ func (s *Supervisor) tickLocked(ctx context.Context) {
 // remove` clears them, and restoring the manifest brings the service back.
 // Reconcile-loop goroutine only.
 func (s *Supervisor) retireLocked(ctx context.Context, name string, st *svcState) {
-	s.logf("stopping %s: removed from manifest", name)
-	if st.handle != nil {
-		if err := s.runtimeFor(st.svc).Stop(ctx, st.handle); err != nil {
-			s.recordError(name, fmt.Sprintf("stop: %v", err))
-		}
-	}
-	if s.tailnet != nil {
-		_ = s.tailnet.Detach(ctx, name)
-	}
+	s.stopUndeclaredLocked(ctx, name, st)
 	s.event(name, state.EventStopped, "removed from manifest")
 	if err := s.store.UpsertService(state.ServiceRecord{
 		Name:          name,
@@ -456,6 +448,21 @@ func (s *Supervisor) retireLocked(ctx context.Context, name string, st *svcState
 		LastStartedAt: st.startedAt,
 	}); err != nil {
 		s.logf("outpost: %v", err)
+	}
+}
+
+// stopUndeclaredLocked stops a service whose manifest is gone and stops
+// tracking it, leaving its row and events for the caller to keep or clear.
+// Reconcile-loop goroutine only.
+func (s *Supervisor) stopUndeclaredLocked(ctx context.Context, name string, st *svcState) {
+	s.logf("stopping %s: removed from manifest", name)
+	if st.handle != nil {
+		if err := s.runtimeFor(st.svc).Stop(ctx, st.handle); err != nil {
+			s.recordError(name, fmt.Sprintf("stop: %v", err))
+		}
+	}
+	if s.tailnet != nil {
+		_ = s.tailnet.Detach(ctx, name)
 	}
 	delete(s.tracked, name)
 }

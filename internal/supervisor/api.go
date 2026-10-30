@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/sroberts/outpost/internal/manifest"
+	"github.com/sroberts/outpost/internal/runtime"
 )
 
 // This file is the Supervisor's public API — the one code path the CLI, the
@@ -131,10 +133,11 @@ func (s *Supervisor) List(ctx context.Context) ([]ServiceStatus, error) {
 }
 
 // StatusRemoved is a service whose manifest is gone but whose record, and
-// history, the store still holds (#32). It is stopped and stays stopped:
-// `outpost remove` clears it, and restoring the manifest brings it back. It
-// covers a manifest deleted while the daemon was down too, which the loop
-// never saw go.
+// history, the store still holds (#32). Nothing supervises it: `outpost
+// remove` clears it, and restoring the manifest brings it back. It covers a
+// manifest deleted while the daemon was down too, which the loop never saw
+// go; an instance ID such a row still carries may be a process that outlived
+// that daemon, so it is reported rather than hidden.
 const StatusRemoved = "removed"
 
 // listLocked builds the status list. Reconcile-loop goroutine only.
@@ -323,7 +326,10 @@ func (s *Supervisor) statusOf(name string) ServiceStatus {
 	}
 	if _, declared := s.desired[name]; !declared {
 		st.Status = StatusRemoved
-		st.InstanceID = ""
+	} else if st.Status == StatusRemoved {
+		// Its manifest is back, and the next reconcile will record what it
+		// is really doing; until then it is not running.
+		st.Status = string(runtime.StatusStopped)
 	}
 	if st.Status == "" {
 		st.Status = "unknown"
@@ -390,19 +396,32 @@ func (s *Supervisor) undeclared(name string) error {
 func (s *Supervisor) Forget(ctx context.Context, name string) error {
 	_, err := s.submit(ctx, func(s *Supervisor) (any, error) {
 		if _, err := s.reloadLocked(ctx); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("the manifests could not be reloaded, so %s cannot be cleared yet: %w", name, err)
 		}
 		if _, ok := s.desired[name]; ok {
 			return nil, fmt.Errorf("%s is still declared; delete its manifest to remove it", name)
 		}
 		st, tracked := s.tracked[name]
-		if _, found, err := s.store.GetService(name); err != nil {
+		rec, found, err := s.store.GetService(name)
+		if err != nil {
 			return nil, err
-		} else if !found && !tracked {
+		}
+		if !found && !tracked {
 			return nil, fmt.Errorf("no such service %q", name)
 		}
+		// A row this daemon never ran, left by one that died, may name a
+		// process that outlived it. ReclaimOrphans won't kill on a PID alone
+		// without the manifest's binary to match, so the row is the only
+		// trace of it: keep it until the operator has looked.
+		if pid, err := strconv.Atoi(rec.InstanceID); !tracked && err == nil && pid > 1 && pidAlive(pid) {
+			return nil, fmt.Errorf("%s was last recorded running as pid %d, and that process is still alive. "+
+				"Without its manifest Outpost cannot tell whether it is the old service; stop it yourself if it is, then run `outpost remove %s` again",
+				name, pid, name)
+		}
+		// Only stop it: an event and a removed row written here would be
+		// deleted on the next line.
 		if tracked {
-			s.retireLocked(ctx, name, st)
+			s.stopUndeclaredLocked(ctx, name, st)
 		}
 		return nil, s.store.DeleteService(name)
 	})

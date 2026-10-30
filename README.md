@@ -130,7 +130,10 @@ keeps its record and history, and `outpost list` shows it as `removed` (also
 for a manifest deleted while the daemon was down). `outpost start` refuses it.
 Put the manifest back to run it again, or clear it with `outpost remove <name>`,
 which works without the file. With `--purge` it then deletes the service's
-backups, though not its storage: only the manifest said where that was.
+backups, though not its storage: only the manifest said where that was. If the
+record names a process that is still alive, left by a daemon that died, `remove`
+refuses until you have stopped it, since without the manifest Outpost cannot
+tell whether it is the old service.
 
 ## Updating a service
 

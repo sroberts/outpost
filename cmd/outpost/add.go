@@ -267,15 +267,17 @@ func (a *app) cmdRemove(args []string) error {
 
 	// Left to the reconcile loop, the service would be stopped but its row
 	// kept, marked removed (#32); removing it on purpose clears that too.
+	// The daemon knows the service by the name the manifest declares, which
+	// can differ from its filename (spec §5).
 	if c := a.client(); c.Available() {
-		if _, err := c.Forget(name); err != nil {
-			fmt.Fprintf(a.err, "outpost: the daemon could not clear %s: %v\n", name, err)
-			fmt.Fprintln(a.out, "The running daemon will stop it within one interval.")
+		if _, err := c.Forget(svc.Name); err != nil {
+			fmt.Fprintf(a.err, "outpost: the daemon could not clear %s yet: %v\n", svc.Name, err)
+			fmt.Fprintf(a.out, "Once that is sorted out, `outpost remove %s` clears its record.\n", svc.Name)
 		} else {
-			fmt.Fprintf(a.out, "The daemon stopped %s and cleared its record.\n", name)
+			fmt.Fprintf(a.out, "The daemon stopped %s and cleared its record.\n", svc.Name)
 		}
 	} else {
-		fmt.Fprintf(a.out, "No daemon is running; once one is, `outpost list` shows %s as removed until `outpost remove %s` clears it.\n", name, name)
+		fmt.Fprintf(a.out, "No daemon is running; once one is, `outpost list` shows %s as removed until `outpost remove %s` clears it.\n", svc.Name, svc.Name)
 	}
 
 	if !*purge {
@@ -292,7 +294,7 @@ func (a *app) cmdRemove(args []string) error {
 func (a *app) removeUndeclared(name string, purge, yes bool) error {
 	c := a.client()
 	if !c.Available() {
-		return fmt.Errorf("no service %q declared in %s", name, a.servicesDir())
+		return fmt.Errorf("no service %q declared in %s (if its manifest was deleted by hand, the daemon still has its record: start the daemon and run this again)", name, a.servicesDir())
 	}
 	if _, err := c.Forget(name); err != nil {
 		return err
