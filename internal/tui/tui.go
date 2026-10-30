@@ -17,6 +17,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/sroberts/outpost/internal/gateway"
+	"github.com/sroberts/outpost/internal/ipc"
 	"github.com/sroberts/outpost/internal/supervisor"
 )
 
@@ -67,6 +69,21 @@ type Model struct {
 	width, height int
 	loaded        bool
 	quitting      bool
+
+	// The views beyond services, when the client has Extras (extras.go).
+	view          view
+	gateway       *gateway.Status
+	gatewayErr    error
+	gatewayEvents []supervisor.EventRecord
+	users         []ipc.UserInfo
+	usersErr      error
+	userCursor    int
+	signIns       []ipc.SignInInfo
+	signInsUser   string // whose sign-ins signIns holds
+	signInsErr    error
+	confirm       string // the user a first L asked to sign out
+	configChanged func() bool
+	configStale   bool
 }
 
 // New builds a dashboard model.
@@ -110,7 +127,7 @@ type tickMsg time.Time
 
 // Init starts the first load and the refresh ticker.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.fetchServices(), tick())
+	return tea.Batch(m.fetchServices(), m.fetchGateway(), tick())
 }
 
 func tick() tea.Cmd {
@@ -183,6 +200,9 @@ func (m Model) act(verb, service string) tea.Cmd {
 
 // Update handles one message.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if next, cmd, ok := m.updateExtras(msg); ok {
+		return next, cmd
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		// Some terminals — and pty wrappers like script(1) — report a zero
@@ -202,7 +222,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		// Keep the view current without the user asking.
-		return m, tea.Batch(m.fetchServices(), tick())
+		return m, tea.Batch(m.fetchServices(), m.refreshExtras(), tick())
 
 	case servicesMsg:
 		m.loaded = true
@@ -248,12 +268,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.noticeIsErr = false
 		}
 		// Reflect the result straight away rather than waiting for the tick.
-		return m, m.fetchServices()
+		return m, tea.Batch(m.fetchServices(), m.refreshExtras())
 	}
 	return m, nil
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if !key.Matches(msg, m.keys.Quit) && !key.Matches(msg, m.keys.Help) {
+		if next, cmd, ok := m.handleExtraKey(msg); ok {
+			return next, cmd
+		}
+	}
 	switch {
 	case key.Matches(msg, m.keys.Quit):
 		m.quitting = true
@@ -289,7 +314,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case key.Matches(msg, m.keys.Refresh):
 		m.notice = ""
-		return m, m.fetchServices()
+		return m, tea.Batch(m.fetchServices(), m.refreshExtras())
 
 	case key.Matches(msg, m.keys.Start):
 		return m, m.announce("start", "starting")
