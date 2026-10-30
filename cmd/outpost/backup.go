@@ -164,9 +164,20 @@ func (a *app) manageSchedule(service, cadence, at string, system, enable, remove
 		return err
 	}
 
+	legacy, err := autostart.LegacyBackupUnits(runtime.GOOS, job)
+	if err != nil {
+		return err
+	}
+
 	if remove {
 		if _, err := os.Stat(unitPath); os.IsNotExist(err) {
+			if len(legacy) > 0 {
+				return a.clearLegacyBackup(job, legacy, true)
+			}
 			return fmt.Errorf("no backup schedule installed at %s", unitPath)
+		}
+		if err := a.clearLegacyBackup(job, legacy, true); err != nil {
+			return err
 		}
 		if err := a.runAll(autostart.BackupDisableCommands(runtime.GOOS, unitPath, job)); err != nil {
 			fmt.Fprintf(a.err, "outpost: could not stop the schedule (expected if it was never enabled): %v\n", err)
@@ -212,9 +223,57 @@ func (a *app) manageSchedule(service, cadence, at string, system, enable, remove
 			fmt.Fprintf(a.out, "  %s\n", strings.Join(cmd, " "))
 		}
 		fmt.Fprintln(a.out, "\nOr re-run with --enable. To undo: outpost backup --unschedule")
+		return a.clearLegacyBackup(job, legacy, false)
+	}
+	if err := a.runAll(commands); err != nil {
+		return err
+	}
+	// Only once the new timer is running: clearing the old one first would
+	// leave no schedule at all if writing or enabling the new one failed.
+	return a.clearLegacyBackup(job, legacy, true)
+}
+
+// clearLegacyBackup deals with the backup.service and backup.timer an older
+// Outpost wrote on systemd (#20), so an upgrade does not leave a second timer
+// running the same backup. With stop it disables the old timer and removes
+// both files. Without it -- the operator asked us not to touch systemctl -- or
+// when disabling fails, it leaves them and prints the commands, since a timer
+// whose file is gone can stay enabled behind a dangling symlink.
+func (a *app) clearLegacyBackup(job autostart.BackupSchedule, legacy []string, stop bool) error {
+	if len(legacy) == 0 {
 		return nil
 	}
-	return a.runAll(commands)
+	// Only a timer can be enabled; with just the service left there is
+	// nothing to disable, and asking systemctl would fail on the missing unit.
+	var commands [][]string
+	for _, p := range legacy {
+		if strings.HasSuffix(p, ".timer") {
+			commands = autostart.LegacyBackupDisableCommands(job)
+		}
+	}
+	if stop {
+		err := a.runAll(commands)
+		if err == nil {
+			for _, p := range legacy {
+				if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+					return fmt.Errorf("remove the old %s: %w", p, err)
+				}
+				fmt.Fprintf(a.out, "removed %s (the old, unnamespaced name)\n", p)
+			}
+			return nil
+		}
+		fmt.Fprintf(a.err, "outpost: could not stop the old backup timer, so its files are left in place: %v\n", err)
+	}
+	fmt.Fprintln(a.out, "An older Outpost scheduled backups under an unnamespaced name. Remove it with:")
+	for _, cmd := range commands {
+		fmt.Fprintf(a.out, "  %s\n", strings.Join(cmd, " "))
+	}
+	rm := []string{"rm"}
+	if job.Scope == autostart.System {
+		rm = []string{"sudo", "rm"}
+	}
+	fmt.Fprintf(a.out, "  %s\n", strings.Join(append(rm, legacy...), " "))
+	return nil
 }
 
 // parseTimeOfDay reads an HH:MM value.

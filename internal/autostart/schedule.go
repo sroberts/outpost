@@ -65,6 +65,43 @@ func (b BackupSchedule) Validate() error {
 // backupLabel is the job name for a scheduled backup, derived from the daemon's.
 func backupLabel(label string) string { return label + ".backup" }
 
+// backupUnit is the systemd name for a scheduled backup, without a suffix:
+// "outpost-backup" from "com.sroberts.outpost". unitName keeps only a label's
+// last segment, which for backupLabel would be the bare "backup" -- a name
+// that says nothing about Outpost and can collide with another unit in
+// /etc/systemd/system (#20).
+func backupUnit(label string) string {
+	return strings.TrimSuffix(unitName(label), ".service") + "-backup"
+}
+
+// legacyBackupUnit is the name systemd backups were written under before
+// backupUnit ("backup" for the default label), kept so an upgrade can find and
+// clear them. It is derived the way the old code derived it rather than
+// hard-coded, so a non-default label finds its own old units.
+func legacyBackupUnit(label string) string {
+	return strings.TrimSuffix(unitName(backupLabel(label)), ".service")
+}
+
+// legacyMarkers are the exact Description lines an older Outpost wrote into
+// its backup service and timer. Matching whole lines, not a substring, keeps
+// clearing them from ever touching someone else's backup.service.
+var legacyMarkers = []string{
+	"Description=Outpost scheduled backup",
+	"Description=Outpost scheduled backup timer",
+}
+
+func isLegacyOutpostUnit(body string) bool {
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(line)
+		for _, m := range legacyMarkers {
+			if line == m {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // args are the command a scheduled run executes.
 func (b BackupSchedule) args() []string {
 	args := []string{b.Binary, "--home", b.Home, "backup"}
@@ -151,13 +188,55 @@ func (l launchd) RenderBackup(b BackupSchedule) (string, error) {
 
 // BackupUnitPath is the timer's path; the service unit sits beside it.
 func (sd systemd) BackupUnitPath(b BackupSchedule) (string, error) {
-	cfg := b.Config
-	cfg.Label = backupLabel(b.Label)
-	path, err := sd.UnitPath(cfg)
+	daemon, err := sd.UnitPath(b.Config)
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSuffix(path, ".service") + ".timer", nil
+	return filepath.Join(filepath.Dir(daemon), backupUnit(b.Label)+".timer"), nil
+}
+
+// LegacyBackupUnits returns the units an older Outpost wrote for this
+// schedule under the unnamespaced name, if they are still there. Only files
+// Outpost wrote are returned: a backup.service that is not ours is left alone.
+func LegacyBackupUnits(goos string, b BackupSchedule) ([]string, error) {
+	if goos != "linux" {
+		return nil, nil
+	}
+	daemon, err := systemd{}.UnitPath(b.Config)
+	if err != nil {
+		return nil, err
+	}
+	var found []string
+	for _, suffix := range []string{".timer", ".service"} {
+		p := filepath.Join(filepath.Dir(daemon), legacyBackupUnit(b.Label)+suffix)
+		body, err := os.ReadFile(p)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			// Not being able to read it is not the same as it not being
+			// there: a silently skipped timer would keep running beside the
+			// new one.
+			return nil, fmt.Errorf("check for an old backup unit at %s: %w", p, err)
+		}
+		if isLegacyOutpostUnit(string(body)) {
+			found = append(found, p)
+		}
+	}
+	return found, nil
+}
+
+// LegacyBackupDisableCommands stop the legacy timer before its files go.
+func LegacyBackupDisableCommands(b BackupSchedule) [][]string {
+	return systemdDisable(b.Scope, legacyBackupUnit(b.Label)+".timer")
+}
+
+// systemdDisable stops and deregisters a systemd unit in the given scope.
+func systemdDisable(scope Scope, unit string) [][]string {
+	if scope == System {
+		return [][]string{{"sudo", "systemctl", "disable", "--now", unit}}
+	}
+	return [][]string{{"systemctl", "--user", "disable", "--now", unit}}
 }
 
 // RenderBackup produces the oneshot service that a systemd timer triggers.
@@ -183,7 +262,7 @@ func (sd systemd) RenderBackup(b BackupSchedule) (string, error) {
 		fmt.Fprintf(&sb, "User=%s\n", systemdQuote(b.User))
 	}
 	sb.WriteString("StandardOutput=journal\nStandardError=journal\n")
-	fmt.Fprintf(&sb, "SyslogIdentifier=%s\n", strings.TrimSuffix(unitName(backupLabel(b.Label)), ".service"))
+	fmt.Fprintf(&sb, "SyslogIdentifier=%s\n", backupUnit(b.Label))
 	return sb.String(), nil
 }
 
@@ -202,7 +281,7 @@ func (sd systemd) RenderBackupTimer(b BackupSchedule) (string, error) {
 	sb.WriteString("Persistent=true\n")
 	// Spread the load so every timer on the box does not fire at once.
 	sb.WriteString("RandomizedDelaySec=60\n")
-	fmt.Fprintf(&sb, "Unit=%s\n", unitName(backupLabel(b.Label)))
+	fmt.Fprintf(&sb, "Unit=%s.service\n", backupUnit(b.Label))
 
 	sb.WriteString("\n[Install]\n")
 	sb.WriteString("WantedBy=timers.target\n")
@@ -285,7 +364,7 @@ func WriteBackupUnits(goos string, b BackupSchedule) ([]string, error) {
 // BackupEnableCommands are the commands that activate a scheduled backup.
 func BackupEnableCommands(goos, timerPath string, b BackupSchedule) [][]string {
 	if goos == "linux" {
-		unit := strings.TrimSuffix(unitName(backupLabel(b.Label)), ".service") + ".timer"
+		unit := backupUnit(b.Label) + ".timer"
 		if b.Scope == System {
 			return [][]string{
 				{"sudo", "systemctl", "daemon-reload"},
@@ -306,11 +385,7 @@ func BackupEnableCommands(goos, timerPath string, b BackupSchedule) [][]string {
 // BackupDisableCommands stop and deregister a scheduled backup.
 func BackupDisableCommands(goos, timerPath string, b BackupSchedule) [][]string {
 	if goos == "linux" {
-		unit := strings.TrimSuffix(unitName(backupLabel(b.Label)), ".service") + ".timer"
-		if b.Scope == System {
-			return [][]string{{"sudo", "systemctl", "disable", "--now", unit}}
-		}
-		return [][]string{{"systemctl", "--user", "disable", "--now", unit}}
+		return systemdDisable(b.Scope, backupUnit(b.Label)+".timer")
 	}
 	if b.Scope == System {
 		return [][]string{{"sudo", "launchctl", "unload", "-w", timerPath}}
