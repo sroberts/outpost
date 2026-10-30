@@ -139,6 +139,7 @@ func (a *app) cmdServe(args []string) error {
 		Store:           store,
 		ProcessRuntime:  procs,
 		Interval:        *interval,
+		CheckRelease:    (&releaseChecks{a: a}).check,
 		Logf:            func(format string, v ...any) { fmt.Fprintf(a.out, format+"\n", v...) },
 	})
 	if err != nil {
@@ -181,7 +182,7 @@ func (a *app) cmdServe(args []string) error {
 			Logf:     func(format string, v ...any) { fmt.Fprintf(a.out, format+"\n", v...) },
 
 			TailnetHosts: tailnetHosts,
-			Updates:      daemonUpdates{a},
+			Updates:      supervisedUpdates{daemonUpdates{a}, sup},
 		})
 		if err != nil {
 			return err
@@ -235,8 +236,17 @@ func (a *app) cmdServe(args []string) error {
 		close(gwDone)
 	}
 
+	// Off the loop, which must never wait on the network, and over by the time
+	// the store closes.
+	checksDone := make(chan struct{})
+	go func() {
+		defer close(checksDone)
+		sup.RunReleaseChecks(ctx)
+	}()
+
 	// Run reloads manifests each tick and stops every service on the way out.
 	runErr := sup.Run(ctx)
+	<-checksDone
 	srv.Close()
 	if err := <-serveErr; err != nil {
 		fmt.Fprintf(a.err, "outpost: socket server: %v\n", err)

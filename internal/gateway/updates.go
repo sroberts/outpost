@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/sroberts/outpost/internal/auth"
+	"github.com/sroberts/outpost/internal/supervisor"
 )
 
 const (
@@ -34,12 +35,9 @@ type Updates interface {
 	Update(service string) (output string, err error)
 }
 
-// ReleaseCheck is what a check found.
-type ReleaseCheck struct {
-	Latest string // the latest release's tag
-	Newer  bool   // Latest is worth installing over what's there
-	Note   string // why it isn't offered, when there's more to say than "up to date"
-}
+// ReleaseCheck is what a check found. The daemon makes them whether or not the
+// gateway is on, so the type is the supervisor's.
+type ReleaseCheck = supervisor.ReleaseCheck
 
 // checked is one app's latest check. Installed is the release it was made
 // against: once that changes, the answer is about a release no longer there.
@@ -62,6 +60,7 @@ type updateState struct {
 	checking  bool
 	checkedAt time.Time
 	checks    map[string]checked
+	daemonAt  map[string]time.Time // the daemon's latest answer taken into checks
 	running   map[string]bool
 	results   map[string]updateResult
 }
@@ -132,6 +131,31 @@ func (s *updateState) finish(service string, r updateResult) {
 		s.results = map[string]updateResult{}
 	}
 	s.results[service] = r
+}
+
+// takeDaemonChecks takes in what the daemon's own checks found, so a release
+// it noticed shows up here without waiting for a page to ask. Only an answer
+// not seen before counts: the daemon keeps its last good answer through a
+// failed check, and that mustn't paper over the failure the page is showing.
+func (s *updateState) takeDaemonChecks(list []supervisor.ServiceStatus) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, st := range list {
+		if st.ReleaseCheckedAt.IsZero() || st.ReleaseCheckedAt.Equal(s.daemonAt[st.Name]) {
+			continue
+		}
+		if s.daemonAt == nil {
+			s.daemonAt = map[string]time.Time{}
+		}
+		if s.checks == nil {
+			s.checks = map[string]checked{}
+		}
+		s.daemonAt[st.Name] = st.ReleaseCheckedAt
+		s.checks[st.Name] = checked{
+			ReleaseCheck: ReleaseCheck{Latest: st.LatestRelease, Newer: st.UpdateAvailable, Note: st.ReleaseNote},
+			Installed:    st.Release,
+		}
+	}
 }
 
 // startCheck asks about every app from a release, in the background. Pages

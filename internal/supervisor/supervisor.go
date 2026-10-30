@@ -69,6 +69,10 @@ type Options struct {
 	// ManifestOptions controls validation rules that depend on global config,
 	// such as whether tailscale_name is required.
 	ManifestOptions manifest.Options
+	// CheckRelease, when set, asks a service's source about its latest release.
+	// RunReleaseChecks calls it, never the reconcile loop, since it goes over
+	// the network.
+	CheckRelease func(ctx context.Context, svc *manifest.Service) (ReleaseCheck, error)
 	// Now is injectable so tests can control backoff without sleeping.
 	Now func() time.Time
 	// Logf receives operator-facing progress lines; defaults to discarding.
@@ -119,6 +123,12 @@ type Supervisor struct {
 	// fingerprint of the manifest set at the last successful Apply, so serve
 	// can re-apply only when something on disk actually changed.
 	fingerprint string
+
+	checkRelease func(ctx context.Context, svc *manifest.Service) (ReleaseCheck, error)
+	// releases is what's known about each service's latest release. It is a
+	// cache that a restart simply fills again, so it stays out of the state
+	// store. Reconcile-loop goroutine only.
+	releases map[string]*knownRelease
 }
 
 // svcState is what the supervisor remembers about one service between ticks.
@@ -173,6 +183,8 @@ func New(opts Options) (*Supervisor, error) {
 		cmds:                make(chan command, 64),
 		stopped:             make(chan struct{}),
 		heartbeat:           newHeartbeat(heartbeatPeriod, stallThreshold),
+		checkRelease:        opts.CheckRelease,
+		releases:            map[string]*knownRelease{},
 	}
 	if s.Interval <= 0 {
 		s.Interval = defaultInterval

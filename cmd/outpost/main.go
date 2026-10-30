@@ -29,7 +29,8 @@ Commands:
   add <service> --binary   declare a new service from a local binary
   add <github-url>         install a service from its latest GitHub release
   update <service>         install a newer release of it, rolling back if the
-                           new one fails its healthcheck (--check, --to TAG)
+                           new one fails its healthcheck (--check, --to TAG,
+                           --all for every service with a newer release)
   remove <service>         undeclare a service (--purge deletes its data)
   apply                    validate manifests and reconcile
   list                     table of services and their status

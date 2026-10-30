@@ -46,6 +46,16 @@ type ServiceStatus struct {
 	// Where the binary came from, for the gateway's update page.
 	Source  string `json:"source,omitempty"`
 	Release string `json:"release,omitempty"`
+
+	// What the daemon last learned about the latest release, for what's
+	// installed now. All empty until a check has answered for that release.
+	LatestRelease    string    `json:"latest_release,omitempty"`
+	UpdateAvailable  bool      `json:"update_available,omitempty"`
+	ReleaseNote      string    `json:"release_note,omitempty"`
+	ReleaseCheckedAt time.Time `json:"release_checked_at,omitempty"`
+	// ReleaseCheckError is why the most recent check failed. Any answer above
+	// is from the check before it.
+	ReleaseCheckError string `json:"release_check_error,omitempty"`
 }
 
 // ErrNotRunning is returned when the reconcile loop is not draining commands.
@@ -184,6 +194,7 @@ func (s *Supervisor) statusOf(name string) ServiceStatus {
 		st.Source = svc.Source
 		st.Release = svc.Release
 		st.PublicPaths = svc.PublicPaths
+		s.addRelease(&st, svc)
 	}
 	if rec, found, err := s.store.GetService(name); err == nil && found {
 		st.Status = rec.Status
