@@ -107,13 +107,18 @@ func Save(path string, cfg Config) error {
 	// The file may hold a Tailscale auth key, so keep it owner-only. The
 	// mode WriteFile would give applies only to a new file, and one written
 	// by hand is often world-readable, so it is set on every save, before
-	// anything is written.
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	// anything is written. Truncated only after the chmod succeeds, so a
+	// file this user may write but not chmod keeps its contents.
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0o600)
 	if err != nil {
 		return err
 	}
 	if err := f.Chmod(0o600); err != nil {
 		_ = f.Close() // the chmod failure is the one to report
+		return err
+	}
+	if err := f.Truncate(0); err != nil {
+		_ = f.Close() // the truncate failure is the one to report
 		return err
 	}
 	if _, err := f.WriteString(cfg.Render()); err != nil {

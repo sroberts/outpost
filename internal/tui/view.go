@@ -297,8 +297,10 @@ func (m Model) detail() string {
 	}
 	m.serviceGateway(s, kv)
 	kv("tailscale", s.TailnetDetail())
-	if s.Tailnet != nil {
-		kv("login", s.Tailnet.LoginURL)
+	if t := s.Tailnet; t != nil && t.LoginURL != "" {
+		// Never cut: a login URL with an ellipsis in it can't be opened, and
+		// wrapping is the lesser harm.
+		b.WriteString("  " + labelStyle.Render(pad("login", 10)) + valueStyle.Render(t.LoginURL) + "\n")
 	}
 	kv("storage", s.Storage)
 	kv("instance", s.InstanceID)

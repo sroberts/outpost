@@ -93,7 +93,14 @@ func TestConfigCmd_ShowHidesTheAuthKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(out, "tskey-secret") || !strings.Contains(out, "auth_key = \"(set; hidden)\"") {
+	if strings.Contains(out, "tskey-secret") || !strings.Contains(out, "# auth_key is set; not shown") {
 		t.Errorf("config output:\n%s", out)
+	}
+	// Saved back as the file, as people do, it carries no key at all.
+	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte(out), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := authKeyIn(t, home); got != "" {
+		t.Errorf("output saved as config.toml has auth_key %q", got)
 	}
 }

@@ -288,11 +288,20 @@ func (a *app) supervisorPID() (int, bool) {
 }
 
 // reportingRouter lets the supervisor ask the router how each node is doing,
-// for `outpost list` and `status`. The router's states are the supervisor's
-// own names for them.
+// for `outpost list` and `status`.
 type reportingRouter struct{ *outposttsnet.Router }
 
 func (r reportingRouter) TailnetStatus(name string) (supervisor.TailnetStatus, bool) {
 	ns, ok := r.NodeStatus(name)
-	return supervisor.TailnetStatus{State: ns.State, Host: ns.Host, LoginURL: ns.LoginURL, Error: ns.Error}, ok
+	// Mapped by name rather than copied, so the two packages' states can't
+	// drift apart unnoticed: the strings happen to match, the constants are
+	// what each side switches on.
+	state := supervisor.TailnetStarting
+	switch ns.State {
+	case outposttsnet.NodeOn:
+		state = supervisor.TailnetOn
+	case outposttsnet.NodeNeedsLogin:
+		state = supervisor.TailnetNeedsLogin
+	}
+	return supervisor.TailnetStatus{State: state, Host: ns.Host, LoginURL: ns.LoginURL, Error: ns.Error}, ok
 }

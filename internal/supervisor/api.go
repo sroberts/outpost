@@ -189,7 +189,8 @@ type TailnetStatus struct {
 }
 
 // TailnetSummary says how s is doing on the tailnet, in a few words for a
-// table: the name it has there, or why it has none.
+// table: the name it has there, or what its node is doing. "" when it has
+// no node, which tables show as "-".
 func (s ServiceStatus) TailnetSummary() string {
 	t := s.Tailnet
 	if t == nil {
@@ -237,7 +238,9 @@ func (s ServiceStatus) TailnetDetail() string {
 	case TailnetOff:
 		return name + " (Tailscale is off in config.toml)"
 	}
-	return name + " (not on the tailnet while the service isn't running)"
+	// No node: the service isn't running, or attaching it failed, which
+	// the recent events say.
+	return name + " (not on the tailnet)"
 }
 
 // Status reports one service's detail.

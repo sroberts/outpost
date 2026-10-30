@@ -69,7 +69,7 @@ func TestTailnetSummaryAndDetail(t *testing.T) {
 		{&TailnetStatus{State: TailnetNeedsLogin, LoginURL: "u"}, "needs login", "yarr (needs login)"},
 		{&TailnetStatus{State: TailnetStarting}, "starting", "yarr (starting)"},
 		{&TailnetStatus{State: TailnetStarting, Error: "boom"}, "retrying", "yarr (starting; last attempt: boom)"},
-		{&TailnetStatus{State: TailnetNone}, "", "yarr (not on the tailnet while the service isn't running)"},
+		{&TailnetStatus{State: TailnetNone}, "", "yarr (not on the tailnet)"},
 		{&TailnetStatus{State: TailnetOff}, "", "Tailscale is off"},
 	} {
 		s := base

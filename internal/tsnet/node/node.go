@@ -75,9 +75,15 @@ func Run(ctx context.Context, cfg Config, ready, logs io.Writer) error {
 	}()
 	status, err := server.Up(ctx)
 	// Stopped before anything else is written to ready, which this goroutine
-	// also writes to.
+	// also writes to; Fprintln's single write keeps lines whole regardless.
 	stopWatching()
-	<-watched
+	select {
+	case <-watched:
+	case <-time.After(5 * time.Second):
+		// Cancelling should end the bus read at once. If it ever doesn't,
+		// coming up matters more than the report; a late login line only
+		// names a URL the daemon no longer shows for a node that is on.
+	}
 	if err != nil {
 		return fmt.Errorf("tsnet node %q did not come up: %w", cfg.Hostname, err)
 	}

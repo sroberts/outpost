@@ -84,17 +84,30 @@ func (a *app) cmdConfig(args []string) error {
 	} else {
 		fmt.Fprintf(a.out, "# %s\n\n", a.configPath())
 	}
-	shown := a.config
-	if shown.Tailscale.AuthKey != "" {
-		// Shown as set, not shown: this output gets pasted into issues.
-		shown.Tailscale.AuthKey = "(set; hidden)"
-	}
-	fmt.Fprint(a.out, shown.Render())
+	fmt.Fprint(a.out, a.shownConfig())
 	// No daemon is not a change: configChanged treats the failed ping as no.
 	if a.configChanged(a.client()) {
 		fmt.Fprintf(a.out, "\n# %s\n", restartToApply)
 	}
 	return nil
+}
+
+// hiddenKey stands in for the auth key while the file is rendered for
+// display, and is then replaced by a comment.
+const hiddenKey = "outpost-hidden-auth-key"
+
+// shownConfig is config.toml as `outpost config` prints it: an auth key is
+// said to be set, not shown, since this output gets pasted into issues. It
+// is a comment rather than a value, so output saved back as the file can't
+// carry a key that isn't one.
+func (a *app) shownConfig() string {
+	shown := a.config
+	if shown.Tailscale.AuthKey == "" {
+		return shown.Render()
+	}
+	shown.Tailscale.AuthKey = hiddenKey
+	return strings.Replace(shown.Render(), fmt.Sprintf("auth_key = %q", hiddenKey),
+		"# auth_key is set; not shown (`outpost config --no-authkey` removes it)", 1)
 }
 
 // readAuthKey gets an auth key from the terminal, without echoing it, or
