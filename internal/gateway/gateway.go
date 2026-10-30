@@ -167,7 +167,12 @@ func (g *Gateway) Serve(ctx context.Context) error {
 	}
 	g.refreshRoutes(ctx)
 	go g.keepRoutesFresh(ctx)
-	go g.activity.run(ctx)
+	// The daemon closes the stores once Serve returns, so the feed's last
+	// writes have to be done by then, however Serve ends.
+	activityCtx, stopActivity := context.WithCancel(ctx)
+	activityDone := make(chan struct{})
+	go func() { defer close(activityDone); g.activity.run(activityCtx) }()
+	defer func() { stopActivity(); <-activityDone }()
 
 	g.srv = &http.Server{
 		Handler:           g,

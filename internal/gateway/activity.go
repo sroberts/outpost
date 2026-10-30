@@ -9,17 +9,22 @@ import (
 )
 
 // ActivityService is the name gateway events are recorded under in the
-// activity feed, so `outpost logs gateway --events` shows them.
-const ActivityService = "gateway"
+// activity feed. A service can be called anything, but nothing would be
+// called this, so the gateway's events neither mix with a service's nor go
+// when one is removed. `outpost gateway activity` reads them.
+const ActivityService = "@gateway"
 
 // Activity-feed kinds the gateway records.
 const (
 	EventSignIn     = "sign-in"
 	EventSignInFail = "sign-in-fail"
-	EventSignOut    = "sign-out"
-	EventDenied     = "denied"
-	EventPassword   = "password"
-	EventSetup      = "setup"
+	// EventPasswordFail is a wrong current password at the account page:
+	// someone already signed in, so not a failed sign-in.
+	EventPasswordFail = "password-fail"
+	EventSignOut      = "sign-out"
+	EventDenied       = "denied"
+	EventPassword     = "password"
+	EventSetup        = "setup"
 )
 
 // Events is where the gateway's activity goes: the supervisor's feed in the
@@ -113,10 +118,20 @@ func (a *activity) failed(kind, subject string, throttled bool) {
 		done = rp
 	}
 	if !ok && len(a.repeats) >= activityRepeats {
-		a.flushLocked(now, true)
+		a.flushLocked(now, false)
 	}
-	a.repeats[key] = &repeat{kind: kind, subject: subject, since: now}
+	full := !ok && len(a.repeats) >= activityRepeats
+	if !full {
+		a.repeats[key] = &repeat{kind: kind, subject: subject, since: now}
+	}
 	a.mu.Unlock()
+	if full {
+		// A thousand different failures in ten minutes is a flood, and the
+		// throttle is already turning it away; recording each would push
+		// the services' own history out of the feed.
+		a.logf("gateway: too many different failures to record; skipped %s %s", failureWords(kind), subject)
+		return
+	}
 
 	if done != nil {
 		a.summarise(done)
@@ -149,10 +164,8 @@ func (a *activity) flushLocked(now time.Time, everything bool) {
 	for k, rp := range a.repeats {
 		if everything || now.Sub(rp.since) > activityWindow {
 			delete(a.repeats, k)
-			if rp.count+rp.throttled > 0 {
-				// Queued, not written, so holding the lock is fine.
-				a.record(rp.kind, "%s", summary(rp))
-			}
+			// Queued, not written, so holding the lock is fine.
+			a.summarise(rp)
 		}
 	}
 }
@@ -171,7 +184,7 @@ func summary(rp *repeat) string {
 	}
 	var parts []string
 	if rp.count > 0 {
-		parts = append(parts, fmt.Sprintf("%d more failed %s", rp.count, plural(rp.count, "sign-in")))
+		parts = append(parts, fmt.Sprintf("%d more %s", rp.count, plural(rp.count, failureWords(rp.kind))))
 	}
 	if rp.throttled > 0 {
 		parts = append(parts, fmt.Sprintf("%d throttled", rp.throttled))
@@ -180,8 +193,11 @@ func summary(rp *repeat) string {
 }
 
 func failureWords(kind string) string {
-	if kind == EventDenied {
+	switch kind {
+	case EventDenied:
 		return "access denied"
+	case EventPasswordFail:
+		return "wrong current password"
 	}
 	return "failed sign-in"
 }
@@ -204,6 +220,7 @@ func (a *activity) run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			a.drain()
 			return
 		case <-tick.C:
 			a.mu.Lock()
@@ -217,6 +234,26 @@ func (a *activity) run(ctx context.Context) {
 				a.logf("gateway: record %s event: %v", ev.kind, err)
 			}
 			cancel()
+		}
+	}
+}
+
+// drain writes what is still queued or counted as the gateway stops, so a
+// restart in the middle of a burst of failures doesn't lose its record.
+func (a *activity) drain() {
+	a.mu.Lock()
+	a.flushLocked(a.now(), true)
+	a.mu.Unlock()
+	for {
+		select {
+		case ev := <-a.queue:
+			wctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			if err := a.sink.RecordEvent(wctx, ActivityService, ev.kind, ev.message); err != nil {
+				a.logf("gateway: record %s event: %v", ev.kind, err)
+			}
+			cancel()
+		default:
+			return
 		}
 	}
 }

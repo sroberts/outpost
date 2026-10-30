@@ -130,7 +130,9 @@ func (g *Gateway) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	keys := []string{"user:" + username, "ip:" + ip}
 	attempt := fmt.Sprintf("for %s from %s", quoted(username), ip)
 	if d := g.throttle.wait(g.now(), keys...); d > 0 {
-		g.activity.failed(EventSignInFail, attempt, true)
+		// Counted by address alone: a throttled client changing the name
+		// it tries each time is still one line.
+		g.activity.failed(EventSignInFail, "from "+ip, true)
 		form.Error = fmt.Sprintf("Too many attempts. Try again in %d seconds.", int(d.Seconds()+0.999))
 		g.render(w, r, http.StatusTooManyRequests, "login", form)
 		return
@@ -184,12 +186,14 @@ func (g *Gateway) logout(w http.ResponseWriter, r *http.Request) {
 		g.crossOrigin(w, r)
 		return
 	}
-	if _, _, u, ok := g.session(r); ok {
-		g.activity.record(EventSignOut, "%s signed out from %s", u.Username, g.clientIP(r))
-	}
+	// Looked up before the revoke ends it; recorded only once it has, so
+	// the feed never says someone signed out who is still signed in.
+	_, _, u, signedIn := g.session(r)
 	if c, err := r.Cookie(g.cookieName); err == nil {
 		if err := g.auth.RevokeSession(c.Value); err != nil {
 			g.logf("gateway: logout: %v", err)
+		} else if signedIn {
+			g.activity.record(EventSignOut, "%s signed out from %s", u.Username, g.clientIP(r))
 		}
 	}
 	g.clearCookie(w)

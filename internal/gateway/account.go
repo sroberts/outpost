@@ -91,7 +91,7 @@ func (g *Gateway) changePassword(w http.ResponseWriter, r *http.Request, u auth.
 	keys := []string{"user:" + u.Username, "ip:" + ip}
 	attempt := fmt.Sprintf("for %s from %s", quoted(u.Username), ip)
 	if d := g.throttle.wait(g.now(), keys...); d > 0 {
-		g.activity.failed(EventSignInFail, attempt, true)
+		g.activity.failed(EventPasswordFail, "from "+ip, true)
 		fail(http.StatusTooManyRequests, fmt.Sprintf("Too many attempts. Try again in %d seconds.", int(d.Seconds()+0.999)))
 		return
 	}
@@ -105,12 +105,12 @@ func (g *Gateway) changePassword(w http.ResponseWriter, r *http.Request, u auth.
 			return
 		}
 		g.throttle.fail(g.now(), keys...)
-		g.activity.failed(EventSignInFail, attempt, false)
+		g.activity.failed(EventPasswordFail, attempt, false)
 		fail(http.StatusUnauthorized, "That isn't your current password.")
 		return
 	}
 	g.throttle.reset(keys...)
-	g.activity.settle(EventSignInFail, attempt)
+	g.activity.settle(EventPasswordFail, attempt)
 
 	g.checks <- struct{}{}
 	err = g.auth.SetPassword(u.Username, next)

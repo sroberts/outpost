@@ -66,31 +66,41 @@ func TestActivity_SignInsAndFailures(t *testing.T) {
 	c := h.client(false)
 
 	bad := url.Values{"username": {"alice"}, "password": {"wrong password"}}
-	for range 3 {
-		h.post(c, portal+"/login", portal, bad)
-	}
-	h.post(c, portal+"/login", portal, url.Values{"username": {"mallory\x1b[2J"}, "password": {"x"}})
-	// Past the first failure, attempts are throttled, and counted as such.
-
+	h.post(c, portal+"/login", portal, bad)
+	// Past the first failure the address is throttled. Those attempts are
+	// counted by address, whatever name they try.
+	h.post(c, portal+"/login", portal, bad)
+	h.post(c, portal+"/login", portal, url.Values{"username": {"bob"}, "password": {"x"}})
 	got := f.wait(t, 2)
 	if got[0].kind != EventSignInFail || got[0].message != `failed sign-in for "alice" from 127.0.0.1` {
 		t.Errorf("first = %+v", got[0])
 	}
-	if strings.ContainsRune(got[1].message, '\x1b') || !strings.Contains(got[1].message, `"mallory\x1b[2j"`) {
-		t.Errorf("typed name not escaped: %q", got[1].message)
+	if got[1].message != "failed sign-in (throttled) from 127.0.0.1" {
+		t.Errorf("throttled = %+v", got[1])
 	}
 
-	// Clear the address's backoff so the real password is checked.
+	// A typed name is shown escaped.
+	h.g.throttle.reset("ip:127.0.0.1", "user:alice")
+	h.post(c, portal+"/login", portal, url.Values{"username": {"mallory\x1b[2J"}, "password": {"x"}})
+	got = f.wait(t, 3)
+	if strings.ContainsRune(got[2].message, '\x1b') || !strings.Contains(got[2].message, `"mallory\x1b[2j"`) {
+		t.Errorf("typed name not escaped: %q", got[2].message)
+	}
+
+	// A wrong password for alice, then the right one: the success settles
+	// her count at once.
+	h.g.throttle.reset("ip:127.0.0.1", "user:mallory\x1b[2j")
+	h.post(c, portal+"/login", portal, bad)
 	h.g.throttle.reset("ip:127.0.0.1", "user:alice")
 	if resp := h.login(c, "alice", "", "/"); resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("login: %d", resp.StatusCode)
 	}
-	got = f.wait(t, 4)
-	if !strings.HasPrefix(got[2].message, `2 throttled for "alice" from 127.0.0.1 since `) {
-		t.Errorf("summary = %q", got[2].message)
+	got = f.wait(t, 5)
+	if !strings.HasPrefix(got[3].message, `1 more failed sign-in for "alice" from 127.0.0.1 since `) {
+		t.Errorf("summary = %q", got[3].message)
 	}
-	if got[3].kind != EventSignIn || got[3].message != "alice signed in from 127.0.0.1" {
-		t.Errorf("sign-in = %+v", got[3])
+	if got[4].kind != EventSignIn || got[4].message != "alice signed in from 127.0.0.1" {
+		t.Errorf("sign-in = %+v", got[4])
 	}
 }
 
@@ -170,5 +180,23 @@ func TestActivity_SummaryWording(t *testing.T) {
 		if got := summary(&tc.rp); got != tc.want {
 			t.Errorf("got %q\nwant %q", got, tc.want)
 		}
+	}
+}
+
+// Stopping writes what's still counted, so a restart mid-burst keeps it.
+func TestActivity_DrainsOnStop(t *testing.T) {
+	f := &feed{}
+	a := newActivity(f, t.Logf, time.Now)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); a.run(ctx) }()
+
+	a.failed(EventSignInFail, `for "a" from ip`, false)
+	a.failed(EventSignInFail, `for "a" from ip`, false)
+	cancel()
+	<-done
+	got := f.wait(t, 2)
+	if !strings.HasPrefix(got[1].message, `1 more failed sign-in for "a" from ip`) {
+		t.Errorf("after stopping = %+v", got)
 	}
 }
