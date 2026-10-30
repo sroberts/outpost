@@ -129,7 +129,12 @@ type Response struct {
 	// Config is the fingerprint of the config.toml the daemon started with,
 	// also set only by ping, so a client can tell when the file has changed
 	// since and the daemon needs a restart to apply it.
-	Config   string                     `json:"config,omitempty"`
+	Config string `json:"config,omitempty"`
+	// PID and Started identify this run of the daemon, also set only by ping,
+	// so a client waiting out a restart can tell the new daemon from the old
+	// one. Started covers the PID being reused.
+	PID      int                        `json:"pid,omitempty"`
+	Started  time.Time                  `json:"started,omitzero"`
 	Services []supervisor.ServiceStatus `json:"services,omitempty"`
 	Status   *supervisor.ServiceStatus  `json:"status,omitempty"`
 	Events   []supervisor.EventRecord   `json:"events,omitempty"`

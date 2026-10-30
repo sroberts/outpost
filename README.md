@@ -194,7 +194,8 @@ update stays on the page until the daemon restarts, and `outpost gateway
 activity` records which admin started each one and how it ended.
 
 Restarting the daemon during an update ends it where it stands, with no
-rollback, just as killing `outpost update` would. Wait for it to finish, or
+rollback, just as killing `outpost update` would, so `outpost daemon restart`
+refuses to while one is running unless given `--force`. Restarted any other way,
 check `outpost status <service>` afterwards.
 
 ## The service contract
@@ -319,6 +320,8 @@ outpost config --tailscale on|off
 outpost version                  print the build identity of this binary
 outpost install [--system]       install the launchd/systemd autostart service
 outpost uninstall [--system]     stop that service and remove it
+outpost daemon restart           restart the daemon through that service and wait
+                                 for it to come back (--force, --wait D)
 ```
 
 Users log in through the [login gateway](#the-login-gateway). They're managed
@@ -426,7 +429,7 @@ New installs start with Tailscale off: the first command to create
 [Running at startup](#running-at-startup)). A home with no setting at all keeps
 running with it on, since that was the default before, and existing installs
 shouldn't lose their tailnet on upgrade. `outpost config --tailscale on|off`
-changes it at any time; restart the daemon afterwards.
+changes it at any time; run `outpost daemon restart` afterwards.
 
 `[gateway]` turns on the login gateway; its settings are in
 [The login gateway](#the-login-gateway).
@@ -522,7 +525,7 @@ sends you back to it. No wildcard DNS or certificate is needed for this. If
 Tailscale gives the node a different name because the one asked for is taken
 (`yarr-1`), the gateway uses the name the node actually got. Turning the
 gateway on in an existing tailnet setup changes nodes from plain http on port
-80 to this; restart the daemon to pick it up.
+80 to this; `outpost daemon restart` picks it up.
 
 What the gateway decides goes in the activity feed, and `outpost gateway
 activity` shows it: who signed in or out and from which address, failed and
@@ -623,6 +626,7 @@ outpost install --enable   # write it and start it
 outpost install --print    # print it without writing anything
 outpost install --system   # boot-time service instead of per-user (needs root)
 outpost uninstall          # stop it and remove it
+outpost daemon restart     # restart the daemon through it
 ```
 
 `install` writes the file and prints the commands that would enable it, rather
@@ -643,10 +647,48 @@ Tailscale off and an existing one is left as it is.
 
 ### Upgrading
 
-Replace the binary, then re-run `outpost install` (with the same flags as
-before, such as `--system`). That rewrites the service file for the new
-binary and asks any question a new version has added. Restart the daemon to
-pick up the new binary.
+```sh
+make install              # replace the binary
+outpost install           # if needed; same flags as before, such as --system
+outpost daemon restart    # put the daemon on the new binary
+```
+
+`outpost install` is only needed if the binary has moved or a new version has
+added a question: it rewrites the service file and asks. If the job is already
+loaded it says so rather than offering to load it again. launchd keeps the
+definition it loaded, so if the file changed it prints the commands that apply
+it, and those restart the daemon too.
+
+### Restarting the daemon
+
+`outpost daemon restart` restarts the daemon through its launchd job or systemd
+unit, then waits until a new daemon answers on the socket and reports its
+version. It can tell the new daemon from the old one, which may still be
+answering or stopping its services, and if none comes up in `--wait` (three
+minutes by default) it says which of those it was waiting for and where the log
+is.
+
+Services go down with the daemon and come back with the new one, so expect a
+short outage for each. The old daemon stops them in order, each with SIGTERM and
+SIGKILL after 10 seconds. The new one starts them again, apart from any you
+stopped and any halted after a crash loop, which stay that way. If stopping takes
+longer than the job's 60-second limit, the init system kills the daemon; on
+launchd services still running then are reclaimed as orphans when the new daemon
+starts, and on systemd they're killed with it.
+
+It refuses, changing nothing, when:
+
+- no job is installed for this home. A daemon you started by hand in a terminal
+  is left running; stop and start it there. A job with the same label that runs a
+  different `--home` isn't touched either.
+- an update is running, since the restart would end it with no rollback. `--force`
+  goes ahead.
+- a manifest doesn't validate, since the new daemon wouldn't start and every
+  service would stay down. `--force` goes ahead here too.
+
+It looks for a per-user job and then a boot-time one, and `--system` skips the
+first. A boot-time job needs root, so it runs its commands through `sudo` unless
+you are root already. A job installed with `--label` takes the same `--label`.
 
 ### User scope versus system scope
 

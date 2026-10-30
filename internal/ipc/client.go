@@ -107,6 +107,23 @@ func (c *Client) DaemonVersion() (string, error) {
 	return resp.Version, err
 }
 
+// DaemonIdentity says which run of the daemon answered a ping. PID and Started
+// are zero for a daemon too old to report them.
+type DaemonIdentity struct {
+	Version string
+	PID     int
+	Started time.Time
+}
+
+// Identity returns the running daemon's identity.
+func (c *Client) Identity() (DaemonIdentity, error) {
+	resp, err := c.do(Request{Command: CmdPing})
+	if err != nil {
+		return DaemonIdentity{}, err
+	}
+	return DaemonIdentity{Version: resp.Version, PID: resp.PID, Started: resp.Started}, nil
+}
+
 // DaemonConfig returns the fingerprint of the config the daemon started
 // with. A daemon from before fingerprints existed reports "".
 func (c *Client) DaemonConfig() (string, error) {

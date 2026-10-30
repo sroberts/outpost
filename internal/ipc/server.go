@@ -30,6 +30,7 @@ type Server struct {
 	auth    *auth.Store
 	gateway GatewayStatus
 	config  string
+	started time.Time
 	path    string
 	ln      net.Listener
 	logf    func(string, ...any)
@@ -75,7 +76,7 @@ func Listen(path string, sup *supervisor.Supervisor, logf func(string, ...any)) 
 		return nil, fmt.Errorf("chmod socket: %w", err)
 	}
 
-	return &Server{sup: sup, path: path, ln: ln, logf: logf}, nil
+	return &Server{sup: sup, started: time.Now(), path: path, ln: ln, logf: logf}, nil
 }
 
 // UseAuth enables the user.* and auth.* commands. Call it before Serve. It's
@@ -162,7 +163,7 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 func (s *Server) dispatch(ctx context.Context, req Request) Response {
 	switch req.Command {
 	case CmdPing:
-		return Response{OK: true, Message: "pong", Version: version.Short(), Config: s.config}
+		return Response{OK: true, Message: "pong", Version: version.Short(), Config: s.config, PID: os.Getpid(), Started: s.started}
 
 	case CmdList:
 		services, err := s.sup.List(ctx)
@@ -239,7 +240,7 @@ func (s *Server) dispatch(ctx context.Context, req Request) Response {
 
 	case CmdGatewayStatus:
 		if s.gateway == nil {
-			return errorResponse(errors.New("the gateway is off; turn it on with [gateway] enabled = true in config.toml, then restart the daemon"))
+			return errorResponse(errors.New("the gateway is off; turn it on with [gateway] enabled = true in config.toml, then run `outpost daemon restart`"))
 		}
 		st := s.gateway.Status()
 		return Response{OK: true, Gateway: &st}

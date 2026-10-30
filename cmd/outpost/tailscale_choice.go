@@ -136,9 +136,9 @@ func (a *app) setTailscale(on bool) error {
 	case err != nil:
 		// No daemon, so nothing to restart.
 	case running == "":
-		fmt.Fprintln(a.out, "  a daemon is running and reads config.toml only at startup; restart it if this changed its setting")
+		fmt.Fprintln(a.out, "  a daemon is running and reads config.toml only at startup; restart it with `outpost daemon restart` if this changed its setting")
 	case running != a.config.Fingerprint():
-		fmt.Fprintln(a.out, "  the daemon is running with the settings it started with; restart it to apply this")
+		fmt.Fprintln(a.out, "  the daemon is running with the settings it started with; restart it to apply this: `outpost daemon restart`")
 	}
 	return nil
 }

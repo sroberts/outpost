@@ -71,6 +71,25 @@ type Manager interface {
 	DisableCommands(unitPath string, cfg Config) [][]string
 	// Notes are platform caveats worth printing after installation.
 	Notes(cfg Config) []string
+	// RestartCommands restart a job that is already loaded, in order. uid is
+	// the effective user running them: it picks launchd's per-user domain, and
+	// root needs no sudo.
+	RestartCommands(cfg Config, uid int) [][]string
+	// LoadedCommand exits 0 if the init system already has the job set up. It
+	// changes nothing and needs no privileges.
+	LoadedCommand(cfg Config, uid int) []string
+	// ReloadCommands make a loaded job pick up a rewritten unit file, when
+	// RestartCommands alone would not. Empty if they would.
+	ReloadCommands(unitPath string, cfg Config, uid int) [][]string
+	// EnableIsIdempotent says EnableCommands are worth running on a job that
+	// is already loaded.
+	EnableIsIdempotent() bool
+	// LogHint says where the daemon's own output goes.
+	LogHint(cfg Config) string
+	// UnitHome reads back the Outpost root a generated file runs. A label is
+	// unique per user, not per home, so this is what tells a job belonging to
+	// this home from one that merely has the same name.
+	UnitHome(unit string) (string, error)
 }
 
 // For returns the Manager for a GOOS value.

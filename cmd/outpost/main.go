@@ -51,6 +51,8 @@ Commands:
                            the daemon running across reboots; asks whether to
                            use Tailscale unless --tailscale/--no-tailscale
   uninstall [--system]     stop that service and remove it
+  daemon restart           restart the daemon through that service and wait
+                           for it to come back (--force, --wait D)
 
 Users:
   user add <name>          add a user (--admin, --group G, --email E,
@@ -166,6 +168,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return a.cmdInstall(cmdArgs)
 	case "uninstall":
 		return a.cmdUninstall(cmdArgs)
+	case "daemon":
+		return a.cmdDaemon(cmdArgs)
 	case "version":
 		return a.cmdVersion(cmdArgs)
 	case "user":
