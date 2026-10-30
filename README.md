@@ -20,11 +20,12 @@ and that document disagree.
 Built and tested: manifest loading and validation, process supervision with
 restart policies and backoff, SQLite state, the CLI, the daemon and its control
 socket, autostart under launchd and systemd, backup/restore, the dashboard,
-users, and the [login gateway](#the-login-gateway).
+[updating a service](#updating-a-service) from its GitHub releases, users, and
+the [login gateway](#the-login-gateway) with its [app catalog](#the-catalog)
+and per-app access rules.
 
 Not built: container services (`runtime = "container"` is rejected at apply
-time), Hermes `SKILL.md` generation, and the gateway's app catalog and per-app
-access rules.
+time), Hermes `SKILL.md` generation, and app icons in the catalog.
 
 **Tailscale integration has been checked against a real tailnet,** on macOS
 with interactive logins, alone and behind the login gateway; see
