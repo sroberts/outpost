@@ -25,6 +25,7 @@ const (
 	EventDenied       = "denied"
 	EventPassword     = "password"
 	EventSetup        = "setup"
+	EventUpdate       = "update"
 )
 
 // Events is where the gateway's activity goes: the supervisor's feed in the

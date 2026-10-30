@@ -209,3 +209,16 @@ button.ghost:hover { background: rgba(217, 88, 59, 0.12); }
   .mark { transition: none; }
 }
 .onward { margin-top: 1.25rem; }
+
+/* The update page. */
+.updates { list-style: none; margin: 1.25rem 0 0; padding: 0; }
+.updates li { display: grid; gap: 3px; padding: 1rem 0; }
+.updates li + li { border-top: 1px solid var(--rule); }
+.updates p { margin: 0.35rem 0 0; }
+.updates form { margin-top: 0.5rem; justify-self: start; }
+.output { font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.recheck { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; }
+button.plain { background: none; color: var(--porcelain); border: 1px solid var(--field-edge); }
+button.plain:hover { background: none; border-color: var(--beam); }
+.byhand { margin: 1.25rem 0 0; }
+.tally a { display: inline-block; padding: 0.35rem 0; color: var(--lamp); }

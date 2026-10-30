@@ -181,6 +181,7 @@ func (a *app) cmdServe(args []string) error {
 			Logf:     func(format string, v ...any) { fmt.Fprintf(a.out, format+"\n", v...) },
 
 			TailnetHosts: tailnetHosts,
+			Updates:      daemonUpdates{a},
 		})
 		if err != nil {
 			return err

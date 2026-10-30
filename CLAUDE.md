@@ -68,7 +68,8 @@ own child process) · `backup` (tar.gz) · `autostart` (launchd/systemd units) �
 `acquire` (installing a binary from a GitHub release, for `outpost add <url>`) ·
 `auth` (users, argon2id hashes, sessions, signing keys in `auth.db`; no HTTP) ·
 `gateway` (the login front door: host routing, the reverse proxy, sessions over
-HTTP) · `config` · `tsdetect` (asks the system `tailscale` CLI whether Tailscale
+HTTP, the admin's update page, which runs `outpost update`'s own code through
+the `Updates` interface) · `config` · `tsdetect` (asks the system `tailscale` CLI whether Tailscale
 is running; never links Tailscale's client library) · `tui` · `version` (the
 build identity `make build` stamps).
 
