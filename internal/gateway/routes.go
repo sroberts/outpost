@@ -34,6 +34,8 @@ type route struct {
 	Hidden      bool
 	Allow       []string
 	PublicPaths []string
+	Source      string
+	Release     string
 
 	// What the supervisor says, for explaining a service that isn't up.
 	Desired      string
@@ -118,7 +120,7 @@ func (g *Gateway) refreshRoutes(ctx context.Context) {
 		r := route{
 			Name: s.Name, Port: s.Port, Status: s.Status,
 			Title: s.Title, Description: s.Description, Hidden: s.Hidden,
-			Allow: s.Allow, PublicPaths: s.PublicPaths,
+			Allow: s.Allow, PublicPaths: s.PublicPaths, Source: s.Source, Release: s.Release,
 			Desired: s.Desired, Halted: s.Halted, RestartCount: s.RestartCount, NextAttempt: s.NextAttempt,
 		}
 		r.Addr = s.Hostname

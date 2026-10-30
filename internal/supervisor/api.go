@@ -42,6 +42,10 @@ type ServiceStatus struct {
 	Allow       []string `json:"allow,omitempty"`
 	Hidden      bool     `json:"hidden,omitempty"`
 	PublicPaths []string `json:"public_paths,omitempty"`
+
+	// Where the binary came from, for the gateway's update page.
+	Source  string `json:"source,omitempty"`
+	Release string `json:"release,omitempty"`
 }
 
 // ErrNotRunning is returned when the reconcile loop is not draining commands.
@@ -177,6 +181,8 @@ func (s *Supervisor) statusOf(name string) ServiceStatus {
 		st.Hostname = svc.Hostname
 		st.Allow = svc.Allow
 		st.Hidden = svc.Hidden
+		st.Source = svc.Source
+		st.Release = svc.Release
 		st.PublicPaths = svc.PublicPaths
 	}
 	if rec, found, err := s.store.GetService(name); err == nil && found {

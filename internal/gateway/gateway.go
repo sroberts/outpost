@@ -43,6 +43,8 @@ type Options struct {
 	// Events, when set, receives sign-ins, failures, denials and account
 	// changes for the activity feed.
 	Events Events
+	// Updates, when set, gives admins a page for updating apps.
+	Updates Updates
 }
 
 // Gateway is the HTTP front door. It is an http.Handler, so tests can serve
@@ -55,6 +57,8 @@ type Gateway struct {
 	now      func() time.Time
 
 	tailnetHosts func() map[string]string
+	updater      Updates
+	updateState  updateState
 
 	scheme       string // public_url's scheme
 	portalHost   string // public_url's host name, lower case
@@ -105,6 +109,7 @@ func New(opts Options) (*Gateway, error) {
 		logf:         opts.Logf,
 		now:          time.Now,
 		tailnetHosts: opts.TailnetHosts,
+		updater:      opts.Updates,
 		scheme:       u.Scheme,
 		portalHost:   strings.ToLower(u.Hostname()),
 		portalOrigin: u.Scheme + "://" + strings.ToLower(u.Host),

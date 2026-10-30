@@ -174,6 +174,29 @@ A release that has just been published may not have its binaries attached
 yet, while its build uploads them; update says so and changes nothing. Nothing
 updates on its own: automatic updates remain out of scope (spec.md §1).
 
+### From the portal
+
+With the [login gateway](#the-login-gateway) on, an admin can do the same from
+a phone. The catalog links to `/updates`, and says when an update is waiting.
+The page shows each app installed from a release, what it runs and what's
+available, with a button to update.
+
+That button runs `outpost update <service>` inside the daemon, over its own
+socket: the same backup, lock, health wait and rollback, and the same manifest
+edit. It only installs the latest release of the `source` already in the
+manifest. `--to`, `--from`, `--force` and `--no-backup` stay on the CLI, so the
+portal can't go back to an older release or change where an app comes from.
+
+Opening the portal checks for new releases at most once an hour, in the
+background, at one GitHub request per app, and **Check now** asks straight
+away. Nothing installs until an admin presses the button. The result of the last
+update stays on the page until the daemon restarts, and `outpost gateway
+activity` records which admin started each one and how it ended.
+
+Restarting the daemon during an update ends it where it stands, with no
+rollback, just as killing `outpost update` would. Wait for it to finish, or
+check `outpost status <service>` afterwards.
+
 ## The service contract
 
 Outpost does not care what a service does internally. It requires that the
@@ -503,7 +526,8 @@ gateway on in an existing tailnet setup changes nodes from plain http on port
 
 What the gateway decides goes in the activity feed, and `outpost gateway
 activity` shows it: who signed in or out and from which address, failed and
-throttled sign-ins, refused apps, password changes, and use of the setup link.
+throttled sign-ins, refused apps, password changes, use of the setup link, and
+updates started from the portal.
 A failure is recorded the first time; repeats of the same one within ten
 minutes become a single line, such as
 `4 more failed sign-ins for "alice" from 192.0.2.7 since 21:14`. Throttled
@@ -797,6 +821,11 @@ given up). They are load-bearing, not incidental.
 writes them when it installs from a release, and `outpost update` reads them.
 Neither affects what runs. Updating stays a command you run; spec §1's
 deferral of automatic updates still stands.
+
+**There is a web surface.** Spec §1 defers a web UI. The login gateway added a
+portal for signing in and opening apps, and the portal has one management
+control: an admin can update an app to its latest release. Everything else
+stays in the CLI and the TUI.
 
 **The CLI differs from spec §12.** Added: `serve`, `add`, `update`, `remove`,
 `install`, `uninstall`, `config`, `version`, `user`, `auth`, `gateway`,

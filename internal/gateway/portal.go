@@ -35,6 +35,16 @@ func (g *Gateway) servePortal(w http.ResponseWriter, r *http.Request) {
 		} else {
 			g.accountPage(w, r)
 		}
+	case "/updates":
+		switch {
+		case g.updater == nil:
+			g.message(w, r, http.StatusNotFound, "Nothing here",
+				"There's no page at this address.", g.portalLink(), "Back to apps")
+		case r.Method == http.MethodPost:
+			g.updatesSubmit(w, r)
+		default:
+			g.updatesPage(w, r)
+		}
 	case "/setup":
 		if r.Method == http.MethodPost {
 			g.setupSubmit(w, r)
@@ -66,7 +76,7 @@ func (g *Gateway) home(w http.ResponseWriter, r *http.Request) {
 
 	sts := g.stations(u)
 	up, down := tally(sts)
-	g.render(w, r, http.StatusOK, "portal", pageData{
+	d := pageData{
 		Title:    "Apps",
 		Who:      displayName(u),
 		Admin:    u.Admin,
@@ -74,7 +84,12 @@ func (g *Gateway) home(w http.ResponseWriter, r *http.Request) {
 		Up:       up,
 		Down:     down,
 		Search:   len(sts) >= searchFrom,
-	})
+	}
+	if u.Admin && g.updater != nil {
+		g.checkIfStale()
+		d.Updates, d.Waiting = true, g.waiting()
+	}
+	g.render(w, r, http.StatusOK, "portal", d)
 }
 
 func displayName(u auth.User) string {

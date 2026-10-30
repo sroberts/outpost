@@ -47,8 +47,9 @@ without a rewrite.
 ## Operating Context
 
 - Managing Outpost happens in the CLI and the TUI (`outpost tui`). The portal
-  is for signing in and opening apps; there is no admin web UI. Users, groups
-  and access are managed with `outpost user ...`.
+  is for signing in and opening apps, plus one thing for admins: updating an
+  app to its latest release, since that's what an operator away from a terminal
+  most needs. Users, groups and access are managed with `outpost user ...`.
 - The portal is reached over a home network or a tailnet, usually behind TLS
   terminated by the gateway itself, `tailscale serve`, or a proxy such as
   Caddy. It is never exposed to the public internet.
@@ -64,7 +65,7 @@ without a rewrite.
   with setup, login, logout, single sign-on across app hosts, identity headers
   and an Ed25519-signed identity token; the app catalog (design PR 3), with
   per-app `allow` rules, `public_paths`, `subdomain`/`hostname`, `hidden`, an
-  account page and an access-denied page.
+  account page and an access-denied page; an update page for admins.
 - **Not built:** app icons; the station marks each app.
 - **Ships in the binary.** Portal pages are Go `html/template` files and CSS
   embedded in the single static binary: no JavaScript build step, no CDN, no
@@ -105,8 +106,10 @@ without a rewrite.
    place to edit.
 2. **Get people to their app.** The portal is a front door, not a destination:
    the fewest steps from sign-in to the app.
-3. **Management stays in the terminal.** The web surface doesn't grow admin
-   controls; the CLI and TUI own operating Outpost.
+3. **Management stays in the terminal, with one exception.** Admins can update
+   an app from the portal, and that runs the CLI's own update, rollback
+   included. The web surface doesn't otherwise grow admin controls; the CLI and
+   TUI own operating Outpost.
 4. **Nothing to install, nothing to fetch.** Every page works from the one
    binary on a network with no internet access.
 5. **Identity is never the client's to choose.** No UI path may let a request
