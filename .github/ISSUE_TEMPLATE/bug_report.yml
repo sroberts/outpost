@@ -1,0 +1,62 @@
+name: Bug report
+description: Something doesn't work the way it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. Please search existing issues first.
+        Security problems? Don't file them here; see SECURITY.md.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include the manifest involved, if any, with secrets removed.
+      placeholder: |
+        1. …
+        2. …
+    validations:
+      required: true
+  - type: textarea
+    id: version
+    attributes:
+      label: outpost version
+      description: Paste the output of `outpost version`.
+      render: shell
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: How the daemon runs
+      options:
+        - macOS, launchd (outpost install)
+        - Linux, systemd (outpost install)
+        - In the foreground (outpost serve)
+        - Something else (say below)
+    validations:
+      required: true
+  - type: dropdown
+    id: features
+    attributes:
+      label: Features in use
+      multiple: true
+      options:
+        - Tailscale (per-service nodes)
+        - Login gateway
+        - Access tokens
+        - Updates from GitHub releases
+        - Backups
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and status
+      description: Relevant lines from `outpost status <service>`, `outpost logs <service>` or the daemon log. Remove login URLs, tokens and auth keys.
+      render: shell

@@ -5,7 +5,10 @@
 # Outpost
 
 A small Go daemon that runs a declared set of local services as long-lived
-processes, supervises them, and gives you a CLI to manage them.
+processes, supervises them, and gives you a CLI to manage them. It is for
+people running a handful of their own services on a home machine or small
+server, who want them restarted when they fail, backed up, and reachable
+over Tailscale or behind one login, without a container stack.
 
 The manifest is the source of truth: you declare services as TOML files, and
 `outpost` reconciles what is running to match. Process supervision is Outpost's
@@ -38,9 +41,14 @@ Go 1.26 or newer. No cgo — the SQLite driver is pure Go, so the result is a
 static binary.
 
 ```sh
-go build -o outpost ./cmd/outpost
-go test ./...
+make build      # ./outpost, stamped with its version
+make install    # into ~/.local/bin (set PREFIX to change it)
+make check      # everything CI runs
 ```
+
+`make build` stamps the version into the binary; a bare `go build` works but
+reports a pseudo-version. Tagged releases publish static binaries for macOS
+and Linux, on arm64 and amd64, with a `SHA256SUMS` file.
 
 The binary is ~36 MB, most of which is the `tailscale.com` dependency.
 
@@ -1031,3 +1039,15 @@ at apply time with an explicit error, per spec §7.
 
 **Backup scheduling uses the init system.** Spec §10 leaves this open; Outpost
 generates a launchd job or a systemd timer rather than growing a scheduler.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md): branch from `main`, run `make check`,
+and keep each PR to one logical change. Questions go in an issue, see
+[SUPPORT.md](SUPPORT.md); security problems go through
+[SECURITY.md](SECURITY.md). Everyone taking part is expected to follow the
+[code of conduct](CODE_OF_CONDUCT.md).
+
+## License
+
+[MIT](LICENSE).
