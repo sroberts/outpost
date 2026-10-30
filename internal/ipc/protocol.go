@@ -25,6 +25,7 @@ const (
 	CmdStart   = "start"
 	CmdStop    = "stop"
 	CmdRestart = "restart"
+	CmdForget  = "forget"
 	CmdApply   = "apply"
 	CmdEvents  = "events"
 	CmdPing    = "ping"

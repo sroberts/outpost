@@ -197,6 +197,12 @@ func (s *Server) dispatch(ctx context.Context, req Request) Response {
 		}
 		return Response{OK: true, Message: fmt.Sprintf("restarted %s", req.Service)}
 
+	case CmdForget:
+		if err := s.sup.Forget(ctx, req.Service); err != nil {
+			return errorResponse(err)
+		}
+		return Response{OK: true, Message: fmt.Sprintf("cleared %s", req.Service)}
+
 	case CmdApply:
 		services, err := s.sup.ApplyNow(ctx)
 		if err != nil {
