@@ -68,6 +68,7 @@ type pageData struct {
 
 	Token       string
 	MinPassword int
+	SignIns     []signInRow
 
 	Who      string
 	Admin    bool

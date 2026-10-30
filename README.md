@@ -541,8 +541,9 @@ After signing in, the portal lists the apps you can open as stations on one
 line, running apps first. An app that isn't up shows why ("Stopped after 3
 crashes", "Stopped on purpose"), and an admin also sees the `outpost status`
 command to look closer. Past a dozen apps a filter appears. The account page
-changes your password, which signs out every other device, and signs you out
-everywhere at once.
+lists where you're signed in and ends any one of those sessions, such as a lost
+phone's, along with the apps it was signed in to. It also changes your password,
+which signs out every other device, and signs you out everywhere at once.
 
 What the catalog shows, and who may open an app, come from optional manifest
 fields:
