@@ -15,6 +15,9 @@ func (a *app) cmdGateway(args []string) error {
 	if err != nil {
 		return err
 	}
+	// Before the status, which comes from the daemon's settings: with the
+	// gateway turned on since it started, there is no status to show.
+	a.warnConfigChanged(c)
 	st, err := c.GatewayStatus()
 	if err != nil {
 		return err

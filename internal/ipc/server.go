@@ -29,6 +29,7 @@ type Server struct {
 	sup     *supervisor.Supervisor
 	auth    *auth.Store
 	gateway GatewayStatus
+	config  string
 	path    string
 	ln      net.Listener
 	logf    func(string, ...any)
@@ -90,6 +91,10 @@ type GatewayStatus interface {
 // UseGateway enables gateway.status. Call it before Serve; a daemon with the
 // gateway off doesn't.
 func (s *Server) UseGateway(g GatewayStatus) { s.gateway = g }
+
+// UseConfig records the fingerprint of the config the daemon started with,
+// for ping to report. Call it before Serve.
+func (s *Server) UseConfig(fingerprint string) { s.config = fingerprint }
 
 // Addr reports the socket path.
 func (s *Server) Addr() string { return s.path }
@@ -157,7 +162,7 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 func (s *Server) dispatch(ctx context.Context, req Request) Response {
 	switch req.Command {
 	case CmdPing:
-		return Response{OK: true, Message: "pong", Version: version.Short()}
+		return Response{OK: true, Message: "pong", Version: version.Short(), Config: s.config}
 
 	case CmdList:
 		services, err := s.sup.List(ctx)

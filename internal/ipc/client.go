@@ -107,6 +107,13 @@ func (c *Client) DaemonVersion() (string, error) {
 	return resp.Version, err
 }
 
+// DaemonConfig returns the fingerprint of the config the daemon started
+// with. A daemon from before fingerprints existed reports "".
+func (c *Client) DaemonConfig() (string, error) {
+	resp, err := c.do(Request{Command: CmdPing})
+	return resp.Config, err
+}
+
 // List returns every service the daemon knows about.
 func (c *Client) List() ([]supervisor.ServiceStatus, error) {
 	resp, err := c.do(Request{Command: CmdList})

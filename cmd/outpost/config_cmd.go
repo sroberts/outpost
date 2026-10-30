@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/sroberts/outpost/internal/config"
+	"github.com/sroberts/outpost/internal/ipc"
 )
 
 // cmdConfig shows the global configuration, or writes a starter file (§9).
@@ -65,5 +66,28 @@ func (a *app) cmdConfig(args []string) error {
 		fmt.Fprintf(a.out, "# %s\n\n", a.configPath())
 	}
 	fmt.Fprint(a.out, a.config.Render())
+	if c := a.client(); c.Available() && a.configChanged(c) {
+		fmt.Fprintf(a.out, "\n# %s\n", restartToApply)
+	}
 	return nil
+}
+
+// restartToApply is what the CLI says when the daemon is running settings
+// other than config.toml's. The daemon reads the file only at startup.
+const restartToApply = "config.toml has changed since the daemon started; restart the daemon to apply it"
+
+// configChanged reports whether the running daemon started with settings
+// other than the ones in config.toml now. A daemon too old to say is given
+// the benefit of the doubt.
+func (a *app) configChanged(c *ipc.Client) bool {
+	running, err := c.DaemonConfig()
+	return err == nil && running != "" && running != a.config.Fingerprint()
+}
+
+// warnConfigChanged puts restartToApply on stderr, where it can't get in the
+// way of output a script reads.
+func (a *app) warnConfigChanged(c *ipc.Client) {
+	if a.configChanged(c) {
+		fmt.Fprintf(a.err, "warning: %s\n", restartToApply)
+	}
 }

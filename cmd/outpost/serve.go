@@ -168,6 +168,7 @@ func (a *app) cmdServe(args []string) error {
 	}
 	defer srv.Close()
 	srv.UseAuth(authStore)
+	srv.UseConfig(a.config.Fingerprint())
 
 	var gw *gateway.Gateway
 	if a.config.Gateway.Enabled {

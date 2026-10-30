@@ -118,6 +118,7 @@ func (a *app) cmdList(args []string) error {
 	if err != nil {
 		return err
 	}
+	a.warnConfigChanged(c)
 	if len(services) == 0 {
 		fmt.Fprintf(a.out, "No services declared in %s\n", a.servicesDir())
 		return nil
@@ -157,6 +158,7 @@ func (a *app) cmdStatus(args []string) error {
 	if err != nil {
 		return err
 	}
+	a.warnConfigChanged(c)
 
 	fmt.Fprintf(a.out, "%s\n", st.Name)
 	fmt.Fprintf(a.out, "  status:        %s\n", st.Status)
