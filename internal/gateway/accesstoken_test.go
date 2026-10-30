@@ -759,7 +759,7 @@ func TestAccessToken_AccountPage(t *testing.T) {
 			t.Fatal(err)
 		}
 		tok := h.pat("alice")
-		form := url.Values{"action": {"end"}, "session": {auth.HashToken(other)}}
+		form := url.Values{"action": {"end"}, "id": {auth.HashToken(other)}}
 		if resp := h.post(c, portal+"/account", portal, form); resp.StatusCode != http.StatusOK {
 			t.Fatal(resp.Status)
 		}
