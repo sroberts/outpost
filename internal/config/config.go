@@ -104,8 +104,28 @@ func Save(path string, cfg Config) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
 	}
-	// The file may hold a Tailscale auth key, so keep it owner-only.
-	return os.WriteFile(path, []byte(cfg.Render()), 0o600)
+	// The file may hold a Tailscale auth key, so keep it owner-only. The
+	// mode WriteFile would give applies only to a new file, and one written
+	// by hand is often world-readable, so it is set on every save, before
+	// anything is written. Truncated only after the chmod succeeds, so a
+	// file this user may write but not chmod keeps its contents.
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0o600)
+	if err != nil {
+		return err
+	}
+	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close() // the chmod failure is the one to report
+		return err
+	}
+	if err := f.Truncate(0); err != nil {
+		_ = f.Close() // the truncate failure is the one to report
+		return err
+	}
+	if _, err := f.WriteString(cfg.Render()); err != nil {
+		_ = f.Close() // the write failure is the one to report
+		return err
+	}
+	return f.Close()
 }
 
 // Render produces the file's contents, with comments explaining each setting.

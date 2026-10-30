@@ -41,6 +41,11 @@ const ReadyLine = "outpost-tsnet-node: ready"
 // it from the node rather than assuming it.
 const HostLinePrefix = "outpost-tsnet-node: host "
 
+// LoginLinePrefix starts a line a node prints on stdout, before ReadyLine,
+// each time Tailscale gives it a URL to authorise it at. The daemon keeps the
+// latest, so the operator finds it in `outpost status` rather than the log.
+const LoginLinePrefix = "outpost-tsnet-node: login "
+
 // AuthKeyEnv carries the auth key to the node. An argument would put the key
 // in the process table for any local user to read.
 const AuthKeyEnv = "OUTPOST_TSNET_AUTHKEY"
@@ -195,6 +200,12 @@ func (r *Router) startProcessNode(ctx context.Context, cfg nodeConfig) (tailnetN
 				p.host = strings.TrimSuffix(strings.TrimSpace(host), ".")
 				continue
 			}
+			if u, ok := strings.CutPrefix(sc.Text(), LoginLinePrefix); ok {
+				if cfg.onLogin != nil {
+					cfg.onLogin(strings.TrimSpace(u))
+				}
+				continue
+			}
 			r.logf("%s: %s", cfg.Service, sc.Text())
 		}
 		drain(stdout)
@@ -226,17 +237,40 @@ func (r *Router) startProcessNode(ctx context.Context, cfg nodeConfig) (tailnetN
 		return p, nil
 	case <-p.done:
 		tailMu.Lock()
-		why := strings.Join(tail, "; ")
+		lines := append([]string(nil), tail...)
 		tailMu.Unlock()
-		if why == "" {
-			why = fmt.Sprint(p.exitErr)
-		}
-		return nil, fmt.Errorf("tsnet node %q exited before coming up: %s", cfg.Hostname, why)
+		return nil, &earlyExit{hostname: cfg.Hostname, tail: lines, exitErr: p.exitErr}
 	case <-ctx.Done():
 		// Detached while waiting, typically on a login nobody has done yet.
 		_ = p.Close() // never fails; it kills what does not leave
 		return nil, ctx.Err()
 	}
+}
+
+// earlyExit is a node that exited before it came up.
+type earlyExit struct {
+	hostname string
+	// tail is the last few lines it wrote to stderr.
+	tail    []string
+	exitErr error
+}
+
+// Error gives the whole tail, for the log.
+func (e *earlyExit) Error() string {
+	why := strings.Join(e.tail, "; ")
+	if why == "" {
+		why = fmt.Sprint(e.exitErr)
+	}
+	return fmt.Sprintf("tsnet node %q exited before coming up: %s", e.hostname, why)
+}
+
+// Reason is the line that explains the exit, which is the node's last: the
+// error it exited with. The lines before it are progress.
+func (e *earlyExit) Reason() string {
+	if len(e.tail) == 0 {
+		return fmt.Sprintf("the node exited: %v", e.exitErr)
+	}
+	return strings.TrimPrefix(e.tail[len(e.tail)-1], "outpost: ")
 }
 
 // drain discards what a scanner gave up on -- a line over its limit -- so the

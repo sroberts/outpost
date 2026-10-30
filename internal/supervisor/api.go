@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
+
+	"github.com/sroberts/outpost/internal/manifest"
 )
 
 // This file is the Supervisor's public API — the one code path the CLI, the
@@ -33,6 +36,10 @@ type ServiceStatus struct {
 	Backoff       int       `json:"backoff_seconds"`
 	// NextAttempt is set while a service is waiting out its restart backoff.
 	NextAttempt time.Time `json:"next_attempt,omitempty"`
+	// Tailnet is the observed state of the service's node, where
+	// TailscaleName is only what the manifest asks for. Nil for a service
+	// with no tailscale_name, and from a daemon too old to say.
+	Tailnet *TailnetStatus `json:"tailnet,omitempty"`
 
 	// Catalog fields from the manifest, for the gateway.
 	Title       string   `json:"title,omitempty"`
@@ -156,6 +163,86 @@ func (s *Supervisor) listLocked() []ServiceStatus {
 	return out
 }
 
+// Tailnet states. The first three are the node's own; the last two say why
+// a service has none.
+const (
+	TailnetOn         = "on"
+	TailnetStarting   = "starting"
+	TailnetNeedsLogin = "needs-login"
+	// TailnetNone is a service with no node right now: one that isn't
+	// running, or that the daemon couldn't put on the tailnet.
+	TailnetNone = "none"
+	// TailnetOff is Tailscale turned off in config.toml.
+	TailnetOff = "off"
+)
+
+// TailnetStatus is how a service's Tailscale node is doing.
+type TailnetStatus struct {
+	State string `json:"state"`
+	// Host is the node's DNS name once it is on, which can differ from the
+	// tailscale_name asked for when that name was taken.
+	Host string `json:"host,omitempty"`
+	// LoginURL is where to authorise a node that needs a login.
+	LoginURL string `json:"login_url,omitempty"`
+	// Error is why the last attempt to bring the node up failed.
+	Error string `json:"error,omitempty"`
+}
+
+// TailnetSummary says how s is doing on the tailnet, in a few words for a
+// table: the name it has there, or what its node is doing. "" when it has
+// no node, which tables show as "-".
+func (s ServiceStatus) TailnetSummary() string {
+	t := s.Tailnet
+	if t == nil {
+		// No tailscale_name, or a daemon too old to say more.
+		return s.TailscaleName
+	}
+	switch t.State {
+	case TailnetOn:
+		// The node's own name, which is tailscale_name with -1 appended if
+		// that was taken.
+		if host, _, _ := strings.Cut(t.Host, "."); host != "" {
+			return host
+		}
+		return s.TailscaleName
+	case TailnetNeedsLogin:
+		return "needs login"
+	case TailnetStarting:
+		if t.Error != "" {
+			return "retrying"
+		}
+		return "starting"
+	}
+	return ""
+}
+
+// TailnetDetail says the same at more length, for a detail view.
+func (s ServiceStatus) TailnetDetail() string {
+	t, name := s.Tailnet, s.TailscaleName
+	if t == nil {
+		return name
+	}
+	switch t.State {
+	case TailnetOn:
+		if t.Host != "" {
+			return t.Host
+		}
+		return name
+	case TailnetNeedsLogin:
+		return name + " (needs login)"
+	case TailnetStarting:
+		if t.Error != "" {
+			return name + " (starting; last attempt: " + t.Error + ")"
+		}
+		return name + " (starting)"
+	case TailnetOff:
+		return name + " (Tailscale is off in config.toml)"
+	}
+	// No node: the service isn't running, or attaching it failed, which
+	// the recent events say.
+	return name + " (not on the tailnet)"
+}
+
 // Status reports one service's detail.
 func (s *Supervisor) Status(ctx context.Context, name string) (ServiceStatus, error) {
 	v, err := s.submit(ctx, func(s *Supervisor) (any, error) {
@@ -172,6 +259,25 @@ func (s *Supervisor) Status(ctx context.Context, name string) (ServiceStatus, er
 	return v.(ServiceStatus), nil
 }
 
+// tailnetOf asks the router how svc's node is doing. A router that can't
+// say leaves it nil, as for a service with no node to ask about.
+func (s *Supervisor) tailnetOf(svc *manifest.Service) *TailnetStatus {
+	if svc.TailscaleName == "" {
+		return nil
+	}
+	if s.tailnet == nil {
+		return &TailnetStatus{State: TailnetOff}
+	}
+	r, ok := s.tailnet.(TailnetReporter)
+	if !ok {
+		return nil
+	}
+	if ts, ok := r.TailnetStatus(svc.Name); ok {
+		return &ts
+	}
+	return &TailnetStatus{State: TailnetNone}
+}
+
 // statusOf merges the manifest, the in-memory supervision state and the store.
 // Reconcile-loop goroutine only.
 func (s *Supervisor) statusOf(name string) ServiceStatus {
@@ -181,6 +287,7 @@ func (s *Supervisor) statusOf(name string) ServiceStatus {
 		st.Runtime = svc.Runtime
 		st.Port = svc.Port
 		st.TailscaleName = svc.TailscaleName
+		st.Tailnet = s.tailnetOf(svc)
 		st.Healthcheck = svc.Healthcheck
 		st.Storage = svc.ExpandStorage()
 		st.RestartPolicy = svc.RestartPolicy

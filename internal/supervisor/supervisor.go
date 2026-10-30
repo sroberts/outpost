@@ -50,6 +50,13 @@ type TailnetRouter interface {
 	Detach(ctx context.Context, name string) error
 }
 
+// TailnetReporter is a TailnetRouter that can say how a service's node is
+// doing, rather than only what was asked of it. Optional, so a router that
+// can't is still a router.
+type TailnetReporter interface {
+	TailnetStatus(name string) (TailnetStatus, bool)
+}
+
 // Options configures a Supervisor.
 type Options struct {
 	// ServicesDir holds the per-service TOML manifests.

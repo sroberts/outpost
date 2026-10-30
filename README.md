@@ -352,6 +352,8 @@ outpost tui                      launch the dashboard
 outpost config [--init]          show the global configuration, or write a starter
 outpost config --tailscale on|off
                                  turn per-service Tailscale identities on or off
+outpost config --authkey         save a Tailscale auth key, read from the terminal
+                                 or stdin (--no-authkey removes it)
 outpost version                  print the build identity of this binary
 outpost install [--system]       install the launchd/systemd autostart service
 outpost uninstall [--system]     stop that service and remove it
@@ -488,8 +490,11 @@ but a change here waits for a restart, so `outpost list`, `status`, `config`
 and `gateway status` say when the file no longer matches what the daemon is
 running. Comments and layout don't count as a change.
 
-The file may hold an auth key, so it is written `0600`. Prefer `TS_AUTHKEY` in
-the environment, or `outpost install --authkey`, over writing one to disk.
+The file may hold an auth key, so every save makes it `0600`, including a file
+first written by hand. `outpost config --authkey` writes one without
+reinstalling; it reads the key from the terminal or stdin, never an argument,
+and `outpost config` shows only that one is set. `TS_AUTHKEY` in the daemon's
+environment, or `outpost install --authkey`, keeps it off disk instead.
 
 ## Running without Tailscale
 
@@ -913,13 +918,25 @@ the supervised process never binds anything but loopback. With the
 [login gateway](#the-login-gateway) on, it serves HTTPS and proxies to the
 gateway instead, so the tailnet address is behind the login.
 
-Without `TS_AUTHKEY`, tsnet logs a one-time login URL per service on first
-run, once each time the node starts; a daemon restart gives a new one. A node gets the name it
+Without an auth key, a node that needs a login gets a one-time URL, once each
+time the node starts; a daemon restart gives a new one. `outpost status
+<service>` shows it, and the daemon log has it too. A node gets the name it
 asks for only if no other device on the tailnet has it, otherwise Tailscale
 appends `-1`. To take a name over from an old device, delete that device in
 the Tailscale admin console *before* logging the new node in.
 Each service costs one device on your tailnet — check your plan's limit before
 this scales past a handful. `funnel = true` is rejected.
+
+The `TAILSCALE` column of `outpost list` is what the node is doing, not only
+what the manifest asks for:
+
+| Shown | Meaning |
+|---|---|
+| the node's name | on the tailnet, under the name it was given (`yarr-1` if `yarr` was taken) |
+| `needs login` | waiting to be authorised; `outpost status` has the URL |
+| `starting` | coming up |
+| `retrying` | the last attempt failed; `outpost status` says why |
+| `-` | no node: the service isn't running, or Tailscale is off |
 
 Joining the tailnet happens in the background: `Attach` records intent and
 returns, so a node that is slow to register — or waiting on a first-run login

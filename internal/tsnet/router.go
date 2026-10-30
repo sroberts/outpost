@@ -96,6 +96,10 @@ type nodeConfig struct {
 	// Upstream and UpstreamServerName are Options' own.
 	Upstream           string
 	UpstreamServerName string
+
+	// onLogin, when set, is told each login URL the node is given while it
+	// waits to be authorised.
+	onLogin func(url string)
 }
 
 // Router owns one tsnet node per attached service.
@@ -140,6 +144,29 @@ type node struct {
 	attached bool
 	// dnsName is what the node reported it was given, "" if it didn't.
 	dnsName string
+	// loginURL is where to authorise a node that is waiting for it, and
+	// lastErr why the last attempt to bring it up failed; both "" once it
+	// is attached.
+	loginURL string
+	lastErr  string
+}
+
+// Node states, as NodeStatus reports them.
+const (
+	NodeStarting   = "starting"
+	NodeNeedsLogin = "needs-login"
+	NodeOn         = "on"
+)
+
+// NodeStatus is what the router knows of one service's node.
+type NodeStatus struct {
+	State string
+	// Host is the node's DNS name, once it is on.
+	Host string
+	// LoginURL is where to authorise it, while it needs a login.
+	LoginURL string
+	// Error is why the last attempt failed, while it is retrying.
+	Error string
 }
 
 // hostedNode is a node that knows its DNS name on the tailnet.
@@ -218,6 +245,35 @@ func (r *Router) Hosts() map[string]string {
 	return out
 }
 
+// reason is err in as few words as explain it, for a status line.
+func reason(err error) string {
+	var early *earlyExit
+	if errors.As(err, &early) {
+		return early.Reason()
+	}
+	return err.Error()
+}
+
+// NodeStatus reports name's node, and false if the router has none: the
+// service isn't running, or isn't meant to be on the tailnet.
+func (r *Router) NodeStatus(name string) (NodeStatus, bool) {
+	r.mu.Lock()
+	n, ok := r.nodes[name]
+	r.mu.Unlock()
+	if !ok {
+		return NodeStatus{}, false
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	switch {
+	case n.attached:
+		return NodeStatus{State: NodeOn, Host: n.dnsName}, true
+	case n.loginURL != "":
+		return NodeStatus{State: NodeNeedsLogin, LoginURL: n.loginURL}, true
+	}
+	return NodeStatus{State: NodeStarting, Error: n.lastErr}, true
+}
+
 // Attach brings a service onto the tailnet, proxying tailnet traffic to
 // 127.0.0.1:<port>.
 //
@@ -284,6 +340,12 @@ func (r *Router) bringUp(ctx context.Context, n *node) {
 
 		Upstream:           r.upstream,
 		UpstreamServerName: r.upstreamServerName,
+
+		onLogin: func(url string) {
+			n.mu.Lock()
+			n.loginURL = url
+			n.mu.Unlock()
+		},
 	}
 
 	backoff := r.retryInitial
@@ -326,6 +388,11 @@ func (r *Router) bringUp(ctx context.Context, n *node) {
 		if ctx.Err() != nil {
 			return
 		}
+		// The URL belonged to the node that just went; its replacement is
+		// given a new one.
+		n.mu.Lock()
+		n.loginURL, n.lastErr = "", reason(err)
+		n.mu.Unlock()
 		// A service that cannot reach the tailnet keeps running on loopback;
 		// losing tailnet exposure is not a reason to take it down (§7).
 		r.logf("%s: tailnet attach failed (attempt %d): %v; retrying in %s", n.name, attempt, err, backoff)
@@ -370,6 +437,7 @@ func (r *Router) serve(ctx context.Context, n *node, live tailnetNode) bool {
 	n.live = live
 	n.http = srv
 	n.attached = true
+	n.loginURL, n.lastErr = "", ""
 	n.dnsName = ""
 	if h, ok := live.(hostedNode); ok {
 		n.dnsName = h.Host()

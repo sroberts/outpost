@@ -145,7 +145,7 @@ func writeTable(w io.Writer, services []supervisor.ServiceStatus) error {
 			status += " (halted)"
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%s",
-			s.Name, orDash(s.Runtime), status, uptime(s), s.RestartCount, orDash(s.TailscaleName))
+			s.Name, orDash(s.Runtime), status, uptime(s), s.RestartCount, orDash(s.TailnetSummary()))
 		switch {
 		case s.UpdateAvailable:
 			fmt.Fprintf(tw, "\t%s available", s.LatestRelease)
@@ -190,7 +190,13 @@ func (a *app) cmdStatus(args []string) error {
 		fmt.Fprintf(a.out, "  port:          %d\n", st.Port)
 		fmt.Fprintf(a.out, "  healthcheck:   %s\n", st.Healthcheck)
 		fmt.Fprintf(a.out, "  storage:       %s\n", st.Storage)
-		fmt.Fprintf(a.out, "  tailscale:     %s\n", st.TailscaleName)
+		if st.TailscaleName != "" {
+			fmt.Fprintf(a.out, "  tailscale:     %s\n", st.TailnetDetail())
+		}
+		if t := st.Tailnet; t != nil && t.LoginURL != "" {
+			fmt.Fprintf(a.out, "  login:         %s\n", t.LoginURL)
+			fmt.Fprintln(a.out, "                 open it to add this node to your tailnet, or set an auth key with `outpost config --authkey`")
+		}
 		fmt.Fprintf(a.out, "  restart:       %s (backoff %ds)\n", st.RestartPolicy, st.Backoff)
 		if st.Source != "" {
 			fmt.Fprintf(a.out, "  installed:     %s from %s\n", orDash(st.Release), st.Source)
