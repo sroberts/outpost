@@ -126,8 +126,11 @@ func (g *Gateway) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	next := safeNext(r.PostForm.Get("next"))
 	form := pageData{Title: "Sign in", App: app, AppTitle: g.titleOf(app), Next: next, Username: username}
 
-	keys := []string{"user:" + username, "ip:" + g.clientIP(r)}
+	ip := g.clientIP(r)
+	keys := []string{"user:" + username, "ip:" + ip}
+	attempt := fmt.Sprintf("for %s from %s", quoted(username), ip)
 	if d := g.throttle.wait(g.now(), keys...); d > 0 {
+		g.activity.failed(EventSignInFail, attempt, true)
 		form.Error = fmt.Sprintf("Too many attempts. Try again in %d seconds.", int(d.Seconds()+0.999))
 		g.render(w, r, http.StatusTooManyRequests, "login", form)
 		return
@@ -144,6 +147,7 @@ func (g *Gateway) loginSubmit(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		g.throttle.fail(g.now(), keys...)
+		g.activity.failed(EventSignInFail, attempt, false)
 		form.Error = "Wrong username or password."
 		g.render(w, r, http.StatusUnauthorized, "login", form)
 		return
@@ -162,6 +166,8 @@ func (g *Gateway) loginSubmit(w http.ResponseWriter, r *http.Request) {
 		g.render(w, r, http.StatusInternalServerError, "login", form)
 		return
 	}
+	g.activity.settle(EventSignInFail, attempt)
+	g.activity.record(EventSignIn, "%s signed in from %s", u.Username, ip)
 	g.setCookie(w, tok)
 	g.continueTo(w, r, tok, u, app, next)
 }
@@ -177,6 +183,9 @@ func (g *Gateway) logout(w http.ResponseWriter, r *http.Request) {
 	if !g.sameOrigin(r) {
 		g.crossOrigin(w, r)
 		return
+	}
+	if _, _, u, ok := g.session(r); ok {
+		g.activity.record(EventSignOut, "%s signed out from %s", u.Username, g.clientIP(r))
 	}
 	if c, err := r.Cookie(g.cookieName); err == nil {
 		if err := g.auth.RevokeSession(c.Value); err != nil {
@@ -281,6 +290,7 @@ func (g *Gateway) setupSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	g.setup.token = ""
 	g.logf("gateway: first admin %q created through the setup link", username)
+	g.activity.record(EventSetup, "first admin %s created through the setup link from %s", username, g.clientIP(r))
 
 	sess, err := g.auth.CreateSession(username, "", "", r.UserAgent())
 	if err != nil {

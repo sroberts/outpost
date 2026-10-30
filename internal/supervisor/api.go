@@ -270,6 +270,17 @@ func (s *Supervisor) Events(ctx context.Context, service string, limit int) ([]E
 	return v.([]EventRecord), nil
 }
 
+// RecordEvent adds an entry to the activity feed from outside the loop, as
+// the gateway does for sign-ins. Like every write here, it runs on the loop,
+// and a failed write is logged there rather than returned.
+func (s *Supervisor) RecordEvent(ctx context.Context, service, kind, message string) error {
+	_, err := s.submit(ctx, func(s *Supervisor) (any, error) {
+		s.event(service, kind, message)
+		return nil, nil
+	})
+	return err
+}
+
 // EventRecord is one activity-feed entry as reported to clients.
 type EventRecord struct {
 	Service string    `json:"service"`

@@ -180,7 +180,8 @@ func tally(sts []station) (up, down int) {
 
 // denied is the page for someone signed in who may not open an app: a plain
 // answer, not a redirect back into a login that would only end here again.
-func (g *Gateway) denied(w http.ResponseWriter, r *http.Request, rt route) {
+func (g *Gateway) denied(w http.ResponseWriter, r *http.Request, rt route, u auth.User) {
+	g.activity.failed(EventDenied, fmt.Sprintf("for %s to %s", u.Username, rt.Name), false)
 	title := rt.Title
 	if title == "" {
 		title = rt.Name

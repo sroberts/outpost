@@ -107,7 +107,7 @@ func (g *Gateway) callback(w http.ResponseWriter, r *http.Request, rt route) {
 	// The allow list may have changed in the minute since the code was
 	// minted.
 	if u, err := g.auth.GetUser(p.user); err == nil && !allowed(u, rt) {
-		g.denied(w, r, rt)
+		g.denied(w, r, rt, u)
 		return
 	}
 	tok, err := g.auth.CreateSession(p.user, rt.Name, p.parent, r.UserAgent())
@@ -140,6 +140,9 @@ func (g *Gateway) appLogout(w http.ResponseWriter, r *http.Request) {
 		g.crossOrigin(w, r)
 		return
 	}
+	if _, _, u, ok := g.session(r); ok {
+		g.activity.record(EventSignOut, "%s signed out from %s", u.Username, g.clientIP(r))
+	}
 	if c, err := r.Cookie(g.cookieName); err == nil {
 		if err := g.auth.RevokeFamily(c.Value); err != nil {
 			g.logf("gateway: logout: %v", err)
@@ -165,7 +168,7 @@ func (g *Gateway) proxyApp(w http.ResponseWriter, r *http.Request, rt route) {
 	}
 	g.touch(tok, s)
 	if !allowed(u, rt) {
-		g.denied(w, r, rt)
+		g.denied(w, r, rt, u)
 		return
 	}
 

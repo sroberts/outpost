@@ -53,11 +53,13 @@ func (g *Gateway) accountSubmit(w http.ResponseWriter, r *http.Request) {
 	case "password":
 		g.changePassword(w, r, u)
 	case "everywhere":
-		if _, err := g.auth.RevokeUserSessions(u.Username); err != nil {
+		n, err := g.auth.RevokeUserSessions(u.Username)
+		if err != nil {
 			g.logf("gateway: sign out everywhere: %v", err)
 			g.message(w, r, http.StatusInternalServerError, "Not signed out", "Something went wrong. Try again.", "/account", "Back to account")
 			return
 		}
+		g.activity.record(EventSignOut, "%s signed out everywhere from %s, ending %d %s", u.Username, g.clientIP(r), n, plural(n, "session"))
 		g.clearCookie(w)
 		http.Redirect(w, r, g.signedOutURL(), http.StatusSeeOther)
 	default:
@@ -85,8 +87,11 @@ func (g *Gateway) changePassword(w http.ResponseWriter, r *http.Request, u auth.
 		return
 	}
 
-	keys := []string{"user:" + u.Username, "ip:" + g.clientIP(r)}
+	ip := g.clientIP(r)
+	keys := []string{"user:" + u.Username, "ip:" + ip}
+	attempt := fmt.Sprintf("for %s from %s", quoted(u.Username), ip)
 	if d := g.throttle.wait(g.now(), keys...); d > 0 {
+		g.activity.failed(EventSignInFail, attempt, true)
 		fail(http.StatusTooManyRequests, fmt.Sprintf("Too many attempts. Try again in %d seconds.", int(d.Seconds()+0.999)))
 		return
 	}
@@ -100,10 +105,12 @@ func (g *Gateway) changePassword(w http.ResponseWriter, r *http.Request, u auth.
 			return
 		}
 		g.throttle.fail(g.now(), keys...)
+		g.activity.failed(EventSignInFail, attempt, false)
 		fail(http.StatusUnauthorized, "That isn't your current password.")
 		return
 	}
 	g.throttle.reset(keys...)
+	g.activity.settle(EventSignInFail, attempt)
 
 	g.checks <- struct{}{}
 	err = g.auth.SetPassword(u.Username, next)
@@ -113,6 +120,7 @@ func (g *Gateway) changePassword(w http.ResponseWriter, r *http.Request, u auth.
 		fail(http.StatusInternalServerError, "Something went wrong. Try again.")
 		return
 	}
+	g.activity.record(EventPassword, "%s changed their password from %s, ending their other sessions", u.Username, ip)
 	// SetPassword ended every session, since whoever knew the old password
 	// may still be signed in somewhere; this browser starts a fresh one.
 	tok, err := g.auth.CreateSession(u.Username, "", "", r.UserAgent())

@@ -495,6 +495,15 @@ Tailscale gives the node a different name because the one asked for is taken
 gateway on in an existing tailnet setup changes nodes from plain http on port
 80 to this; restart the daemon to pick it up.
 
+What the gateway decides goes in the activity feed under the name `gateway`,
+so `outpost logs gateway --events` shows who signed in or out, from which
+address, along with failed and throttled sign-ins, refused apps, password
+changes and use of the setup link. A failure is recorded the first time;
+repeats of the same one within ten minutes become a single line, such as
+`4 more failed sign-ins for "alice" from 192.0.2.7 since 21:14`. A name
+someone typed at the sign-in form is shown quoted, with control characters
+escaped. `outpost user list` shows each user's last sign-in.
+
 ### The catalog
 
 After signing in, the portal lists the apps you can open as stations on one
