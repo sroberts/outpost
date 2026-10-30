@@ -143,8 +143,20 @@ func statusText(s supervisor.ServiceStatus) string {
 	return s.Status
 }
 
+// updateText is the table's word on a newer release, if there is one to install.
+func updateText(s supervisor.ServiceStatus) string {
+	if !s.UpdateAvailable {
+		return ""
+	}
+	return s.LatestRelease + " available"
+}
+
 // colWidths sizes the table columns to their contents.
-type colWidths struct{ name, rt, status, uptime, restarts int }
+//
+// update stays 0 unless a service has one waiting, and then the column isn't
+// drawn: most of the time it would say nothing, on a table already tight at 80
+// columns.
+type colWidths struct{ name, rt, status, uptime, restarts, update int }
 
 func (m Model) columnWidths() colWidths {
 	w := colWidths{name: len("NAME"), rt: len("RUNTIME"), status: len("STATUS"),
@@ -168,6 +180,9 @@ func (m Model) columnWidths() colWidths {
 		if n := len(fmt.Sprintf("%d", s.RestartCount)); n > w.restarts {
 			w.restarts = n
 		}
+		if u := updateText(s); u != "" {
+			w.update = max(w.update, lipgloss.Width("UPDATE"), lipgloss.Width(u))
+		}
 	}
 	return w
 }
@@ -184,6 +199,9 @@ func (m Model) tableRange(start, end int) string {
 	head := fmt.Sprintf("  %s  %s  %s  %s  %s",
 		pad("NAME", w.name), pad("RUNTIME", w.rt), pad("STATUS", w.status),
 		pad("UPTIME", w.uptime), pad("RESTARTS", w.restarts))
+	if w.update > 0 {
+		head += "  " + pad("UPDATE", w.update)
+	}
 
 	var b strings.Builder
 	b.WriteString("  " + headerStyle.Render(head))
@@ -214,6 +232,9 @@ func (m Model) tableRange(start, end int) string {
 		row := fmt.Sprintf("%s  %s  %s  %s  %s",
 			pad(s.Name, w.name), pad(s.Runtime, w.rt), status,
 			pad(uptime(s), w.uptime), pad(fmt.Sprintf("%d", s.RestartCount), w.restarts))
+		if w.update > 0 {
+			row += "  " + pad(updateText(s), w.update)
+		}
 
 		b.WriteString("  " + style.Render(marker) + style.Render(row) + "\n")
 	}
@@ -264,6 +285,12 @@ func (m Model) detail() string {
 	kv("tailscale", s.TailscaleName)
 	kv("storage", s.Storage)
 	kv("instance", s.InstanceID)
+	if s.Source != "" {
+		kv("installed", s.Release)
+		if s.UpdateAvailable {
+			kv("available", s.LatestRelease)
+		}
+	}
 	if s.Desired != "" && s.Desired != "running" {
 		kv("desired", s.Desired)
 	}

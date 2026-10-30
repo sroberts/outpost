@@ -3,6 +3,7 @@ package acquire
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -123,11 +124,19 @@ type Release struct {
 }
 
 func (c *Client) get(ctx context.Context, url string, accept string) (*http.Response, error) {
+	return c.getIfChanged(ctx, url, accept, "")
+}
+
+// getIfChanged is get with an If-None-Match, when there is an etag to send.
+func (c *Client) getIfChanged(ctx context.Context, url, accept, etag string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Accept", accept)
+	if etag != "" {
+		req.Header.Set("If-None-Match", etag)
+	}
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	if c.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)
@@ -137,32 +146,48 @@ func (c *Client) get(ctx context.Context, url string, accept string) (*http.Resp
 
 // LatestRelease returns the repository's most recent non-prerelease release.
 func (c *Client) LatestRelease(ctx context.Context, repo Repo) (*Release, error) {
+	rel, _, err := c.LatestReleaseSince(ctx, repo, "")
+	return rel, err
+}
+
+// ErrNotModified says the latest release is still the one an etag was given for.
+var ErrNotModified = errors.New("the latest release has not changed")
+
+// LatestReleaseSince is LatestRelease for something that asks again and again:
+// given the etag from last time it returns ErrNotModified if nothing changed.
+// GitHub doesn't count that answer against the rate limit of a client with a
+// token; without one it still does, so this saves those only the response. The
+// etag comes back with a NoAssetsError too, since that is an answer worth keeping.
+func (c *Client) LatestReleaseSince(ctx context.Context, repo Repo, etag string) (*Release, string, error) {
 	url := fmt.Sprintf("%s/repos/%s/%s/releases/latest", strings.TrimSuffix(c.BaseURL, "/"), repo.Owner, repo.Name)
-	resp, err := c.get(ctx, url, "application/vnd.github+json")
+	resp, err := c.getIfChanged(ctx, url, "application/vnd.github+json", etag)
 	if err != nil {
-		return nil, fmt.Errorf("query releases for %s: %w", repo, err)
+		return nil, "", fmt.Errorf("query releases for %s: %w", repo, err)
 	}
 	defer resp.Body.Close()
 
 	switch resp.StatusCode {
 	case http.StatusOK:
+	case http.StatusNotModified:
+		return nil, etag, ErrNotModified
 	case http.StatusNotFound:
 		// The same status covers both, and the distinction is what the
 		// operator needs in order to know what to do next.
 		if c.Token == "" {
-			return nil, fmt.Errorf("%s has no published release, or is private and no credentials were found "+
+			return nil, "", fmt.Errorf("%s has no published release, or is private and no credentials were found "+
 				"(run `gh auth login`, or set GITHUB_TOKEN)", repo)
 		}
 		// Authenticated, so this is not a credentials problem — but GitHub
 		// returns the same 404 for a repository that does not exist, one the
 		// token cannot see, and one with no release at all.
-		return nil, fmt.Errorf("%s has no published release, does not exist, or is not visible to your token", repo)
+		return nil, "", fmt.Errorf("%s has no published release, does not exist, or is not visible to your token", repo)
 	case http.StatusUnauthorized, http.StatusForbidden:
-		return nil, fmt.Errorf("%s: GitHub refused the request (%s); the token may be expired or lack access", repo, resp.Status)
+		return nil, "", fmt.Errorf("%s: GitHub refused the request (%s); the token may be expired or lack access", repo, resp.Status)
 	default:
-		return nil, fmt.Errorf("%s: GitHub returned %s", repo, resp.Status)
+		return nil, "", fmt.Errorf("%s: GitHub returned %s", repo, resp.Status)
 	}
-	return decodeRelease(resp.Body, repo)
+	rel, err := decodeRelease(resp.Body, repo)
+	return rel, resp.Header.Get("ETag"), err
 }
 
 // ReleaseByTag returns the release with the given tag. Unlike LatestRelease it

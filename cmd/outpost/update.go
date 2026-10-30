@@ -37,6 +37,7 @@ func (a *app) cmdUpdate(args []string) error {
 	fs := flag.NewFlagSet("update", flag.ContinueOnError)
 	fs.SetOutput(a.err)
 	check := fs.Bool("check", false, "report whether a newer release exists, and change nothing")
+	all := fs.Bool("all", false, "update every service with a newer release, one at a time, stopping at the first that fails")
 	to := fs.String("to", "", "install this release tag instead of the latest (also how to go back)")
 	from := fs.String("from", "", "the GitHub repository a service came from, for one whose manifest does not say")
 	force := fs.Bool("force", false, "reinstall even when the release is the one already installed")
@@ -49,13 +50,24 @@ func (a *app) cmdUpdate(args []string) error {
 	if *wait < 0 {
 		return fmt.Errorf("update: --wait must not be negative")
 	}
+	if *all {
+		switch {
+		case len(positional) > 0:
+			return fmt.Errorf("update: --all means every service, so it can't be given a service name (%q)", positional[0])
+		case *to != "" || *from != "" || *force:
+			return fmt.Errorf("update: --to, --from and --force are about one service, and can't be used with --all")
+		case *check:
+			return a.checkAll()
+		}
+		return a.updateAll(*noBackup, *wait)
+	}
 	switch {
 	case len(positional) > 1:
 		return fmt.Errorf("update: unexpected argument %q", positional[1])
 	case len(positional) == 0 && *check:
 		return a.checkAll()
 	case len(positional) == 0:
-		return fmt.Errorf("update: a service name is required (or `outpost update --check` to see every service)")
+		return fmt.Errorf("update: a service name is required (or `outpost update --check` to see every service, `--all` to update them)")
 	}
 	name := positional[0]
 

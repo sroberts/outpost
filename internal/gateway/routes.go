@@ -90,6 +90,8 @@ func (g *Gateway) refreshRoutes(ctx context.Context) {
 		}
 		return
 	}
+	// Before the table's lock: waiting takes these two the other way round.
+	g.updateState.takeDaemonChecks(list)
 
 	var hosts map[string]string
 	if g.tailnetHosts != nil {

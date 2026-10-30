@@ -128,6 +128,7 @@ outpost update --check                 # every service: what is installed, what 
 outpost update plumbline --check       # one service; changes nothing
 outpost update plumbline               # install the latest release
 outpost update plumbline --to v1.4.0   # a particular release, which is also how to go back
+outpost update --all                   # every service with a newer release, one at a time
 ```
 
 An update:
@@ -174,6 +175,38 @@ A release that has just been published may not have its binaries attached
 yet, while its build uploads them; update says so and changes nothing. Nothing
 updates on its own: automatic updates remain out of scope (spec.md §1).
 
+### Knowing when there's one to install
+
+The daemon asks GitHub about each service with a `source` once a day, and again
+when the installed release changes, and remembers the answer in memory. It is
+one request per service, and it sends the last `ETag`, so with a token (`gh auth
+login`, or `GITHUB_TOKEN`) an unchanged answer doesn't count against GitHub's
+rate limit; without one each still counts, out of 60 an hour. A failed check
+keeps the last answer, and it and a release still uploading its build are tried
+again an hour later. It only finds things out, and there is no setting to turn
+it off: on a machine with no route to GitHub, all that happens is a line in the
+log each hour.
+
+`outpost list` adds an `UPDATE` column when something is waiting, as its last
+column, `outpost status <service>` says what's installed and what's available,
+and `outpost tui` shows both. The catalog counts the same answers.
+
+### Updating everything
+
+`outpost update --all` runs the same update for each service with a newer
+release, in name order, and **stops at the first that fails**, including one
+that rolled back, since that's a reason to look before anything else changes. It
+finishes by saying what was updated, what failed and what wasn't tried, and
+exits non-zero on a failure.
+
+It asks GitHub afresh rather than trusting the daemon's answer. A service it
+can't ask about is reported and makes the exit non-zero, but doesn't stop the
+others. One with no `source`, or one update wouldn't touch, is noted and
+skipped. `--no-backup` and `--wait` apply to each service; `--to`, `--from` and
+`--force` are about one service and are refused, as is naming one. `outpost
+update --all --check` is the same list as `outpost update --check`, and changes
+nothing.
+
 ### From the portal
 
 With the [login gateway](#the-login-gateway) on, an admin can do the same from
@@ -187,9 +220,9 @@ edit. It only installs the latest release of the `source` already in the
 manifest. `--to`, `--from`, `--force` and `--no-backup` stay on the CLI, so the
 portal can't go back to an older release or change where an app comes from.
 
-Opening the portal checks for new releases at most once an hour, in the
-background, at one GitHub request per app, and **Check now** asks straight
-away. Nothing installs until an admin presses the button. The result of the last
+The page shows what the daemon's daily check found. Opening the portal also
+checks for new releases at most once an hour, in the background, at one GitHub
+request per app, and **Check now** asks straight away. Nothing installs until an admin presses the button. The result of the last
 update stays on the page until the daemon restarts, and `outpost gateway
 activity` records which admin started each one and how it ended.
 
@@ -300,6 +333,8 @@ outpost add <name> --binary ...  declare a new service from a local binary
 outpost add <github-url>         install from the latest GitHub release
 outpost update <service>         install a newer release, rolling back if it fails
                                  its healthcheck (--check, --to TAG, --from REPO)
+outpost update --all             update every service with a newer release, stopping
+                                 at the first that fails (--check lists them)
 outpost remove <name> [--purge]  undeclare a service, optionally deleting its data
 outpost apply                    validate manifests and reconcile
 outpost list                     table of services and their status

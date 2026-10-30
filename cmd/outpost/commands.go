@@ -127,15 +127,32 @@ func (a *app) cmdList(args []string) error {
 }
 
 func writeTable(w io.Writer, services []supervisor.ServiceStatus) error {
+	// The UPDATE column only appears with something to say, and goes last, so
+	// anything reading the other columns by position keeps working.
+	updates := false
+	for _, s := range services {
+		updates = updates || s.UpdateAvailable
+	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "NAME\tRUNTIME\tSTATUS\tUPTIME\tRESTARTS\tTAILSCALE")
+	fmt.Fprint(tw, "NAME\tRUNTIME\tSTATUS\tUPTIME\tRESTARTS\tTAILSCALE")
+	if updates {
+		fmt.Fprint(tw, "\tUPDATE")
+	}
+	fmt.Fprintln(tw)
 	for _, s := range services {
 		status := s.Status
 		if s.Halted {
 			status += " (halted)"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%s\n",
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%s",
 			s.Name, orDash(s.Runtime), status, uptime(s), s.RestartCount, orDash(s.TailscaleName))
+		switch {
+		case s.UpdateAvailable:
+			fmt.Fprintf(tw, "\t%s available", s.LatestRelease)
+		case updates:
+			fmt.Fprint(tw, "\t-")
+		}
+		fmt.Fprintln(tw)
 	}
 	return tw.Flush()
 }
@@ -175,6 +192,10 @@ func (a *app) cmdStatus(args []string) error {
 		fmt.Fprintf(a.out, "  storage:       %s\n", st.Storage)
 		fmt.Fprintf(a.out, "  tailscale:     %s\n", st.TailscaleName)
 		fmt.Fprintf(a.out, "  restart:       %s (backoff %ds)\n", st.RestartPolicy, st.Backoff)
+		if st.Source != "" {
+			fmt.Fprintf(a.out, "  installed:     %s from %s\n", orDash(st.Release), st.Source)
+			fmt.Fprintf(a.out, "  available:     %s\n", availableLine(st))
+		}
 	} else {
 		fmt.Fprintln(a.out, "  (no manifest: this service is no longer declared)")
 	}
@@ -201,6 +222,29 @@ func (a *app) cmdStatus(args []string) error {
 		}
 	}
 	return nil
+}
+
+// availableLine is what `status` says about a newer release: what the daemon
+// last found, how old that is, and whether it has since failed to ask again.
+func availableLine(st supervisor.ServiceStatus) string {
+	var line string
+	switch {
+	case st.ReleaseCheckedAt.IsZero() && st.ReleaseCheckError == "":
+		return "not checked yet"
+	case st.ReleaseCheckedAt.IsZero():
+		return "unknown; the check failed: " + st.ReleaseCheckError
+	case st.UpdateAvailable:
+		line = fmt.Sprintf("%s; `outpost update %s` installs it", st.LatestRelease, st.Name)
+	case st.ReleaseNote != "":
+		line = "nothing to install. " + st.ReleaseNote
+	default:
+		line = "nothing newer"
+	}
+	line += fmt.Sprintf(" (checked %s ago)", truncateDur(time.Since(st.ReleaseCheckedAt)))
+	if st.ReleaseCheckError != "" {
+		line += "; the latest check failed: " + st.ReleaseCheckError
+	}
+	return line
 }
 
 // cmdLogs shows or follows a service's log file.
