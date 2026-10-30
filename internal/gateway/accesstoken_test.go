@@ -592,14 +592,13 @@ func TestAccessToken_Throttled(t *testing.T) {
 		t.Errorf("no token while throttled got %d", resp.StatusCode)
 	}
 
-	// Once it's over, a good token clears the record.
+	// Once it's over, a good token works, but leaves the failures on
+	// record: clearing them would let anyone holding one guess unslowed.
 	now = now.Add(2 * throttleBase)
 	backendSaw(t, h.send(http.MethodGet, yarr+"/", bearer(good)))
-	h.g.tokenThrottle.mu.Lock()
-	_, kept := h.g.tokenThrottle.m["ip:127.0.0.1"]
-	h.g.tokenThrottle.mu.Unlock()
-	if kept {
-		t.Error("a good token left the failures on record")
+	assertRefused(t, h.send(http.MethodGet, yarr+"/", bad))
+	if resp := h.send(http.MethodGet, yarr+"/", bad); resp.StatusCode != http.StatusTooManyRequests {
+		t.Errorf("a good token reset the guessing: next bad token got %d; want 429", resp.StatusCode)
 	}
 }
 

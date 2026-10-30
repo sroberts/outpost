@@ -119,7 +119,9 @@ func (g *Gateway) serveWithAccessToken(w http.ResponseWriter, r *http.Request, r
 		return
 	}
 
-	g.tokenThrottle.reset(key)
+	// A good token doesn't clear the address's failures: if it did, anyone
+	// holding one could wipe the record between guesses and never be slowed.
+	// The record ages out on its own.
 	if err := g.auth.TouchAccessToken(t); err != nil {
 		g.logf("gateway: %v", err)
 	}

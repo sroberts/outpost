@@ -158,7 +158,13 @@ WHERE t.token_hash = ? AND (t.expires_at = 0 OR t.expires_at > ?)`, HashToken(se
 	if t.Apps, err = tokenApps(s.db, t.ID); err != nil {
 		return AccessToken{}, User{}, err
 	}
+	// The user is read again apart from the token, so a disable or removal
+	// that lands in between is checked here too, not served as a 500 or as a
+	// request from a user who has just been shut out.
 	u, err := s.GetUser(t.Username)
+	if errors.Is(err, ErrNoSuchUser) || (err == nil && u.Disabled) {
+		return AccessToken{}, User{}, ErrNoSuchAccessToken
+	}
 	if err != nil {
 		return AccessToken{}, User{}, err
 	}

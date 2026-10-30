@@ -84,9 +84,8 @@ type Gateway struct {
 	activity     *activity
 
 	// tokenThrottle limits rejected access tokens per address. It is its own
-	// table because a token that works clears it: sharing the login's would
-	// let anyone holding one wipe their address's record of password guesses,
-	// and let a broken cron job lock its machine out of the sign-in page.
+	// table so a broken cron job can't lock its machine out of the sign-in
+	// page, and token traffic never touches the record of password guesses.
 	tokenThrottle throttle
 
 	ln  net.Listener
