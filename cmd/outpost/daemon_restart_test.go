@@ -150,6 +150,12 @@ func startDaemon(t *testing.T, home string) (stop func()) {
 	return stop
 }
 
+// swapsTheDaemon picks out the command that replaces the daemon: systemd's
+// restart runs a daemon-reload first, which leaves it running.
+func swapsTheDaemon(argv []string) bool {
+	return !strings.Contains(strings.Join(argv, " "), "daemon-reload")
+}
+
 func restart(t *testing.T, home string, args ...string) (string, error) {
 	t.Helper()
 	out, _, err := runCLI(t, home, append([]string{"daemon", "restart", "--label", testLabel}, args...)...)
@@ -170,7 +176,10 @@ func TestDaemonRestart_WaitsForTheNewDaemon(t *testing.T) {
 
 	var stopNew func()
 	done := make(chan struct{})
-	stub.onRun = func([]string) error {
+	stub.onRun = func(argv []string) error {
+		if !swapsTheDaemon(argv) {
+			return nil
+		}
 		// Returns before the swap, as kickstart does.
 		go func() {
 			defer close(done)
@@ -440,7 +449,10 @@ func TestDaemonRestart_RefusesDuringAnUpdate(t *testing.T) {
 
 	var stopNew func()
 	done := make(chan struct{})
-	stub.onRun = func([]string) error {
+	stub.onRun = func(argv []string) error {
+		if !swapsTheDaemon(argv) {
+			return nil
+		}
 		go func() {
 			defer close(done)
 			stopOld()
