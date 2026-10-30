@@ -26,7 +26,7 @@ func (m Model) View() string {
 	if m.quitting {
 		return ""
 	}
-	if m.err != nil || !m.loaded || len(m.services) == 0 {
+	if m.err != nil || !m.loaded || len(m.services) == 0 || m.view != viewServices {
 		return m.render(0, 0, false)
 	}
 
@@ -72,11 +72,22 @@ func (m Model) window(avail int) (int, int) {
 func (m Model) render(start, end int, compact bool) string {
 	var b strings.Builder
 	b.WriteString(m.header())
-	b.WriteString("\n\n")
+	b.WriteString("\n")
+	if _, ok := m.extras(); ok && m.err == nil {
+		b.WriteString(m.tabs() + "\n")
+	}
+	if banner := m.configBanner(); banner != "" {
+		b.WriteString(banner + "\n")
+	}
+	b.WriteString("\n")
 
 	switch {
 	case m.err != nil:
 		b.WriteString(m.errorPane())
+	case m.view == viewUsers:
+		b.WriteString(m.usersPane())
+	case m.view == viewGateway:
+		b.WriteString(m.gatewayPane())
 	case !m.loaded:
 		b.WriteString(labelStyle.Render("  loading…"))
 	case len(m.services) == 0:
@@ -101,7 +112,7 @@ func (m Model) render(start, end int, compact bool) string {
 		b.WriteString("\n\n  " + style.Render(m.notice))
 	}
 
-	b.WriteString("\n\n  " + m.help.View(m.keys))
+	b.WriteString("\n\n  " + m.helpLine())
 	return b.String()
 }
 
@@ -282,6 +293,7 @@ func (m Model) detail() string {
 		}
 		b.WriteString("  " + labelStyle.Render(pad(k, 10)) + valueStyle.Render(v) + "\n")
 	}
+	m.serviceGateway(s, kv)
 	kv("tailscale", s.TailscaleName)
 	kv("storage", s.Storage)
 	kv("instance", s.InstanceID)

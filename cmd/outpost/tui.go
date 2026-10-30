@@ -10,6 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/sroberts/outpost/internal/ipc"
 	"github.com/sroberts/outpost/internal/tui"
 )
 
@@ -26,7 +27,8 @@ func (a *app) cmdTUI(args []string) error {
 
 	// The dashboard reads the daemon through the same client the CLI uses, so
 	// there is one code path to the supervisor.
-	model := tui.New(a.client(), a.tailLog)
+	c := a.client()
+	model := tui.New(c, a.tailLog).WithConfigCheck(func() bool { return a.configChanged(c) })
 
 	// The alt screen keeps the dashboard from scrolling the user's scrollback
 	// away.
@@ -36,6 +38,9 @@ func (a *app) cmdTUI(args []string) error {
 	}
 	return nil
 }
+
+// The dashboard shows users and the gateway through the same client.
+var _ tui.Extras = (*ipc.Client)(nil)
 
 // tailWindow is how much of the end of a log file tailLog reads. Logs rotate at
 // 10 MiB, and the dashboard re-reads them every couple of seconds, so it reads a
