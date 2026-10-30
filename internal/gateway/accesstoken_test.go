@@ -711,6 +711,65 @@ func TestAccessToken_NoTokenInAQueryString(t *testing.T) {
 	}
 }
 
+// The account page's two ways of shutting everything out end tokens and say so
+// in the feed; ending one sign-in leaves them alone.
+func TestAccessToken_AccountPage(t *testing.T) {
+	const newPassword = "a whole new password"
+	cases := []struct {
+		name string
+		form url.Values
+		why  string
+	}{
+		{"sign out everywhere", url.Values{"action": {"everywhere"}}, "signed out everywhere"},
+		{"change password", url.Values{"action": {"password"}, "current": {pw}, "password": {newPassword}, "confirm": {newPassword}}, "password changed"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.addUser(auth.User{Username: "alice"})
+			f := h.recording()
+			c := h.client(true)
+			if resp := h.login(c, "alice", "", "/"); resp.StatusCode != http.StatusOK {
+				t.Fatal(resp.Status)
+			}
+			tok := h.pat("alice")
+			backendSaw(t, h.send(http.MethodGet, yarr+"/", bearer(tok)))
+			if resp := h.post(c, portal+"/account", portal, tc.form); resp.StatusCode != http.StatusOK {
+				t.Fatalf("%s: %s", tc.name, resp.Status)
+			}
+			assertRefused(t, h.send(http.MethodGet, yarr+"/", bearer(tok)))
+
+			want := "1 access token for alice revoked: " + tc.why
+			got := f.wait(t, 4) // signed in, the action itself, the revocation, the refusal above
+			if e := got[2]; e.kind != EventTokenRevoke || e.message != want {
+				t.Errorf("feed = %+v; want %q", got, want)
+			}
+		})
+	}
+
+	t.Run("ending one sign-in", func(t *testing.T) {
+		h := newHarness(t)
+		h.addUser(auth.User{Username: "alice"})
+		c := h.client(true)
+		if resp := h.login(c, "alice", "", "/"); resp.StatusCode != http.StatusOK {
+			t.Fatal(resp.Status)
+		}
+		other, err := h.store.CreateSession("alice", "", "", "other device")
+		if err != nil {
+			t.Fatal(err)
+		}
+		tok := h.pat("alice")
+		form := url.Values{"action": {"end"}, "session": {auth.HashToken(other)}}
+		if resp := h.post(c, portal+"/account", portal, form); resp.StatusCode != http.StatusOK {
+			t.Fatal(resp.Status)
+		}
+		if _, _, err := h.store.LookupSession(other); err == nil {
+			t.Fatal("the session wasn't ended, so this proves nothing")
+		}
+		backendSaw(t, h.send(http.MethodGet, yarr+"/", bearer(tok)))
+	})
+}
+
 // A node's address is the same app by another name, so the same rules apply.
 func TestAccessToken_OnATailnetAddress(t *testing.T) {
 	h := tailnetHarness(t)
