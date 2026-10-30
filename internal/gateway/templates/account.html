@@ -23,6 +23,22 @@
 </form>
 <p class="hint">Changing it signs out every other device.</p>
 </section>
+{{if .SignIns}}<section class="panel" aria-labelledby="where">
+<h2 id="where">Where you're signed in</h2>
+<ul class="signins">
+{{range .SignIns}}<li>
+<div class="signin">
+<span class="top"><strong>{{.Device}}</strong>{{if .Here}}<span class="tag">This device</span>{{end}}</span>
+<span class="hint">{{if .Here}}In use now{{else}}{{.Used}}{{end}}{{if .Apps}} · {{.Apps}}{{end}}</span>
+</div>
+{{if not .Here}}<form method="post" action="/account">
+<input type="hidden" name="action" value="end">
+<input type="hidden" name="session" value="{{.ID}}">
+<button class="ghost" type="submit"><span>End<span class="sr"> this session: {{.Device}}</span></span></button>
+</form>{{end}}
+</li>
+{{end}}</ul>
+</section>{{end}}
 <section class="panel" aria-labelledby="all">
 <h2 id="all">Sign out everywhere</h2>
 <p>Ends every session on every device, this one included, and every app you were signed in to.</p>

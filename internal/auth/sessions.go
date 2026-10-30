@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 	"unicode/utf8"
 )
@@ -279,4 +280,89 @@ func (s *Store) RevokeFamily(token string) error {
 		return fmt.Errorf("revoke sessions: %w", err)
 	}
 	return nil
+}
+
+// SignIn is one login as its owner sees it: a portal session and the app
+// sessions it handed out.
+type SignIn struct {
+	// ID is the portal session's token hash. It names the sign-in in a form
+	// and can't be turned back into the token, so it is no use as a credential.
+	ID         string
+	UserAgent  string
+	Apps       []string // the apps signed in to, sorted, each once
+	CreatedAt  time.Time
+	LastSeenAt time.Time // moves only when a session slides, so up to a day behind
+}
+
+// SignIns lists a user's live logins, most recently used first.
+func (s *Store) SignIns(username string) ([]SignIn, error) {
+	rows, err := s.db.Query(`
+SELECT s.token_hash, s.parent_hash, s.app, s.user_agent, s.created_at, s.last_seen_at
+FROM sessions s JOIN users u ON u.id = s.user_id
+WHERE u.username = ? AND s.expires_at > ?`, username, s.now().Unix())
+	if err != nil {
+		return nil, fmt.Errorf("list sessions for %s: %w", username, err)
+	}
+	defer rows.Close()
+
+	byID := map[string]*SignIn{}
+	apps := map[string]map[string]bool{}
+	for rows.Next() {
+		var (
+			hash, parent, app, agent string
+			created, seen            int64
+		)
+		if err := rows.Scan(&hash, &parent, &app, &agent, &created, &seen); err != nil {
+			return nil, fmt.Errorf("list sessions for %s: %w", username, err)
+		}
+		if parent == "" {
+			byID[hash] = &SignIn{ID: hash, UserAgent: agent, CreatedAt: fromUnix(created), LastSeenAt: fromUnix(seen)}
+			continue
+		}
+		if apps[parent] == nil {
+			apps[parent] = map[string]bool{}
+		}
+		apps[parent][app] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list sessions for %s: %w", username, err)
+	}
+
+	out := make([]SignIn, 0, len(byID))
+	for id, in := range byID {
+		for app := range apps[id] {
+			in.Apps = append(in.Apps, app)
+		}
+		sort.Strings(in.Apps)
+		out = append(out, *in)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].LastSeenAt.Equal(out[j].LastSeenAt) {
+			return out[i].LastSeenAt.After(out[j].LastSeenAt)
+		}
+		if !out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].CreatedAt.After(out[j].CreatedAt)
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out, nil
+}
+
+// EndSignIn ends one of a user's logins and every app session under it, and
+// reports whether there was one to end. The username is part of the match, so
+// nobody can end someone else's login by naming its ID.
+func (s *Store) EndSignIn(username, id string) (bool, error) {
+	// An empty ID would match parent_hash on every portal session below.
+	if id == "" {
+		return false, nil
+	}
+	res, err := s.db.Exec(`
+DELETE FROM sessions
+WHERE user_id = (SELECT id FROM users WHERE username = ?)
+  AND ((token_hash = ? AND parent_hash = '') OR parent_hash = ?)`, username, id, id)
+	if err != nil {
+		return false, fmt.Errorf("end session for %s: %w", username, err)
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
 }

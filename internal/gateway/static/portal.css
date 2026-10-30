@@ -200,6 +200,16 @@ button.ghost:hover { background: rgba(217, 88, 59, 0.12); }
 .notice { margin: 0.75rem 0 0; color: var(--beam); }
 .lede strong { color: var(--porcelain); }
 
+/* The account page's list of sign-ins. */
+.signins { list-style: none; margin: 0.75rem 0 0; padding: 0; }
+.signins li {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  min-height: 64px; padding: 0.6rem 0;
+}
+.signins li + li { border-top: 1px solid var(--rule); }
+.signins form { margin: 0; flex: none; }
+.signin { min-width: 0; display: grid; gap: 3px; }
+
 @media (min-width: 42rem) {
   :root { --gutter: 28px; }
   h1 { font-size: 32px; }
