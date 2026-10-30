@@ -88,6 +88,9 @@ func (r *releaseChecks) check(ctx context.Context, svc *manifest.Service) (super
 	var none *acquire.NoAssetsError
 	switch {
 	case errors.Is(err, acquire.ErrNotModified):
+		// Nothing to store, and writing the copy read above back could undo
+		// a newer answer another check stored meanwhile.
+		return r.a.releaseVerdict(svc, seen), nil
 	case errors.As(err, &none):
 		seen = seenRelease{etag: etag, tag: none.Tag, noAssets: true}
 	case err != nil:

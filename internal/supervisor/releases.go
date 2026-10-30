@@ -85,6 +85,11 @@ func (s *Supervisor) RunReleaseChecks(ctx context.Context) {
 		// An error here means the daemon is on its way down.
 		if due, err := s.releaseChecksDue(ctx); err == nil {
 			for _, svc := range due {
+				// A daemon on its way down would otherwise log, and record,
+				// every check left in the batch as a failure.
+				if ctx.Err() != nil {
+					return
+				}
 				// Recorded and logged by checkOneRelease, and all a failed
 				// check means is trying again later.
 				_, _ = s.checkOneRelease(ctx, svc)

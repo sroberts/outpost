@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sroberts/outpost/internal/manifest"
+	"github.com/sroberts/outpost/internal/supervisor"
 )
 
 // updateAllCheckTimeout bounds asking about one service before updating any.
@@ -34,14 +36,38 @@ func (a *app) updateAll(noBackup bool, wait time.Duration) error {
 	var unchecked, notes, noSource []string
 	current := 0
 	checks := &releaseChecks{a: a}
-	for _, svc := range services {
+
+	// Asked a few at a time, as checkAll does, so one slow repository doesn't
+	// hold up the rest; the answers are read in manifest order.
+	type answer struct {
+		rc  supervisor.ReleaseCheck
+		err error
+	}
+	answers := make([]answer, len(services))
+	sem := make(chan struct{}, 4)
+	var wg sync.WaitGroup
+	for i, svc := range services {
+		if svc.Source == "" {
+			continue
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			ctx, cancel := context.WithTimeout(context.Background(), updateAllCheckTimeout)
+			defer cancel()
+			answers[i].rc, answers[i].err = checks.check(ctx, svc)
+		}()
+	}
+	wg.Wait()
+
+	for i, svc := range services {
 		if svc.Source == "" {
 			noSource = append(noSource, svc.Name)
 			continue
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), updateAllCheckTimeout)
-		rc, err := checks.check(ctx, svc)
-		cancel()
+		rc, err := answers[i].rc, answers[i].err
 		switch {
 		case err != nil:
 			// This doesn't stop the others: nothing has been tried yet, and it
