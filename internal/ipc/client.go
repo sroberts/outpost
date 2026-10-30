@@ -239,6 +239,31 @@ func (c *Client) AuthRotateKey() (string, error) {
 	return resp.Message, err
 }
 
+// TokenCreate issues an access token. It returns the secret, which nothing will
+// ever say again, what was created, and any warning the daemon has about it.
+func (c *Client) TokenCreate(r TokenRequest) (string, TokenInfo, string, error) {
+	resp, err := c.do(Request{Command: CmdTokenCreate, AccessToken: &r})
+	if err != nil {
+		return "", TokenInfo{}, "", err
+	}
+	if resp.Secret == "" || len(resp.Tokens) != 1 {
+		return "", TokenInfo{}, "", errors.New("daemon returned no token")
+	}
+	return resp.Secret, resp.Tokens[0], resp.Message, nil
+}
+
+// TokenList returns one user's access tokens, or everyone's for "".
+func (c *Client) TokenList(username string) ([]TokenInfo, error) {
+	resp, err := c.do(Request{Command: CmdTokenList, AccessToken: &TokenRequest{Username: username}})
+	return resp.Tokens, err
+}
+
+// TokenRevoke ends one access token.
+func (c *Client) TokenRevoke(id int64) (string, error) {
+	resp, err := c.do(Request{Command: CmdTokenRevoke, AccessToken: &TokenRequest{ID: id}})
+	return resp.Message, err
+}
+
 // GatewayStatus reports the gateway's addresses and routes.
 func (c *Client) GatewayStatus() (gateway.Status, error) {
 	resp, err := c.do(Request{Command: CmdGatewayStatus})

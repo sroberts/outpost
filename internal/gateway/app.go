@@ -21,6 +21,13 @@ import (
 const reservedPrefix = "/.outpost/"
 
 func (g *Gateway) serveApp(w http.ResponseWriter, r *http.Request, rt route) {
+	// Ahead of everything below, public paths included: a request presenting a
+	// token stands or falls by it, and the token never goes any further.
+	if presented := presentedAccessTokens(r.Header); len(presented) > 0 {
+		removeAccessTokens(r.Header)
+		g.serveWithAccessToken(w, r, rt, presented)
+		return
+	}
 	switch r.URL.Path {
 	case "/.outpost/callback":
 		g.callback(w, r, rt)
@@ -173,7 +180,13 @@ func (g *Gateway) proxyApp(w http.ResponseWriter, r *http.Request, rt route) {
 		g.denied(w, r, rt, u)
 		return
 	}
+	g.proxyAs(w, r, rt, u)
+}
 
+// proxyAs sends a request on to the service as u, who has already been
+// through the allow check. Every way of being signed in comes through here, so
+// an app can't tell them apart.
+func (g *Gateway) proxyAs(w http.ResponseWriter, r *http.Request, rt route, u auth.User) {
 	idTok, err := g.identityToken(u, rt.Name)
 	if err != nil {
 		g.logf("gateway: %s: identity token: %v", rt.Name, err)

@@ -43,6 +43,10 @@ const (
 	CmdUserAdmin   = "user.admin"
 	CmdAuthRotate  = "auth.rotate-key"
 
+	CmdTokenCreate = "token.create"
+	CmdTokenList   = "token.list"
+	CmdTokenRevoke = "token.revoke"
+
 	CmdGatewayStatus = "gateway.status"
 )
 
@@ -80,6 +84,9 @@ type Request struct {
 	// User carries the user.* commands' arguments. A pointer, so every other
 	// request stays byte-identical on the wire.
 	User *UserRequest `json:"user,omitempty"`
+	// AccessToken carries the token.* commands' arguments, a pointer for the
+	// same reason.
+	AccessToken *TokenRequest `json:"access_token,omitempty"`
 }
 
 // UserRequest is the argument to a user.* command. Password is in clear: it
@@ -137,6 +144,10 @@ type Response struct {
 	Message  string                     `json:"message,omitempty"`
 	Users    []UserInfo                 `json:"users,omitempty"`
 	Gateway  *gateway.Status            `json:"gateway,omitempty"`
+	Tokens   []TokenInfo                `json:"tokens,omitempty"`
+	// Secret is a new access token, set only by token.create. It crosses the
+	// 0600 socket once and the daemon keeps nothing it could be read back from.
+	Secret string `json:"secret,omitempty"`
 }
 
 // errorResponse builds a failure reply.
