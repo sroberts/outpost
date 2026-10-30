@@ -369,7 +369,11 @@ outpost user list                users, their groups and live sessions
 outpost user groups <name> +g -g add to and remove from groups
 outpost user disable|enable <name>
 outpost user sessions <name>     where the user is signed in
-outpost user logout <name>       end every session the user has
+outpost user logout <name>       end every session and access token the user has
+outpost token create <user> [--name N] [--app A]... [--expires 90d]
+                                 make an access token; prints the secret once
+outpost token list [<user>]      access tokens: scope, expiry and last use
+outpost token revoke <id>        end an access token
 outpost auth rotate-key          replace the key that signs identity tokens
 outpost gateway status           the portal address and the apps it routes
 outpost gateway activity [-n N]  sign-ins, failures and refusals at the gateway
@@ -562,8 +566,9 @@ gateway on in an existing tailnet setup changes nodes from plain http on port
 
 What the gateway decides goes in the activity feed, and `outpost gateway
 activity` shows it: who signed in or out and from which address, failed and
-throttled sign-ins, refused apps, password changes, use of the setup link, and
-updates started from the portal.
+throttled sign-ins, refused apps, password changes, use of the setup link,
+access tokens created, revoked and rejected, and updates started from the
+portal.
 A failure is recorded the first time; repeats of the same one within ten
 minutes become a single line, such as
 `4 more failed sign-ins for "alice" from 192.0.2.7 since 21:14`. Throttled
@@ -613,6 +618,57 @@ public_paths = ["/webhook/*", "/feed.xml"] # served without a login
   error unless `subdomain` or `hostname` gives it an address.
 
 Not built yet: app icons. The catalog marks each app with its station.
+
+### Access tokens
+
+Nothing without a browser can sign in, so scripts, agents and MCP clients use a
+personal access token instead:
+
+```sh
+TOKEN=$(outpost token create alice --name backup-cron --app yarr --expires 90d)
+curl -H "Authorization: Bearer $TOKEN" https://yarr.outpost.example/api/items
+```
+
+Only the secret goes to stdout, and that is the only time it is shown; the
+database keeps a SHA-256 of it. `outpost token list` shows each token's scope,
+expiry and roughly when it was last used, and `outpost token revoke <id>` ends
+one. Like the password a browser sends, a token needs TLS to be safe on a
+network.
+
+A request with a token is treated as that user: the same `allow` check on every
+request, and the same `X-Outpost-*` headers and identity token, so an app can't
+tell it from a browser. The app never sees the token itself.
+
+- **An app with its own bearer auth.** Outpost only claims a bearer token that
+  starts with `opat_`; any other `Authorization` reaches the app untouched. A
+  client that needs both sends its app credential in `Authorization` and the
+  Outpost token in `Outpost-Token`:
+
+  ```sh
+  curl -H "Authorization: Bearer $APP_KEY" -H "Outpost-Token: $TOKEN" \
+    https://yarr.outpost.example/api/items
+  ```
+
+- **Scope.** A token reaches every app its user may open, or only those named
+  with `--app` (repeatable, by service name). Naming an app grants nothing the
+  `allow` list doesn't. `--expires` takes days (`90d`), weeks (`12w`) or hours
+  (`24h`); without it a token doesn't expire.
+- **Apps only.** A token is refused on the portal and under `/.outpost/` on app
+  hosts, so it can't reach the account page, updates or sign-in, and it never
+  creates a session or sets a cookie. Tokens are managed from the CLI.
+- **A failed token is an answer, not a fallback.** A token that is wrong, expired,
+  revoked or out of scope gets a plain `401` with `WWW-Authenticate: Bearer`, and
+  one whose user the `allow` list refuses gets a plain `403`; neither is
+  redirected to the login. That holds on `public_paths` too and with a good
+  session cookie alongside: a request with a bad token isn't quietly treated as
+  anonymous. Too many rejected tokens from one address get a `429` with
+  `Retry-After`, good tokens included, until it backs off. With no token, public
+  paths and browsers work as they always have. A good token on a public path
+  gets what a signed-in browser does there: no identity headers.
+- **Ending them.** Disabling or removing a user, `outpost user logout`, signing
+  out everywhere from the account page, and changing or resetting a password all
+  revoke the user's tokens, and enabling the user again doesn't bring them back.
+  Ending one browser session on the account page leaves tokens alone.
 
 ## Layout
 

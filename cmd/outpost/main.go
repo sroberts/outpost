@@ -63,8 +63,12 @@ Users:
   user disable <name>      block a user from logging in and end their sessions
   user enable <name>       let a disabled user log in again
   user sessions <name>     where a user is signed in
-  user logout <name>       end every session a user has
+  user logout <name>       end every session and access token a user has
   user admin <name> on|off grant or revoke admin
+  token create <user>      make an access token for scripts (--name N, --app A,
+                           --expires 90d); the secret is printed once
+  token list [user]        table of access tokens
+  token revoke <id>        end an access token
   auth rotate-key          replace the key that signs identity tokens
   gateway status           the gateway's addresses and the apps it routes
   gateway activity [-n N]  sign-ins, failures and refusals at the gateway
@@ -172,6 +176,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return a.cmdVersion(cmdArgs)
 	case "user":
 		return a.cmdUser(cmdArgs)
+	case "token":
+		return a.cmdToken(cmdArgs)
 	case "auth":
 		return a.cmdAuth(cmdArgs)
 	case "gateway":

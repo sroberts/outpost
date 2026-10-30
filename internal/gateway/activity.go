@@ -26,6 +26,10 @@ const (
 	EventPassword     = "password"
 	EventSetup        = "setup"
 	EventUpdate       = "update"
+	// Access tokens: the CLI's create and revoke, and the gateway's refusals.
+	EventTokenCreate = "token-create"
+	EventTokenRevoke = "token-revoke"
+	EventTokenFail   = "token-fail"
 )
 
 // Events is where the gateway's activity goes: the supervisor's feed in the
@@ -199,6 +203,8 @@ func failureWords(kind string) string {
 		return "access denied"
 	case EventPasswordFail:
 		return "wrong current password"
+	case EventTokenFail:
+		return "rejected access token"
 	}
 	return "failed sign-in"
 }

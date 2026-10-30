@@ -235,7 +235,10 @@ func (s *Server) dispatch(ctx context.Context, req Request) Response {
 
 	case CmdUserAdd, CmdUserPasswd, CmdUserRemove, CmdUserList, CmdUserGroups,
 		CmdUserDisable, CmdUserEnable, CmdUserLogout, CmdUserAdmin, CmdUserSignIns, CmdAuthRotate:
-		return s.dispatchAuth(req)
+		return s.dispatchAuth(ctx, req)
+
+	case CmdTokenCreate, CmdTokenList, CmdTokenRevoke:
+		return s.dispatchToken(ctx, req)
 
 	case CmdGatewayStatus:
 		if s.gateway == nil {
@@ -263,7 +266,7 @@ var errNoAuth = errors.New("user management is not available: this daemon was st
 // dispatchAuth serves the user.* and auth.* commands. They go straight to the
 // auth store rather than through the supervisor's loop: auth.db is its own
 // database with its own locking, and nothing here touches supervisor state.
-func (s *Server) dispatchAuth(req Request) Response {
+func (s *Server) dispatchAuth(ctx context.Context, req Request) Response {
 	if s.auth == nil {
 		return errorResponse(errNoAuth)
 	}
@@ -310,15 +313,19 @@ func (s *Server) dispatchAuth(req Request) Response {
 		return Response{OK: true, Message: msg}
 
 	case CmdUserPasswd:
+		tokens := s.liveTokens(u.Username)
 		if err := s.auth.SetPassword(u.Username, u.Password); err != nil {
 			return errorResponse(err)
 		}
-		return Response{OK: true, Message: "set the password for " + u.Username + "; their existing sessions have ended"}
+		s.tokensRevoked(ctx, tokens, u.Username, "password set")
+		return Response{OK: true, Message: "set the password for " + u.Username + "; their existing sessions have ended and any access tokens are revoked"}
 
 	case CmdUserRemove:
+		tokens := s.liveTokens(u.Username)
 		if err := s.auth.RemoveUser(u.Username); err != nil {
 			return errorResponse(err)
 		}
+		s.tokensRevoked(ctx, tokens, u.Username, "user removed")
 		return Response{OK: true, Message: "removed user " + u.Username}
 
 	case CmdUserGroups:
@@ -334,11 +341,16 @@ func (s *Server) dispatchAuth(req Request) Response {
 
 	case CmdUserDisable, CmdUserEnable:
 		disable := req.Command == CmdUserDisable
+		tokens := 0
+		if disable {
+			tokens = s.liveTokens(u.Username)
+		}
 		if err := s.auth.SetDisabled(u.Username, disable); err != nil {
 			return errorResponse(err)
 		}
 		if disable {
-			return Response{OK: true, Message: "disabled " + u.Username + " and ended their sessions"}
+			s.tokensRevoked(ctx, tokens, u.Username, "user disabled")
+			return Response{OK: true, Message: "disabled " + u.Username + ", ended their sessions and revoked any access tokens"}
 		}
 		return Response{OK: true, Message: "enabled " + u.Username}
 
@@ -363,11 +375,12 @@ func (s *Server) dispatchAuth(req Request) Response {
 		return Response{OK: true, SignIns: infos}
 
 	case CmdUserLogout:
-		n, err := s.auth.RevokeUserSessions(u.Username)
+		n, tokens, err := s.auth.RevokeUserAccess(u.Username)
 		if err != nil {
 			return errorResponse(err)
 		}
-		return Response{OK: true, Message: fmt.Sprintf("ended %d session(s) for %s", n, u.Username)}
+		s.tokensRevoked(ctx, tokens, u.Username, "user logged out")
+		return Response{OK: true, Message: fmt.Sprintf("ended %d session(s) and revoked %d access token(s) for %s", n, tokens, u.Username)}
 	}
 	return errorResponse(fmt.Errorf("unknown command %q", req.Command))
 }

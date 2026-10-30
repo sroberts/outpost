@@ -80,6 +80,15 @@ incoming `X-Outpost-*` header first, on every host and path, and the proxy
 removes the Outpost cookie. Anything new that handles a request has to come
 after that, and nothing may let a client choose the identity a service sees.
 
+**A request presenting an access token stands or falls by it.** `serveApp` takes
+`opat_` bearer tokens and `Outpost-Token` out of the headers before anything
+else on an app host, and from there nothing falls back to a session cookie, a
+public path or the login redirect, because a wrong token must not read as
+anonymous. Anything that shuts a user out goes through `endUserAccess` (removal
+gets the same from the cascades), so tokens can't outlive a session. Anything
+else that proxies has to come after that removal, or the app receives the
+credential.
+
 **With the gateway on, a tailnet node proxies to the gateway, never to the
 service.** `serve` gives the router `gateway.LocalUpstream`, and each node then
 serves HTTPS and forwards everything there, so a service's tailnet address is
