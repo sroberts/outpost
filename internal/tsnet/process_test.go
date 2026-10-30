@@ -220,6 +220,13 @@ func TestProcessNode_AuthKeyIsNotAnArgument(t *testing.T) {
 		t.Fatalf("Attach: %v", err)
 	}
 	waitFor(t, 10*time.Second, "attach", func() bool { return len(r.Attached()) == 1 })
+	// stderr is read on its own goroutine, so the ready line on stdout can
+	// attach the node before the lines the helper wrote first are logged.
+	// Without the args line the check below would pass by having nothing to
+	// look at.
+	waitFor(t, 10*time.Second, "the node's environment and arguments to be logged", func() bool {
+		return logs.has("authkey=") && logs.has("args=")
+	})
 
 	if !logs.has("authkey=tskey-secret") {
 		t.Errorf("the node did not receive the auth key: %q", logs.snapshot())
