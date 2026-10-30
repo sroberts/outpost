@@ -407,6 +407,11 @@ changes it at any time; restart the daemon afterwards.
 `[gateway]` turns on the login gateway; its settings are in
 [The login gateway](#the-login-gateway).
 
+The daemon reads the file only when it starts. Manifests reload by themselves,
+but a change here waits for a restart, so `outpost list`, `status`, `config`
+and `gateway status` say when the file no longer matches what the daemon is
+running. Comments and layout don't count as a change.
+
 The file may hold an auth key, so it is written `0600`. Prefer `TS_AUTHKEY` in
 the environment, or `outpost install --authkey`, over writing one to disk.
 

@@ -125,7 +125,11 @@ type Response struct {
 	// Version identifies the daemon's build. Only ping sets it, which is
 	// enough to catch the case that matters: a binary upgraded on disk while
 	// the daemon kept running the old one.
-	Version  string                     `json:"version,omitempty"`
+	Version string `json:"version,omitempty"`
+	// Config is the fingerprint of the config.toml the daemon started with,
+	// also set only by ping, so a client can tell when the file has changed
+	// since and the daemon needs a restart to apply it.
+	Config   string                     `json:"config,omitempty"`
 	Services []supervisor.ServiceStatus `json:"services,omitempty"`
 	Status   *supervisor.ServiceStatus  `json:"status,omitempty"`
 	Events   []supervisor.EventRecord   `json:"events,omitempty"`

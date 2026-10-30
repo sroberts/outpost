@@ -128,10 +128,17 @@ func (a *app) setTailscale(on bool) error {
 	if on {
 		a.warnMissingTailscaleNames()
 	}
-	// The daemon's setting can't be asked for, and config.toml's previous
-	// value needn't be it: the file may have changed since the daemon started.
-	if a.client().Available() {
+	// Compared with what the daemon started with, not with the file's
+	// previous value: the file may have changed since the daemon started.
+	// A daemon too old to report its settings gets the unconditional hint.
+	running, err := a.client().DaemonConfig()
+	switch {
+	case err != nil:
+		// No daemon, so nothing to restart.
+	case running == "":
 		fmt.Fprintln(a.out, "  a daemon is running and reads config.toml only at startup; restart it if this changed its setting")
+	case running != a.config.Fingerprint():
+		fmt.Fprintln(a.out, "  the daemon is running with the settings it started with; restart it to apply this")
 	}
 	return nil
 }
