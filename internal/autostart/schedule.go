@@ -75,12 +75,32 @@ func backupUnit(label string) string {
 }
 
 // legacyBackupUnit is the name systemd backups were written under before
-// backupUnit, kept so an upgrade can find and clear them.
-const legacyBackupUnit = "backup"
+// backupUnit ("backup" for the default label), kept so an upgrade can find and
+// clear them. It is derived the way the old code derived it rather than
+// hard-coded, so a non-default label finds its own old units.
+func legacyBackupUnit(label string) string {
+	return strings.TrimSuffix(unitName(backupLabel(label)), ".service")
+}
 
-// legacyMarker identifies a legacy unit as Outpost's, so clearing it can never
-// touch someone else's backup.service.
-const legacyMarker = "Description=Outpost scheduled backup"
+// legacyMarkers are the exact Description lines an older Outpost wrote into
+// its backup service and timer. Matching whole lines, not a substring, keeps
+// clearing them from ever touching someone else's backup.service.
+var legacyMarkers = []string{
+	"Description=Outpost scheduled backup",
+	"Description=Outpost scheduled backup timer",
+}
+
+func isLegacyOutpostUnit(body string) bool {
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(line)
+		for _, m := range legacyMarkers {
+			if line == m {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 // args are the command a scheduled run executes.
 func (b BackupSchedule) args() []string {
@@ -188,12 +208,18 @@ func LegacyBackupUnits(goos string, b BackupSchedule) ([]string, error) {
 	}
 	var found []string
 	for _, suffix := range []string{".timer", ".service"} {
-		p := filepath.Join(filepath.Dir(daemon), legacyBackupUnit+suffix)
+		p := filepath.Join(filepath.Dir(daemon), legacyBackupUnit(b.Label)+suffix)
 		body, err := os.ReadFile(p)
-		if err != nil {
+		if os.IsNotExist(err) {
 			continue
 		}
-		if strings.Contains(string(body), legacyMarker) {
+		if err != nil {
+			// Not being able to read it is not the same as it not being
+			// there: a silently skipped timer would keep running beside the
+			// new one.
+			return nil, fmt.Errorf("check for an old backup unit at %s: %w", p, err)
+		}
+		if isLegacyOutpostUnit(string(body)) {
 			found = append(found, p)
 		}
 	}
@@ -202,8 +228,12 @@ func LegacyBackupUnits(goos string, b BackupSchedule) ([]string, error) {
 
 // LegacyBackupDisableCommands stop the legacy timer before its files go.
 func LegacyBackupDisableCommands(b BackupSchedule) [][]string {
-	unit := legacyBackupUnit + ".timer"
-	if b.Scope == System {
+	return systemdDisable(b.Scope, legacyBackupUnit(b.Label)+".timer")
+}
+
+// systemdDisable stops and deregisters a systemd unit in the given scope.
+func systemdDisable(scope Scope, unit string) [][]string {
+	if scope == System {
 		return [][]string{{"sudo", "systemctl", "disable", "--now", unit}}
 	}
 	return [][]string{{"systemctl", "--user", "disable", "--now", unit}}
@@ -355,11 +385,7 @@ func BackupEnableCommands(goos, timerPath string, b BackupSchedule) [][]string {
 // BackupDisableCommands stop and deregister a scheduled backup.
 func BackupDisableCommands(goos, timerPath string, b BackupSchedule) [][]string {
 	if goos == "linux" {
-		unit := backupUnit(b.Label) + ".timer"
-		if b.Scope == System {
-			return [][]string{{"sudo", "systemctl", "disable", "--now", unit}}
-		}
-		return [][]string{{"systemctl", "--user", "disable", "--now", unit}}
+		return systemdDisable(b.Scope, backupUnit(b.Label)+".timer")
 	}
 	if b.Scope == System {
 		return [][]string{{"sudo", "launchctl", "unload", "-w", timerPath}}
