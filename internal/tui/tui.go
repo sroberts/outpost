@@ -79,6 +79,8 @@ type Model struct {
 	usersErr      error
 	userCursor    int
 	signIns       []ipc.SignInInfo
+	signInsUser   string // whose sign-ins signIns holds
+	signInsErr    error
 	confirm       string // the user a first L asked to sign out
 	configChanged func() bool
 	configStale   bool
@@ -312,7 +314,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case key.Matches(msg, m.keys.Refresh):
 		m.notice = ""
-		return m, m.fetchServices()
+		return m, tea.Batch(m.fetchServices(), m.refreshExtras())
 
 	case key.Matches(msg, m.keys.Start):
 		return m, m.announce("start", "starting")

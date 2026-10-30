@@ -65,6 +65,7 @@ type usersMsg struct {
 type signInsMsg struct {
 	user    string
 	signIns []ipc.SignInInfo
+	err     error
 }
 
 // fetchGateway reads the gateway's state, its recent activity, and whether
@@ -77,6 +78,8 @@ func (m Model) fetchGateway() tea.Cmd {
 		return nil
 	}
 	client := m.client
+	// Only the Gateway view shows the feed; the others need the addresses.
+	withEvents := m.view == viewGateway
 	return func() tea.Msg {
 		var msg gatewayMsg
 		if check != nil {
@@ -89,7 +92,9 @@ func (m Model) fetchGateway() tea.Cmd {
 		if err == nil {
 			msg.status = &st
 			// The feed is decoration here, as on the services view.
-			msg.events, _ = client.Events(gateway.ActivityService, eventLimit)
+			if withEvents {
+				msg.events, _ = client.Events(gateway.ActivityService, eventLimit)
+			}
 		} else {
 			msg.err = err
 		}
@@ -116,10 +121,7 @@ func (m Model) fetchSignIns(user string) tea.Cmd {
 	}
 	return func() tea.Msg {
 		list, err := x.UserSignIns(user)
-		if err != nil {
-			return nil
-		}
-		return signInsMsg{user: user, signIns: list}
+		return signInsMsg{user: user, signIns: list, err: err}
 	}
 }
 
@@ -139,7 +141,9 @@ func (m Model) signOut(user string) tea.Cmd {
 func (m Model) refreshExtras() tea.Cmd {
 	cmds := []tea.Cmd{m.fetchGateway()}
 	if m.view == viewUsers {
-		cmds = append(cmds, m.fetchUsers(), m.fetchSignIns(m.selectedUser()))
+		// The sign-ins follow once the list arrives (updateExtras), for
+		// whoever is selected then.
+		cmds = append(cmds, m.fetchUsers())
 	}
 	return tea.Batch(cmds...)
 }
@@ -168,7 +172,7 @@ func (m Model) updateExtras(msg tea.Msg) (Model, tea.Cmd, bool) {
 		return m, m.fetchSignIns(m.selectedUser()), true
 	case signInsMsg:
 		if msg.user == m.selectedUser() {
-			m.signIns = msg.signIns
+			m.signIns, m.signInsUser, m.signInsErr = msg.signIns, msg.user, msg.err
 		}
 		return m, nil, true
 	}
@@ -197,6 +201,10 @@ func (m Model) handleExtraKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	// Anything but a second L calls off a pending sign-out.
 	pending := m.confirm
 	m.confirm = ""
+	if pending != "" && msg.String() != "L" {
+		// Don't leave "press L again" up once it no longer holds.
+		m.notice = ""
+	}
 	switch {
 	case msg.String() == "up" || msg.String() == "k":
 		if m.view == viewUsers && m.userCursor > 0 {
@@ -338,11 +346,21 @@ func (m Model) usersPane() string {
 		if i == m.userCursor {
 			marker, style = "▸ ", selectedRow
 		}
-		b.WriteString("  " + style.Render(marker+joinCells(row, widths)) + "\n")
+		b.WriteString("  " + style.Render(truncate(marker+joinCells(row, widths), m.width-4)) + "\n")
 	}
 
 	user := m.selectedUser()
 	b.WriteString("\n  " + m.rule("signed in: "+user) + "\n")
+	switch {
+	case m.signInsUser != user:
+		b.WriteString("  " + labelStyle.Render("loading…") + "\n")
+		return b.String()
+	case m.signInsErr != nil:
+		// Saying "not signed in" when the daemon couldn't be asked would
+		// hide sessions that are live.
+		b.WriteString("  " + errorStyle.Render(m.signInsErr.Error()) + "\n")
+		return b.String()
+	}
 	if len(m.signIns) == 0 {
 		b.WriteString("  " + labelStyle.Render("not signed in anywhere") + "\n")
 		return b.String()

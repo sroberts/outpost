@@ -10,6 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/sroberts/outpost/internal/config"
 	"github.com/sroberts/outpost/internal/ipc"
 	"github.com/sroberts/outpost/internal/tui"
 )
@@ -28,7 +29,17 @@ func (a *app) cmdTUI(args []string) error {
 	// The dashboard reads the daemon through the same client the CLI uses, so
 	// there is one code path to the supervisor.
 	c := a.client()
-	model := tui.New(c, a.tailLog).WithConfigCheck(func() bool { return a.configChanged(c) })
+	model := tui.New(c, a.tailLog).WithConfigCheck(func() bool {
+		// Re-read the file on every check: a.config is what it held when the
+		// dashboard started, so comparing against that would miss an edit made
+		// while it runs, and flag a daemon restarted onto that edit as stale.
+		cfg, err := config.Load(a.configPath())
+		if err != nil {
+			return false
+		}
+		running, err := c.DaemonConfig()
+		return err == nil && running != "" && running != cfg.Fingerprint()
+	})
 
 	// The alt screen keeps the dashboard from scrolling the user's scrollback
 	// away.
