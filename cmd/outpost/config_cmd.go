@@ -75,7 +75,7 @@ func (a *app) cmdConfig(args []string) error {
 
 // restartToApply is what the CLI says when the daemon is running settings
 // other than config.toml's. The daemon reads the file only at startup.
-const restartToApply = "config.toml has changed since the daemon started; restart the daemon to apply it"
+const restartToApply = "config.toml has changed since the daemon started; run `outpost daemon restart` to apply it"
 
 // configChanged reports whether the running daemon started with settings
 // other than the ones in config.toml now. A daemon too old to say is given

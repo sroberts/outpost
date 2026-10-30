@@ -40,7 +40,7 @@ func (a *app) cmdVersion(args []string) error {
 	fmt.Fprintf(a.out, "\n  daemon:   %s\n", daemon)
 	if daemon != info.String() {
 		fmt.Fprintf(a.out, "\n  The daemon is running a different build from this CLI.\n"+
-			"  Upgrading the binary does not restart it; `outpost uninstall && outpost install --enable`,\n"+
+			"  Upgrading the binary does not restart it; `outpost daemon restart`,\n"+
 			"  or restart it however you started it, to pick this one up.\n")
 	}
 	return nil
