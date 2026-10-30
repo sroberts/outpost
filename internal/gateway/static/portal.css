@@ -200,15 +200,23 @@ button.ghost:hover { background: rgba(217, 88, 59, 0.12); }
 .notice { margin: 0.75rem 0 0; color: var(--beam); }
 .lede strong { color: var(--porcelain); }
 
-/* The account page's list of sign-ins. */
-.signins { list-style: none; margin: 0.75rem 0 0; padding: 0; }
-.signins li {
-  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
-  min-height: 64px; padding: 0.6rem 0;
+/* Sign-ins on the account page: one row a device, its button at the end.
+   This device has no button, only a word: the rail already signs out here. */
+.devices { list-style: none; margin: 1rem 0 0; padding: 0; }
+.device {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: 0.5rem 1rem; padding: 0.85rem 0;
 }
-.signins li + li { border-top: 1px solid var(--rule); }
-.signins form { margin: 0; flex: none; }
-.signin { min-width: 0; display: grid; gap: 3px; }
+.device + .device { border-top: 1px solid var(--rule); }
+.device .body { flex: 1 1 16rem; }
+.device form { margin: 0; }
+.device-name { font-size: 16px; font-weight: 650; overflow-wrap: anywhere; }
+.device-meta { margin: 0; font-size: 14px; color: var(--dim); overflow-wrap: anywhere; }
+.device-meta .addr { font-size: 13px; }
+.device-here { margin: 0; font-size: 14px; color: var(--beam); }
+button.small { padding: 0 0.95rem; font-size: 14px; }
+#where > form { margin-top: 0.75rem; }
+#where > .hint { margin-top: 0.4rem; }
 
 @media (min-width: 42rem) {
   :root { --gutter: 28px; }

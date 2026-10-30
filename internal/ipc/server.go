@@ -234,7 +234,7 @@ func (s *Server) dispatch(ctx context.Context, req Request) Response {
 			Message: fmt.Sprintf("restored %s from %s", req.Service, archive.Timestamp)}
 
 	case CmdUserAdd, CmdUserPasswd, CmdUserRemove, CmdUserList, CmdUserGroups,
-		CmdUserDisable, CmdUserEnable, CmdUserLogout, CmdUserAdmin, CmdAuthRotate:
+		CmdUserDisable, CmdUserEnable, CmdUserLogout, CmdUserAdmin, CmdUserSignIns, CmdAuthRotate:
 		return s.dispatchAuth(req)
 
 	case CmdGatewayStatus:
@@ -350,6 +350,17 @@ func (s *Server) dispatchAuth(req Request) Response {
 			return Response{OK: true, Message: u.Username + " is now an admin"}
 		}
 		return Response{OK: true, Message: u.Username + " is no longer an admin"}
+
+	case CmdUserSignIns:
+		list, err := s.auth.SignIns(u.Username)
+		if err != nil {
+			return errorResponse(err)
+		}
+		infos := make([]SignInInfo, 0, len(list))
+		for _, si := range list {
+			infos = append(infos, SignInInfo{UserAgent: si.UserAgent, IP: si.IP, CreatedAt: si.CreatedAt, LastSeen: si.LastSeen, Apps: si.Apps})
+		}
+		return Response{OK: true, SignIns: infos}
 
 	case CmdUserLogout:
 		n, err := s.auth.RevokeUserSessions(u.Username)

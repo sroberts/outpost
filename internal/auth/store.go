@@ -40,7 +40,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     created_at   INTEGER NOT NULL,
     expires_at   INTEGER NOT NULL,
     last_seen_at INTEGER NOT NULL,
-    user_agent   TEXT NOT NULL DEFAULT ''
+    user_agent   TEXT NOT NULL DEFAULT '',
+    ip           TEXT NOT NULL DEFAULT ''
 );
 
 CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
@@ -106,6 +107,10 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("apply auth schema: %w", err)
 	}
+	if err := addSessionIP(db); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if _, err := db.Exec(`INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)`, schemaVersion); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("record auth schema version: %w", err)
@@ -134,4 +139,32 @@ func fromUnix(sec int64) time.Time {
 		return time.Time{}
 	}
 	return time.Unix(sec, 0)
+}
+
+// addSessionIP gives a sessions table from before sign-in addresses were
+// kept its ip column. CREATE TABLE IF NOT EXISTS leaves an existing table
+// as it was, so the column is added here; old rows read as no address.
+func addSessionIP(db *sql.DB) error {
+	rows, err := db.Query(`SELECT name FROM pragma_table_info('sessions')`)
+	if err != nil {
+		return fmt.Errorf("read sessions columns: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return fmt.Errorf("read sessions columns: %w", err)
+		}
+		if name == "ip" {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows.Close()
+	if _, err := db.Exec(`ALTER TABLE sessions ADD COLUMN ip TEXT NOT NULL DEFAULT ''`); err != nil {
+		return fmt.Errorf("add sessions.ip: %w", err)
+	}
+	return nil
 }

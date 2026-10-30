@@ -13,6 +13,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/sroberts/outpost/internal/auth"
+	"github.com/sroberts/outpost/internal/gateway"
 	"github.com/sroberts/outpost/internal/ipc"
 )
 
@@ -35,6 +36,7 @@ const userUsage = `usage:
   outpost user groups <name> +group -group ...
   outpost user disable <name>
   outpost user enable <name>
+  outpost user sessions <name>
   outpost user logout <name>
   outpost user admin <name> on|off`
 
@@ -60,6 +62,8 @@ func (a *app) cmdUser(args []string) error {
 		return a.userSimple(rest, "disable", (*ipc.Client).UserDisable)
 	case "enable":
 		return a.userSimple(rest, "enable", (*ipc.Client).UserEnable)
+	case "sessions":
+		return a.cmdUserSessions(rest)
 	case "logout":
 		return a.userSimple(rest, "logout", (*ipc.Client).UserLogout)
 	case "admin":
@@ -255,6 +259,38 @@ func writeUserTable(w io.Writer, users []ipc.UserInfo) error {
 			u.Username, orDash(admin), orDash(strings.Join(u.Groups, ",")), status, last, u.Sessions)
 	}
 	return tw.Flush()
+}
+
+// cmdUserSessions lists where a user is signed in, as their account page
+// does.
+func (a *app) cmdUserSessions(args []string) error {
+	if len(args) != 1 {
+		return errors.New("usage: outpost user sessions <name>")
+	}
+	c, err := a.daemon()
+	if err != nil {
+		return err
+	}
+	list, err := c.UserSignIns(args[0])
+	if err != nil {
+		return err
+	}
+	if len(list) == 0 {
+		fmt.Fprintf(a.out, "%s isn't signed in anywhere.\n", args[0])
+		return nil
+	}
+	tw := tabwriter.NewWriter(a.out, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "DEVICE\tFROM\tSIGNED IN\tLAST SEEN\tAPPS")
+	for _, si := range list {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", gateway.DescribeAgent(si.UserAgent), orDash(si.IP),
+			si.CreatedAt.Local().Format("2006-01-02 15:04"), si.LastSeen.Local().Format("2006-01-02"),
+			orDash(strings.Join(si.Apps, ",")))
+	}
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+	fmt.Fprintf(a.out, "\nLast seen is to the day. `outpost user logout %s` ends them all.\n", args[0])
+	return nil
 }
 
 // cmdUserGroups takes +group and -group arguments. It parses them by hand,

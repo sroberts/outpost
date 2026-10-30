@@ -333,6 +333,7 @@ outpost user rm <name>           remove a user
 outpost user list                users, their groups and live sessions
 outpost user groups <name> +g -g add to and remove from groups
 outpost user disable|enable <name>
+outpost user sessions <name>     where the user is signed in
 outpost user logout <name>       end every session the user has
 outpost auth rotate-key          replace the key that signs identity tokens
 outpost gateway status           the portal address and the apps it routes
@@ -541,9 +542,12 @@ After signing in, the portal lists the apps you can open as stations on one
 line, running apps first. An app that isn't up shows why ("Stopped after 3
 crashes", "Stopped on purpose"), and an admin also sees the `outpost status`
 command to look closer. Past a dozen apps a filter appears. The account page
-lists where you're signed in and ends any one of those sessions, such as a lost
-phone's, along with the apps it was signed in to. It also changes your password,
-which signs out every other device, and signs you out everywhere at once.
+lists where you're signed in (the browser and system, when and from which
+address you signed in, roughly when you were last active, and the apps you
+opened there), and signs out any one of those devices, or every one but the
+one you're using, along with every app they opened. It also changes your
+password, which signs out every other device, and signs you out everywhere at
+once. `outpost user sessions <name>` shows an admin the same list.
 
 What the catalog shows, and who may open an app, come from optional manifest
 fields:

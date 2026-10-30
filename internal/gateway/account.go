@@ -10,8 +10,8 @@ import (
 	"github.com/sroberts/outpost/internal/auth"
 )
 
-// accountPage shows who is signed in, where, a password form, and ways to end
-// one session or every session at once.
+// accountPage shows who is signed in, a password form, and a way to end
+// every session at once.
 func (g *Gateway) accountPage(w http.ResponseWriter, r *http.Request) {
 	tok, s, u, ok := g.session(r)
 	if !ok || s.App != "" {
@@ -19,105 +19,112 @@ func (g *Gateway) accountPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	g.touch(tok, s)
-	d := g.accountData(tok, u)
-	switch {
-	case r.URL.Query().Get("changed") == "1":
+	d := g.accountData(r, u)
+	if r.URL.Query().Get("changed") == "1" {
 		d.Notice = "Password changed. Every other device has been signed out."
-	case r.URL.Query().Get("ended") == "1":
-		d.Notice = "That session has ended, along with the apps it was signed in to."
 	}
 	g.render(w, r, http.StatusOK, "account", d)
 }
 
-func (g *Gateway) accountData(tok string, u auth.User) pageData {
+func (g *Gateway) accountData(r *http.Request, u auth.User) pageData {
 	return pageData{
 		Title:       "Account",
 		Who:         displayName(u),
 		Username:    u.Username,
 		Admin:       u.Admin,
 		MinPassword: auth.MinPasswordLen,
-		SignIns:     g.signIns(tok, u),
+		SignIns:     g.signIns(r, u),
 	}
 }
 
-// signInRow is one login as the account page draws it.
-type signInRow struct {
-	ID     string
-	Device string
-	Used   string // when it was last used, in words
-	Apps   string // the apps it's signed in to, in words
-	Here   bool   // the login this page was asked for from
+// signInView is one sign-in as the account page shows it.
+type signInView struct {
+	ID      string
+	Device  string
+	This    bool   // the sign-in this page was opened from
+	Apps    string // the apps opened in it, in words
+	Since   string // when it began, to the minute
+	Address string // where it began, when that was kept
+	Active  string // roughly when it was last used
 }
 
-// signIns lists u's logins, this one first. Failing to list them only leaves
-// the section out: the rest of the page, and the way to end every session,
-// don't depend on it.
-func (g *Gateway) signIns(tok string, u auth.User) []signInRow {
+// Label tells this sign-in apart from others on the same kind of device,
+// for the notice after ending it and for a screen reader's button name.
+func (v signInView) Label() string {
+	l := v.Device + ", signed in " + v.Since
+	if v.Address != "" {
+		l += " from " + v.Address
+	}
+	return l
+}
+
+// signIns lists u's sign-ins for the account page, this one first. A
+// failure to list them leaves the section out rather than the page.
+func (g *Gateway) signIns(r *http.Request, u auth.User) []signInView {
 	list, err := g.auth.SignIns(u.Username)
 	if err != nil {
-		g.logf("gateway: account: %v", err)
+		g.logf("gateway: list sign-ins: %v", err)
 		return nil
 	}
-	here := auth.HashToken(tok)
-	rows := make([]signInRow, 0, len(list))
-	for _, in := range list {
-		titles := make([]string, 0, len(in.Apps))
-		for _, app := range in.Apps {
-			titles = append(titles, g.titleOf(app))
-		}
-		row := signInRow{
-			ID:     in.ID,
-			Device: deviceOf(in.UserAgent),
-			Used:   lastUsed(in.LastSeenAt, g.now()),
-			Apps:   strings.Join(titles, ", "),
-			Here:   in.ID == here,
-		}
-		if row.Here {
-			rows = append([]signInRow{row}, rows...)
-			continue
-		}
-		rows = append(rows, row)
+	this := ""
+	if c, err := r.Cookie(g.cookieName); err == nil {
+		this = auth.HashToken(c.Value)
 	}
-	return rows
+	now := g.now()
+	out := make([]signInView, 0, len(list))
+	for _, si := range list {
+		v := signInView{
+			ID:      si.ID,
+			Device:  DescribeAgent(si.UserAgent),
+			This:    si.ID == this,
+			Since:   signedInAt(now, si.CreatedAt),
+			Address: si.IP,
+			Active:  activeAgo(now, si.LastSeen),
+		}
+		titles := make([]string, 0, len(si.Apps))
+		for _, a := range si.Apps {
+			titles = append(titles, g.titleOf(a))
+		}
+		v.Apps = strings.Join(titles, ", ")
+		if v.This {
+			out = append([]signInView{v}, out...)
+		} else {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
-// lastUsed says when a login was last used. The time recorded moves only when
-// a session slides, so it can be a day behind the truth, and the words don't
-// claim more than that.
-func lastUsed(seen, now time.Time) string {
-	if now.Sub(seen) < 2*24*time.Hour {
-		return "Used in the last two days"
-	}
-	return "Last used around " + seen.Format("Jan 2, 2006")
-}
-
-// deviceOf names a device well enough to recognise it from a browser's
-// User-Agent. It's a label for the person who owns the session and nothing
-// decides anything on it, so a browser that lies only misleads itself.
-func deviceOf(ua string) string {
-	first := func(pairs ...string) string {
-		for i := 0; i+1 < len(pairs); i += 2 {
-			if strings.Contains(ua, pairs[i]) {
-				return pairs[i+1]
-			}
-		}
-		return ""
-	}
-	// Order matters: an iPhone's agent also says "like Mac OS X", Android's
-	// also says Linux, and every Chromium browser also says Chrome and Safari.
-	system := first("iPhone", "iPhone", "iPad", "iPad", "Android", "Android",
-		"Macintosh", "Mac", "Windows", "Windows", "CrOS", "ChromeOS", "Linux", "Linux")
-	browser := first("Edg", "Edge", "OPR/", "Opera", "Firefox", "Firefox", "FxiOS", "Firefox",
-		"Chrome/", "Chrome", "CriOS", "Chrome", "Safari", "Safari")
+// signedInAt says when a sign-in began, to the minute, which is what tells
+// two on the same kind of device apart: "today at 14:32", "12 Oct at 09:10".
+func signedInAt(now, at time.Time) string {
+	now, at = now.Local(), at.Local()
+	y1, m1, d1 := now.Date()
+	y2, m2, d2 := at.Date()
+	clock := at.Format("15:04")
 	switch {
-	case browser != "" && system != "":
-		return browser + " on " + system
-	case system != "":
-		return system
-	case browser != "":
-		return browser
+	case y1 == y2 && m1 == m2 && d1 == d2:
+		return "today at " + clock
+	case now.AddDate(0, 0, -1).Format("2006-01-02") == at.Format("2006-01-02"):
+		return "yesterday at " + clock
+	case y1 == y2:
+		return at.Format("2 Jan") + " at " + clock
 	}
-	return "Unknown device"
+	return at.Format("2 Jan 2006")
+}
+
+// activeAgo says roughly when a sign-in was last used. A session records its
+// use only when it slides, at most once a day, so the last use is somewhere
+// in the day after seen, and anything finer would be made up.
+func activeAgo(now, seen time.Time) string {
+	days := int(now.Sub(seen) / (24 * time.Hour))
+	switch {
+	case days < 1:
+		return "Active in the last day"
+	case days == 1:
+		return "Active in the last two days"
+	}
+	return fmt.Sprintf("Active about %d days ago", days)
 }
 
 func (g *Gateway) accountSubmit(w http.ResponseWriter, r *http.Request) {
@@ -125,7 +132,7 @@ func (g *Gateway) accountSubmit(w http.ResponseWriter, r *http.Request) {
 		g.crossOrigin(w, r)
 		return
 	}
-	tok, s, u, ok := g.session(r)
+	_, s, u, ok := g.session(r)
 	if !ok || s.App != "" {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
@@ -137,19 +144,11 @@ func (g *Gateway) accountSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.PostForm.Get("action") {
 	case "password":
-		g.changePassword(w, r, tok, u)
+		g.changePassword(w, r, u)
 	case "end":
-		// A login that already ended, on another tab say, is what was wanted.
-		ended, err := g.auth.EndSignIn(u.Username, r.PostForm.Get("session"))
-		if err != nil {
-			g.logf("gateway: end session: %v", err)
-			g.message(w, r, http.StatusInternalServerError, "Session not ended", "Something went wrong. Try again.", "/account", "Back to account")
-			return
-		}
-		if ended {
-			g.activity.record(EventSignOut, "%s ended another session from %s", u.Username, g.clientIP(r))
-		}
-		http.Redirect(w, r, "/account?ended=1", http.StatusSeeOther)
+		g.endSignIn(w, r, u)
+	case "others":
+		g.endOtherSignIns(w, r, u)
 	case "everywhere":
 		n, err := g.auth.RevokeUserSessions(u.Username)
 		if err != nil {
@@ -168,9 +167,11 @@ func (g *Gateway) accountSubmit(w http.ResponseWriter, r *http.Request) {
 // changePassword checks the current password, as a login does and under the
 // same throttle, so a session left open on someone else's screen can't be
 // turned into a stolen account.
-func (g *Gateway) changePassword(w http.ResponseWriter, r *http.Request, tok string, u auth.User) {
-	form := g.accountData(tok, u)
+func (g *Gateway) changePassword(w http.ResponseWriter, r *http.Request, u auth.User) {
+	// The page, and the sign-ins query behind it, is only built to show a
+	// failure; a successful change redirects.
 	fail := func(status int, msg string) {
+		form := g.accountData(r, u)
 		form.Error = msg
 		g.render(w, r, status, "account", form)
 	}
@@ -221,13 +222,83 @@ func (g *Gateway) changePassword(w http.ResponseWriter, r *http.Request, tok str
 	g.activity.record(EventPassword, "%s changed their password from %s, ending their other sessions", u.Username, ip)
 	// SetPassword ended every session, since whoever knew the old password
 	// may still be signed in somewhere; this browser starts a fresh one.
-	fresh, err := g.auth.CreateSession(u.Username, "", "", r.UserAgent())
+	tok, err := g.auth.CreateSessionFrom(u.Username, "", "", r.UserAgent(), ip)
 	if err != nil {
 		g.logf("gateway: change password: %v", err)
 		g.clearCookie(w)
 		http.Redirect(w, r, g.signedOutURL(), http.StatusSeeOther)
 		return
 	}
-	g.setCookie(w, fresh)
+	g.setCookie(w, tok)
 	http.Redirect(w, r, "/account?changed=1", http.StatusSeeOther)
+}
+
+// endSignIn signs out one device. Ending the one this page came from is
+// signing out, and lands where signing out does. Otherwise the account page
+// comes straight back, with the form's #where taking it to the list and a
+// notice there naming the device, so it's plain which one went.
+func (g *Gateway) endSignIn(w http.ResponseWriter, r *http.Request, u auth.User) {
+	id := r.PostForm.Get("id")
+	this := false
+	if c, err := r.Cookie(g.cookieName); err == nil {
+		this = auth.HashToken(c.Value) == id
+	}
+	// Named before it ends, while it can still be looked up.
+	label := ""
+	for _, v := range g.signIns(r, u) {
+		if v.ID == id {
+			label = v.Label()
+		}
+	}
+	err := g.auth.EndSignIn(u.Username, id)
+	if err != nil && !errors.Is(err, auth.ErrNoSuchSession) {
+		g.logf("gateway: end sign-in: %v", err)
+		g.message(w, r, http.StatusInternalServerError, "Not signed out", "Something went wrong. Try again.", "/account", "Back to account")
+		return
+	}
+	if this {
+		g.activity.record(EventSignOut, "%s signed out from %s", u.Username, g.clientIP(r))
+		g.clearCookie(w)
+		http.Redirect(w, r, g.signedOutURL(), http.StatusSeeOther)
+		return
+	}
+	d := g.accountData(r, u)
+	switch {
+	case err != nil || label == "":
+		// Already over, from another tab or by expiring, which is what was
+		// asked for. An ID that isn't theirs reads the same, and changes
+		// nothing.
+		d.SignInNotice = "That device was already signed out."
+	default:
+		g.activity.record(EventSignOut, "%s signed out another device from %s", u.Username, g.clientIP(r))
+		d.SignInNotice = label + ", is signed out, along with any app it opened."
+	}
+	g.render(w, r, http.StatusOK, "account", d)
+}
+
+// endOtherSignIns signs out every device but this one: the usual way back
+// after losing one, without signing out here too.
+func (g *Gateway) endOtherSignIns(w http.ResponseWriter, r *http.Request, u auth.User) {
+	c, err := r.Cookie(g.cookieName)
+	if err != nil {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+	n, err := g.auth.EndOtherSignIns(u.Username, auth.HashToken(c.Value))
+	if err != nil {
+		g.logf("gateway: sign out other devices: %v", err)
+		g.message(w, r, http.StatusInternalServerError, "Not signed out", "Something went wrong. Try again.", "/account", "Back to account")
+		return
+	}
+	g.activity.record(EventSignOut, "%s signed out every other device from %s, ending %d %s", u.Username, g.clientIP(r), n, plural(n, "sign-in"))
+	d := g.accountData(r, u)
+	switch n {
+	case 0:
+		d.SignInNotice = "No other device was signed in."
+	case 1:
+		d.SignInNotice = "1 other device is signed out. You're still signed in here."
+	default:
+		d.SignInNotice = fmt.Sprintf("%d other devices are signed out. You're still signed in here.", n)
+	}
+	g.render(w, r, http.StatusOK, "account", d)
 }

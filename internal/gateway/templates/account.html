@@ -4,10 +4,33 @@
 <h1>Account</h1>
 <p class="lede">Signed in as <strong>{{.Who}}</strong>{{if ne .Who .Username}}, username <code>{{.Username}}</code>{{end}}.{{if .Admin}} As an admin you can open every app.{{end}}</p>
 {{if .Notice}}<p class="notice" role="status">{{.Notice}}</p>{{end}}
-<section class="panel" aria-labelledby="pw">
+{{if .SignIns}}<section class="panel" aria-labelledby="where-title" id="where">
+<h2 id="where-title">Where you're signed in</h2>
+<p class="hint">Signing out a device also signs it out of every app it opened.</p>
+{{if .SignInNotice}}<p class="notice" role="status">{{.SignInNotice}}</p>{{end}}
+<ul class="devices">
+{{range .SignIns}}<li class="device">
+<div class="body">
+<span class="device-name">{{.Device}}</span>
+<p class="device-meta">Signed in {{.Since}}{{if .Address}} from <span class="addr">{{.Address}}</span>{{end}}</p>
+<p class="device-meta">{{.Active}} · {{if .Apps}}Apps: {{.Apps}}{{else}}No apps opened yet{{end}}</p>
+</div>
+{{if .This}}<p class="device-here">You're using this one</p>{{else}}<form method="post" action="/account#where">
+<input type="hidden" name="action" value="end">
+<input type="hidden" name="id" value="{{.ID}}">
+<button class="ghost small" type="submit" aria-label="Sign out {{.Label}}">Sign out</button>
+</form>{{end}}
+</li>
+{{end}}</ul>
+{{if gt (len .SignIns) 1}}<form method="post" action="/account#where">
+<input type="hidden" name="action" value="others">
+<button class="ghost" type="submit">Sign out every other device</button>
+</form>{{end}}
+</section>
+{{end}}<section class="panel" aria-labelledby="pw">
 <h2 id="pw">Change password</h2>
 {{if .Error}}<p class="error" id="form-error" role="alert">{{.Error}}</p>{{end}}
-<form method="post" action="/account">
+<form method="post" action="/account#pw">
 <input type="hidden" name="action" value="password">
 <input type="hidden" name="username" value="{{.Username}}" autocomplete="username">
 <label>Current password
@@ -23,22 +46,6 @@
 </form>
 <p class="hint">Changing it signs out every other device.</p>
 </section>
-{{if .SignIns}}<section class="panel" aria-labelledby="where">
-<h2 id="where">Where you're signed in</h2>
-<ul class="signins">
-{{range .SignIns}}<li>
-<div class="signin">
-<span class="top"><strong>{{.Device}}</strong>{{if .Here}}<span class="tag">This device</span>{{end}}</span>
-<span class="hint">{{if .Here}}In use now{{else}}{{.Used}}{{end}}{{if .Apps}} · {{.Apps}}{{end}}</span>
-</div>
-{{if not .Here}}<form method="post" action="/account">
-<input type="hidden" name="action" value="end">
-<input type="hidden" name="session" value="{{.ID}}">
-<button class="ghost" type="submit"><span>End<span class="sr"> this session: {{.Device}}</span></span></button>
-</form>{{end}}
-</li>
-{{end}}</ul>
-</section>{{end}}
 <section class="panel" aria-labelledby="all">
 <h2 id="all">Sign out everywhere</h2>
 <p>Ends every session on every device, this one included, and every app you were signed in to.</p>

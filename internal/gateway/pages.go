@@ -68,13 +68,15 @@ type pageData struct {
 
 	Token       string
 	MinPassword int
-	SignIns     []signInRow
 
-	Who      string
-	Admin    bool
-	Stations []station
-	Up, Down int
-	Search   bool
+	Who     string
+	SignIns []signInView
+	// SignInNotice confirms what happened to a sign-in, beside the list.
+	SignInNotice string
+	Admin        bool
+	Stations     []station
+	Up, Down     int
+	Search       bool
 
 	Updates    bool // this admin can reach the update page
 	Waiting    int  // apps known to have a newer release

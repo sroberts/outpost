@@ -61,6 +61,7 @@ Users:
   user groups <name> +g -g add to and remove from groups
   user disable <name>      block a user from logging in and end their sessions
   user enable <name>       let a disabled user log in again
+  user sessions <name>     where a user is signed in
   user logout <name>       end every session a user has
   user admin <name> on|off grant or revoke admin
   auth rotate-key          replace the key that signs identity tokens

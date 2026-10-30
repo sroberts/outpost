@@ -110,7 +110,7 @@ func (g *Gateway) callback(w http.ResponseWriter, r *http.Request, rt route) {
 		g.denied(w, r, rt, u)
 		return
 	}
-	tok, err := g.auth.CreateSession(p.user, rt.Name, p.parent, r.UserAgent())
+	tok, err := g.auth.CreateSessionFrom(p.user, rt.Name, p.parent, r.UserAgent(), g.clientIP(r))
 	if err != nil {
 		// Most likely the portal session ended, or the user was disabled,
 		// in the minute since the code was minted.
