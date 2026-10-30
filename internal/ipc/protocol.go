@@ -41,6 +41,7 @@ const (
 	CmdUserEnable  = "user.enable"
 	CmdUserLogout  = "user.logout"
 	CmdUserAdmin   = "user.admin"
+	CmdUserSignIns = "user.sessions"
 	CmdAuthRotate  = "auth.rotate-key"
 
 	CmdGatewayStatus = "gateway.status"
@@ -118,6 +119,16 @@ func userInfo(u auth.User) UserInfo {
 	}
 }
 
+// SignInInfo is one of a user's sign-ins: a portal session and the apps
+// opened under it. It carries no token or hash.
+type SignInInfo struct {
+	UserAgent string    `json:"user_agent,omitempty"`
+	IP        string    `json:"ip,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	LastSeen  time.Time `json:"last_seen"`
+	Apps      []string  `json:"apps,omitempty"`
+}
+
 // Response is what the daemon sends back. Error is set iff OK is false.
 type Response struct {
 	OK    bool   `json:"ok"`
@@ -136,6 +147,7 @@ type Response struct {
 	Archives []backup.Archive           `json:"archives,omitempty"`
 	Message  string                     `json:"message,omitempty"`
 	Users    []UserInfo                 `json:"users,omitempty"`
+	SignIns  []SignInInfo               `json:"sign_ins,omitempty"`
 	Gateway  *gateway.Status            `json:"gateway,omitempty"`
 }
 

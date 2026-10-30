@@ -176,7 +176,7 @@ func (g *Gateway) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	if old, err := r.Cookie(g.cookieName); err == nil {
 		_ = g.auth.RevokeSession(old.Value) // replaced either way; a stale row is pruned later
 	}
-	tok, err := g.auth.CreateSession(u.Username, "", "", r.UserAgent())
+	tok, err := g.auth.CreateSessionFrom(u.Username, "", "", r.UserAgent(), ip)
 	if err != nil {
 		g.logf("gateway: login: %v", err)
 		form.Error = "Something went wrong. Try again."
@@ -311,7 +311,7 @@ func (g *Gateway) setupSubmit(w http.ResponseWriter, r *http.Request) {
 	g.logf("gateway: first admin %q created through the setup link", username)
 	g.activity.record(EventSetup, "first admin %s created through the setup link from %s", username, g.clientIP(r))
 
-	sess, err := g.auth.CreateSession(username, "", "", r.UserAgent())
+	sess, err := g.auth.CreateSessionFrom(username, "", "", r.UserAgent(), g.clientIP(r))
 	if err != nil {
 		g.logf("gateway: setup: %v", err)
 		http.Redirect(w, r, "/login", http.StatusSeeOther)

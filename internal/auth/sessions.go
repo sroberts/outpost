@@ -4,7 +4,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
+	"strings"
 	"time"
 	"unicode/utf8"
 )
@@ -37,6 +38,19 @@ type Session struct {
 // stored. A portal session has no app and no parent. An app session names the
 // app and the portal session it came from; ending the portal session ends it.
 func (s *Store) CreateSession(username, app, parentToken, userAgent string) (string, error) {
+	return s.CreateSessionFrom(username, app, parentToken, userAgent, "")
+}
+
+// maxIP bounds the address kept with a session.
+const maxIP = 64
+
+// CreateSessionFrom is CreateSession, also keeping the client address the
+// sign-in came from, so the user can tell their sign-ins apart by something
+// other than what their browser claims to be.
+func (s *Store) CreateSessionFrom(username, app, parentToken, userAgent, ip string) (string, error) {
+	if len(ip) > maxIP {
+		ip = ip[:maxIP]
+	}
 	if (app == "") != (parentToken == "") {
 		return "", errors.New("an app session needs a parent session, and a portal session can't have one")
 	}
@@ -91,9 +105,9 @@ func (s *Store) CreateSession(username, app, parentToken, userAgent string) (str
 	}
 
 	if _, err := tx.Exec(`
-INSERT INTO sessions (token_hash, user_id, parent_hash, app, created_at, expires_at, last_seen_at, user_agent)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		HashToken(tok), id, parentHash, app, now.Unix(), now.Add(PortalSessionTTL).Unix(), now.Unix(), userAgent); err != nil {
+INSERT INTO sessions (token_hash, user_id, parent_hash, app, created_at, expires_at, last_seen_at, user_agent, ip)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		HashToken(tok), id, parentHash, app, now.Unix(), now.Add(PortalSessionTTL).Unix(), now.Unix(), userAgent, ip); err != nil {
 		return "", fmt.Errorf("create session: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -282,87 +296,127 @@ func (s *Store) RevokeFamily(token string) error {
 	return nil
 }
 
-// SignIn is one login as its owner sees it: a portal session and the app
-// sessions it handed out.
+// SignIn is one login: a portal session and the app sessions it handed
+// out, which end with it.
 type SignIn struct {
-	// ID is the portal session's token hash. It names the sign-in in a form
-	// and can't be turned back into the token, so it is no use as a credential.
-	ID         string
-	UserAgent  string
-	Apps       []string // the apps signed in to, sorted, each once
-	CreatedAt  time.Time
-	LastSeenAt time.Time // moves only when a session slides, so up to a day behind
+	// ID names the sign-in to the account page. It is the portal session's
+	// stored hash, which can't be turned back into the token.
+	ID        string
+	UserAgent string
+	// IP is the address the sign-in came from, "" for one from before
+	// addresses were kept.
+	IP        string
+	CreatedAt time.Time
+	// LastSeen is the latest use of the portal session or any app under it.
+	LastSeen time.Time
+	// Apps are the apps opened in it, by name, sorted.
+	Apps []string
 }
 
-// SignIns lists a user's live logins, most recently used first.
+// SignIns lists a user's live sign-ins, most recently used first.
 func (s *Store) SignIns(username string) ([]SignIn, error) {
+	if _, err := mustUserID(s.db, username); err != nil {
+		return nil, err
+	}
+	now := s.now().Unix()
 	rows, err := s.db.Query(`
-SELECT s.token_hash, s.parent_hash, s.app, s.user_agent, s.created_at, s.last_seen_at
+SELECT s.token_hash, s.parent_hash, s.app, s.user_agent, s.ip, s.created_at, s.last_seen_at
 FROM sessions s JOIN users u ON u.id = s.user_id
-WHERE u.username = ? AND s.expires_at > ?`, username, s.now().Unix())
+WHERE u.username = ? AND s.expires_at > ?`, username, now)
 	if err != nil {
 		return nil, fmt.Errorf("list sessions for %s: %w", username, err)
 	}
 	defer rows.Close()
 
 	byID := map[string]*SignIn{}
-	apps := map[string]map[string]bool{}
+	type appRow struct {
+		parent, app string
+		seen        int64
+	}
+	var apps []appRow
 	for rows.Next() {
-		var (
-			hash, parent, app, agent string
-			created, seen            int64
-		)
-		if err := rows.Scan(&hash, &parent, &app, &agent, &created, &seen); err != nil {
+		var hash, parent, app, agent, ip string
+		var created, seen int64
+		if err := rows.Scan(&hash, &parent, &app, &agent, &ip, &created, &seen); err != nil {
 			return nil, fmt.Errorf("list sessions for %s: %w", username, err)
 		}
-		if parent == "" {
-			byID[hash] = &SignIn{ID: hash, UserAgent: agent, CreatedAt: fromUnix(created), LastSeenAt: fromUnix(seen)}
+		if parent != "" {
+			apps = append(apps, appRow{parent, app, seen})
 			continue
 		}
-		if apps[parent] == nil {
-			apps[parent] = map[string]bool{}
-		}
-		apps[parent][app] = true
+		byID[hash] = &SignIn{ID: hash, UserAgent: agent, IP: ip, CreatedAt: fromUnix(created), LastSeen: fromUnix(seen)}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("list sessions for %s: %w", username, err)
+		return nil, err
 	}
-
+	for _, a := range apps {
+		si, ok := byID[a.parent]
+		if !ok {
+			continue // its portal session has gone; it's dead and awaiting a prune
+		}
+		if !slices.Contains(si.Apps, a.app) {
+			si.Apps = append(si.Apps, a.app)
+		}
+		if t := fromUnix(a.seen); t.After(si.LastSeen) {
+			si.LastSeen = t
+		}
+	}
 	out := make([]SignIn, 0, len(byID))
-	for id, in := range byID {
-		for app := range apps[id] {
-			in.Apps = append(in.Apps, app)
-		}
-		sort.Strings(in.Apps)
-		out = append(out, *in)
+	for _, si := range byID {
+		slices.Sort(si.Apps)
+		out = append(out, *si)
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if !out[i].LastSeenAt.Equal(out[j].LastSeenAt) {
-			return out[i].LastSeenAt.After(out[j].LastSeenAt)
+	slices.SortFunc(out, func(a, b SignIn) int {
+		if c := b.LastSeen.Compare(a.LastSeen); c != 0 {
+			return c
 		}
-		if !out[i].CreatedAt.Equal(out[j].CreatedAt) {
-			return out[i].CreatedAt.After(out[j].CreatedAt)
-		}
-		return out[i].ID < out[j].ID
+		return strings.Compare(a.ID, b.ID)
 	})
 	return out, nil
 }
 
-// EndSignIn ends one of a user's logins and every app session under it, and
-// reports whether there was one to end. The username is part of the match, so
-// nobody can end someone else's login by naming its ID.
-func (s *Store) EndSignIn(username, id string) (bool, error) {
-	// An empty ID would match parent_hash on every portal session below.
-	if id == "" {
-		return false, nil
-	}
+// EndSignIn ends one of a user's sign-ins, by its ID, with every app
+// session under it. A sign-in that is already over, or isn't theirs, is
+// ErrNoSuchSession, so one user can't end another's by guessing.
+func (s *Store) EndSignIn(username, id string) error {
 	res, err := s.db.Exec(`
 DELETE FROM sessions
-WHERE user_id = (SELECT id FROM users WHERE username = ?)
-  AND ((token_hash = ? AND parent_hash = '') OR parent_hash = ?)`, username, id, id)
+WHERE (token_hash = ? OR parent_hash = ?)
+  AND user_id = (SELECT id FROM users WHERE username = ?)
+  AND EXISTS (SELECT 1 FROM sessions p JOIN users u ON u.id = p.user_id
+              WHERE p.token_hash = ? AND p.parent_hash = '' AND u.username = ?)`,
+		id, id, username, id, username)
 	if err != nil {
-		return false, fmt.Errorf("end session for %s: %w", username, err)
+		return fmt.Errorf("end sign-in: %w", err)
 	}
-	n, err := res.RowsAffected()
-	return n > 0, err
+	if n, err := res.RowsAffected(); err != nil {
+		return err
+	} else if n == 0 {
+		return ErrNoSuchSession
+	}
+	return nil
+}
+
+// EndOtherSignIns ends every sign-in a user has except keep, the one they
+// are using, and reports how many ended.
+func (s *Store) EndOtherSignIns(username, keep string) (int, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer rollback(tx)
+	id, err := mustUserID(tx, username)
+	if err != nil {
+		return 0, err
+	}
+	var n int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM sessions WHERE user_id = ? AND parent_hash = '' AND token_hash != ? AND expires_at > ?`,
+		id, keep, s.now().Unix()).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count sign-ins for %s: %w", username, err)
+	}
+	if _, err := tx.Exec(`DELETE FROM sessions WHERE user_id = ? AND token_hash != ? AND parent_hash != ?`,
+		id, keep, keep); err != nil {
+		return 0, fmt.Errorf("end other sign-ins for %s: %w", username, err)
+	}
+	return n, tx.Commit()
 }

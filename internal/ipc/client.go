@@ -233,6 +233,12 @@ func (c *Client) UserLogout(username string) (string, error) {
 	return resp.Message, err
 }
 
+// UserSignIns lists a user's sign-ins, most recently used first.
+func (c *Client) UserSignIns(username string) ([]SignInInfo, error) {
+	resp, err := c.do(Request{Command: CmdUserSignIns, User: &UserRequest{Username: username}})
+	return resp.SignIns, err
+}
+
 // AuthRotateKey replaces the identity-token signing key.
 func (c *Client) AuthRotateKey() (string, error) {
 	resp, err := c.do(Request{Command: CmdAuthRotate})
