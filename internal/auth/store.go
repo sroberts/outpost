@@ -54,6 +54,24 @@ CREATE TABLE IF NOT EXISTS signing_keys (
     retired_at INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS access_tokens (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT, -- never reused, so a stale id can't revoke someone else's
+    token_hash   TEXT NOT NULL UNIQUE,
+    user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name         TEXT NOT NULL DEFAULT '',
+    created_at   INTEGER NOT NULL,
+    expires_at   INTEGER NOT NULL DEFAULT 0,
+    last_used_at INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS access_tokens_user ON access_tokens(user_id);
+
+CREATE TABLE IF NOT EXISTS access_token_apps (
+    token_id INTEGER NOT NULL REFERENCES access_tokens(id) ON DELETE CASCADE,
+    app      TEXT NOT NULL,
+    PRIMARY KEY (token_id, app)
+);
+
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 `
 

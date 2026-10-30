@@ -21,7 +21,7 @@ func (g *Gateway) accountPage(w http.ResponseWriter, r *http.Request) {
 	g.touch(tok, s)
 	d := g.accountData(r, u)
 	if r.URL.Query().Get("changed") == "1" {
-		d.Notice = "Password changed. Every other device has been signed out."
+		d.Notice = "Password changed. Every other device has been signed out, and any access tokens revoked."
 	}
 	g.render(w, r, http.StatusOK, "account", d)
 }
@@ -150,13 +150,16 @@ func (g *Gateway) accountSubmit(w http.ResponseWriter, r *http.Request) {
 	case "others":
 		g.endOtherSignIns(w, r, u)
 	case "everywhere":
-		n, err := g.auth.RevokeUserSessions(u.Username)
+		n, tokens, err := g.auth.RevokeUserAccess(u.Username)
 		if err != nil {
 			g.logf("gateway: sign out everywhere: %v", err)
 			g.message(w, r, http.StatusInternalServerError, "Not signed out", "Something went wrong. Try again.", "/account", "Back to account")
 			return
 		}
 		g.activity.record(EventSignOut, "%s signed out everywhere from %s, ending %d %s", u.Username, g.clientIP(r), n, plural(n, "session"))
+		if tokens > 0 {
+			g.activity.record(EventTokenRevoke, "%d access %s for %s revoked: signed out everywhere", tokens, plural(tokens, "token"), u.Username)
+		}
 		g.clearCookie(w)
 		http.Redirect(w, r, g.signedOutURL(), http.StatusSeeOther)
 	default:
@@ -211,6 +214,12 @@ func (g *Gateway) changePassword(w http.ResponseWriter, r *http.Request, u auth.
 	g.throttle.reset(keys...)
 	g.activity.settle(EventPasswordFail, attempt)
 
+	// Counted first, since SetPassword leaves nothing to count. Only the feed
+	// line depends on it, so a failure here doesn't stop the change.
+	tokens, err := g.auth.CountAccessTokens(u.Username)
+	if err != nil {
+		g.logf("gateway: change password: %v", err)
+	}
 	g.checks <- struct{}{}
 	err = g.auth.SetPassword(u.Username, next)
 	<-g.checks
@@ -220,6 +229,9 @@ func (g *Gateway) changePassword(w http.ResponseWriter, r *http.Request, u auth.
 		return
 	}
 	g.activity.record(EventPassword, "%s changed their password from %s, ending their other sessions", u.Username, ip)
+	if tokens > 0 {
+		g.activity.record(EventTokenRevoke, "%d access %s for %s revoked: password changed", tokens, plural(tokens, "token"), u.Username)
+	}
 	// SetPassword ended every session, since whoever knew the old password
 	// may still be signed in somewhere; this browser starts a fresh one.
 	tok, err := g.auth.CreateSessionFrom(u.Username, "", "", r.UserAgent(), ip)

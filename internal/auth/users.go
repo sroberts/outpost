@@ -93,8 +93,9 @@ VALUES (?, ?, ?, ?, ?, ?)`,
 	return tx.Commit()
 }
 
-// SetPassword replaces a user's password and ends every session they have,
-// so a password changed because it leaked actually locks the holder out.
+// SetPassword replaces a user's password and ends every session and access
+// token they have, so a password changed because it leaked actually locks the
+// holder out: anyone who knew it could have had a token made in the meantime.
 func (s *Store) SetPassword(username, password string) error {
 	if err := ValidPassword(password); err != nil {
 		return err
@@ -116,13 +117,14 @@ func (s *Store) SetPassword(username, password string) error {
 	if _, err := tx.Exec(`UPDATE users SET password_hash = ? WHERE id = ?`, hash, id); err != nil {
 		return fmt.Errorf("set password for %s: %w", username, err)
 	}
-	if _, err := tx.Exec(`DELETE FROM sessions WHERE user_id = ?`, id); err != nil {
-		return fmt.Errorf("end sessions for %s: %w", username, err)
+	if err := endUserAccess(tx, id, username); err != nil {
+		return err
 	}
 	return tx.Commit()
 }
 
-// RemoveUser deletes a user; their groups and sessions go with them.
+// RemoveUser deletes a user; their groups, sessions and access tokens go with
+// them.
 func (s *Store) RemoveUser(username string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -144,7 +146,7 @@ func (s *Store) RemoveUser(username string) error {
 }
 
 // SetDisabled turns a user's access off or back on. Disabling ends their
-// sessions; enabling doesn't restore them.
+// sessions and access tokens; enabling doesn't restore them.
 func (s *Store) SetDisabled(username string, disabled bool) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -160,8 +162,8 @@ func (s *Store) SetDisabled(username string, disabled bool) error {
 		if err := guardLastAdmin(tx, id, username, "disable"); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(`DELETE FROM sessions WHERE user_id = ?`, id); err != nil {
-			return fmt.Errorf("end sessions for %s: %w", username, err)
+		if err := endUserAccess(tx, id, username); err != nil {
+			return err
 		}
 	}
 	if _, err := tx.Exec(`UPDATE users SET disabled = ? WHERE id = ?`, disabled, id); err != nil {

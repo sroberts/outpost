@@ -83,6 +83,11 @@ type Gateway struct {
 	checks       chan struct{} // slots for concurrent password hashing
 	activity     *activity
 
+	// tokenThrottle limits rejected access tokens per address. It is its own
+	// table so a broken cron job can't lock its machine out of the sign-in
+	// page, and token traffic never touches the record of password guesses.
+	tokenThrottle throttle
+
 	ln  net.Listener
 	srv *http.Server
 }
@@ -119,6 +124,10 @@ func New(opts Options) (*Gateway, error) {
 		secure:       u.Scheme == "https",
 		checks:       make(chan struct{}, passwordChecks),
 		codeThrottle: throttle{free: 5},
+
+		// As for codes: 256 random bits can't be guessed, so this is about
+		// load, and it leaves room for a script with a stale token to be told so.
+		tokenThrottle: throttle{free: 5},
 	}
 	if g.logf == nil {
 		g.logf = func(string, ...any) {}
@@ -226,6 +235,11 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	host := g.hostOf(r)
 	switch {
 	case host == g.portalHost:
+		// Tokens reach apps, not the place accounts are managed from.
+		if len(presentedAccessTokens(r.Header)) > 0 {
+			g.refuseAccessToken(w, r)
+			return
+		}
 		g.servePortal(w, r)
 	case r.URL.Path == jwksPath && isLocalHost(host):
 		// Apps fetch keys from loopback, without leaving the machine.

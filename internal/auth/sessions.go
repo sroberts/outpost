@@ -196,29 +196,11 @@ func (s *Store) RevokeSession(token string) error {
 	return nil
 }
 
-// RevokeUserSessions ends every session a user has and reports how many.
+// RevokeUserSessions ends every session and access token a user has and
+// reports how many sessions.
 func (s *Store) RevokeUserSessions(username string) (int, error) {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return 0, err
-	}
-	defer rollback(tx)
-
-	id, err := mustUserID(tx, username)
-	if err != nil {
-		return 0, err
-	}
-	// Count only live sessions: expired rows awaiting a prune were already
-	// over, and reporting them as ended would overstate what this did.
-	var live int
-	if err := tx.QueryRow(`SELECT COUNT(*) FROM sessions WHERE user_id = ? AND expires_at > ?`,
-		id, s.now().Unix()).Scan(&live); err != nil {
-		return 0, fmt.Errorf("count sessions for %s: %w", username, err)
-	}
-	if _, err := tx.Exec(`DELETE FROM sessions WHERE user_id = ?`, id); err != nil {
-		return 0, fmt.Errorf("end sessions for %s: %w", username, err)
-	}
-	return live, tx.Commit()
+	sessions, _, err := s.RevokeUserAccess(username)
+	return sessions, err
 }
 
 // PruneExpired deletes expired sessions, and app sessions whose parent is
