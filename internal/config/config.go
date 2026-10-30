@@ -141,11 +141,18 @@ func (c Config) ResolveAuthKey() string {
 
 // Fingerprint identifies the settings, so a running daemon can be compared
 // with the file on disk. It covers what the file means, not how it is
-// written: comments, ordering and an unset tailscale.enabled versus its
-// default don't change it.
+// written: comments, ordering and a setting left unset versus written out
+// as its default don't change it, and nor do gateway settings while the
+// gateway is off, since none of them is read then.
 func (c Config) Fingerprint() string {
 	enabled := c.TailscaleEnabled()
 	c.Tailscale.Enabled = &enabled
+	if c.Gateway.Enabled {
+		c.Gateway.Listen = c.Gateway.ListenAddr()
+		c.Gateway.Name = c.Gateway.PortalName()
+	} else {
+		c.Gateway = Gateway{}
+	}
 	body, err := json.Marshal(c)
 	if err != nil {
 		return "" // can't happen: Config is plain data

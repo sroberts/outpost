@@ -66,7 +66,8 @@ func (a *app) cmdConfig(args []string) error {
 		fmt.Fprintf(a.out, "# %s\n\n", a.configPath())
 	}
 	fmt.Fprint(a.out, a.config.Render())
-	if c := a.client(); c.Available() && a.configChanged(c) {
+	// No daemon is not a change: configChanged treats the failed ping as no.
+	if a.configChanged(a.client()) {
 		fmt.Fprintf(a.out, "\n# %s\n", restartToApply)
 	}
 	return nil
