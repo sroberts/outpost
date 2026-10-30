@@ -901,6 +901,11 @@ The systemd timer is `Persistent=true`, so a backup missed while the machine was
 off runs once it comes back. Both jobs are one-shots — nothing restarts them
 when the backup finishes.
 
+On Linux the units are `outpost-backup.timer` and `outpost-backup.service`, so
+`journalctl -u outpost-backup` shows the runs. v0.1.0 and earlier named them
+`backup.timer` and `backup.service`; scheduling again with `--enable`, or
+`--unschedule`, clears those old units, and only if Outpost wrote them.
+
 ## Tailscale
 
 **Checked by hand.** On macOS, a node joined a real tailnet through the
