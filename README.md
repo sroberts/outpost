@@ -603,8 +603,8 @@ gateway on in an existing tailnet setup changes nodes from plain http on port
 What the gateway decides goes in the activity feed, and `outpost gateway
 activity` shows it: who signed in or out and from which address, failed and
 throttled sign-ins, refused apps, password changes, use of the setup link,
-access tokens created, revoked and rejected, and updates started from the
-portal.
+access tokens created, revoked and rejected, and updates, starts, stops,
+restarts and backups done from the portal.
 A failure is recorded the first time; repeats of the same one within ten
 minutes become a single line, such as
 `4 more failed sign-ins for "alice" from 192.0.2.7 since 21:14`. Throttled
@@ -624,6 +624,15 @@ opened there), and signs out any one of those devices, or every one but the
 one you're using, along with every app they opened. It also changes your
 password, which signs out every other device, and signs you out everywhere at
 once. `outpost user sessions <name>` shows an admin the same list.
+
+An admin also gets a **Manage** menu on each app: Start, Restart, Back up now
+and Stop, whichever make sense for the state it's in, and Update when a newer
+release is waiting. Everything but Start asks first and says what it will do,
+since each takes the app away for a while. They go through the daemon's API,
+as `outpost start` and the rest do. The row says what's under way, the page
+refreshes until it's done (holding off while a menu is open), and the outcome
+stays on the row for five minutes.
+`outpost gateway activity` records who did what.
 
 What the catalog shows, and who may open an app, come from optional manifest
 fields:

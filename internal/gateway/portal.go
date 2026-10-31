@@ -35,6 +35,18 @@ func (g *Gateway) servePortal(w http.ResponseWriter, r *http.Request) {
 		} else {
 			g.accountPage(w, r)
 		}
+	case "/apps":
+		switch {
+		case g.control == nil:
+			g.message(w, r, http.StatusNotFound, "Nothing here",
+				"There's no page at this address.", g.portalLink(), "Back to apps")
+		case r.Method == http.MethodPost:
+			g.appsSubmit(w, r)
+		default:
+			w.Header().Set("Allow", "POST")
+			g.message(w, r, http.StatusMethodNotAllowed, "Use the buttons",
+				"Apps are started, stopped and backed up from the buttons in the catalog, so a link elsewhere can't do it.", g.portalLink(), "Back to apps")
+		}
 	case "/updates":
 		switch {
 		case g.updater == nil:
@@ -57,6 +69,8 @@ func (g *Gateway) servePortal(w http.ResponseWriter, r *http.Request) {
 		g.serveCSS(w, r)
 	case jsPath:
 		g.serveJS(w, r)
+	case pollPath:
+		g.servePoll(w, r)
 	case artPath:
 		g.serveArt(w, r)
 	default:
@@ -88,6 +102,9 @@ func (g *Gateway) home(w http.ResponseWriter, r *http.Request) {
 	if u.Admin && g.updater != nil {
 		g.checkIfStale()
 		d.Waiting = g.waiting()
+	}
+	if u.Admin && g.control != nil {
+		d.Poll = g.manage(d.Stations)
 	}
 	g.render(w, r, http.StatusOK, "portal", d)
 }

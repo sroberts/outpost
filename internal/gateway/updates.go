@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -256,6 +257,30 @@ func (g *Gateway) waiting() int {
 	return n
 }
 
+// waitingFor is the release waiting to be installed for one app, from what's
+// known, when there is one and it isn't being installed already.
+func (g *Gateway) waitingFor(rt route) (latest string, ok bool) {
+	if g.updater == nil {
+		return "", false
+	}
+	s := &g.updateState
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, known := s.checks[rt.Name]
+	if !known || !c.Newer || c.Installed != rt.Release || s.running[rt.Name] {
+		return "", false
+	}
+	return c.Latest, true
+}
+
+// updateBusy reports whether an app is being updated from the portal.
+func (g *Gateway) updateBusy(name string) bool {
+	s := &g.updateState
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.running[name]
+}
+
 // Update row states.
 const (
 	updateRunning   = "running"
@@ -322,19 +347,24 @@ func (g *Gateway) updateRows() (rows []updateRow, byHand []string, busy bool) {
 	return rows, byHand, busy
 }
 
-// updatesUser is the admin behind a request to the update page. It writes the
-// answer itself and returns false for anyone else. Admin comes from auth.db on
-// every request, so revoking it takes effect at once.
+// updatesUser is the admin behind a request to the update page.
 func (g *Gateway) updatesUser(w http.ResponseWriter, r *http.Request) (auth.User, bool) {
+	return g.adminUser(w, r, "/updates", "Only an admin can update apps.")
+}
+
+// adminUser is the admin behind a request to an admin's page or button. It
+// writes the answer itself and returns false for anyone else: a sign-in that
+// comes back to next, or refusal in words. Admin comes from auth.db on every
+// request, so revoking it takes effect at once.
+func (g *Gateway) adminUser(w http.ResponseWriter, r *http.Request, next, refusal string) (auth.User, bool) {
 	tok, s, u, ok := g.session(r)
 	if !ok || s.App != "" {
-		http.Redirect(w, r, "/login?next=%2Fupdates", http.StatusSeeOther)
+		http.Redirect(w, r, "/login?next="+url.QueryEscape(next), http.StatusSeeOther)
 		return auth.User{}, false
 	}
 	g.touch(tok, s)
 	if !u.Admin {
-		g.message(w, r, http.StatusForbidden, "Admins only",
-			"Only an admin can update apps.", g.portalLink(), "Back to apps")
+		g.message(w, r, http.StatusForbidden, "Admins only", refusal, g.portalLink(), "Back to apps")
 		return auth.User{}, false
 	}
 	return u, true
@@ -402,7 +432,18 @@ func (g *Gateway) updatesSubmit(w http.ResponseWriter, r *http.Request) {
 				"That isn't an app installed from a release.", "/updates", "Back to updates")
 			return
 		}
-		if g.updateState.begin(name) {
+		// An update stops, backs up and restarts the app itself, so it can't
+		// run alongside a stop or backup asked for from the catalog.
+		g.claim.Lock()
+		if doing, _, _ := g.ops.state(name); doing != "" {
+			g.claim.Unlock()
+			g.message(w, r, http.StatusConflict, "Busy",
+				g.titleOf(name)+" is being "+verbs[doing].did+". Try again once that's done.", "/updates", "Back to updates")
+			return
+		}
+		began := g.updateState.begin(name)
+		g.claim.Unlock()
+		if began {
 			// The only record of who asked, since the update itself runs as
 			// the daemon.
 			g.activity.record(EventUpdate, "%s started an update of %s from %s", u.Username, name, g.clientIP(r))

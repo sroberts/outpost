@@ -26,6 +26,9 @@ const (
 	EventPassword     = "password"
 	EventSetup        = "setup"
 	EventUpdate       = "update"
+	// EventControl is an app started, stopped, restarted or backed up from
+	// the portal.
+	EventControl = "control"
 	// Access tokens: the CLI's create and revoke, and the gateway's refusals.
 	EventTokenCreate = "token-create"
 	EventTokenRevoke = "token-revoke"

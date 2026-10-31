@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-//go:embed templates/*.html static/portal.css static/catalog.js static/lighthouse.webp
+//go:embed templates/*.html static/portal.css static/catalog.js static/poll.js static/lighthouse.webp
 var assets embed.FS
 
 const (
@@ -18,6 +18,9 @@ const (
 	// jsPath is the catalog's filter, its only script. It's a file rather
 	// than inline because the pages' CSP allows scripts from 'self' only.
 	jsPath = "/.outpost/static/catalog.js"
+	// pollPath reloads the catalog while an action runs. A meta refresh
+	// would close a Manage menu or a confirmation under the admin's thumb.
+	pollPath = "/.outpost/static/poll.js"
 	// artPath is the lighthouse from the Outpost header, cropped, for the
 	// sign-in page.
 	artPath = "/.outpost/static/lighthouse.webp"
@@ -29,9 +32,10 @@ type pages map[string]*template.Template
 // assetURLs carry a hash of each file, so a browser holding an hour-old copy
 // from before an upgrade asks for the new one instead.
 var (
-	cssURL = versioned(cssPath, "static/portal.css")
-	jsURL  = versioned(jsPath, "static/catalog.js")
-	artURL = versioned(artPath, "static/lighthouse.webp")
+	cssURL  = versioned(cssPath, "static/portal.css")
+	jsURL   = versioned(jsPath, "static/catalog.js")
+	pollURL = versioned(pollPath, "static/poll.js")
+	artURL  = versioned(artPath, "static/lighthouse.webp")
 )
 
 func versioned(urlPath, file string) string {
@@ -83,6 +87,9 @@ type pageData struct {
 	ByHand     string // apps not from a release, in words
 	Checked    string // when releases were last checked, in words
 	Refresh    bool   // reload while something on the page is in progress
+	// Poll reloads the catalog while an action runs, by script so an open
+	// menu stays open, with a meta refresh only where there's no script.
+	Poll bool
 
 	Message  string
 	Link     string
@@ -91,15 +98,15 @@ type pageData struct {
 	Station *station
 
 	// Filled in by render for every page.
-	CSS, JS, Art string // the assets' versioned URLs
-	Portal       string // what the portal calls itself
-	Host         string // the portal's address, for reading
-	Home         string // the catalog's URL
+	CSS, JS, PollJS, Art string // the assets' versioned URLs
+	Portal               string // what the portal calls itself
+	Host                 string // the portal's address, for reading
+	Home                 string // the catalog's URL
 }
 
 // render writes a page with the headers every gateway page carries.
 func (g *Gateway) render(w http.ResponseWriter, r *http.Request, status int, name string, d pageData) {
-	d.CSS, d.JS, d.Art = cssURL, jsURL, artURL
+	d.CSS, d.JS, d.PollJS, d.Art = cssURL, jsURL, pollURL, artURL
 	d.Portal = g.cfg.PortalName()
 	d.Host = strings.TrimPrefix(strings.TrimPrefix(g.portalOrigin, "https://"), "http://")
 	d.Home = g.portalLink()
@@ -145,6 +152,10 @@ func (g *Gateway) serveCSS(w http.ResponseWriter, _ *http.Request) {
 
 func (g *Gateway) serveJS(w http.ResponseWriter, r *http.Request) {
 	g.serveAsset(w, r, "static/catalog.js", "text/javascript; charset=utf-8")
+}
+
+func (g *Gateway) servePoll(w http.ResponseWriter, r *http.Request) {
+	g.serveAsset(w, r, "static/poll.js", "text/javascript; charset=utf-8")
 }
 
 func (g *Gateway) serveArt(w http.ResponseWriter, r *http.Request) {
