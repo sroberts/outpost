@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,7 +18,7 @@ const (
 	// tokenLife is how long an identity token is valid. It travels with one
 	// request, so it only has to outlast clock skew and a slow app.
 	tokenLife = 60 * time.Second
-	// tokenReuse is how long one token serves a (user, app) pair, so
+	// tokenReuse is how long one token serves a (user, host) pair, so
 	// signing isn't per-request work.
 	tokenReuse = 30 * time.Second
 	// maxCachedTokens bounds the cache; past it, stale entries are dropped.
@@ -66,10 +67,13 @@ type tokenCache struct {
 	m  map[string]cachedToken
 }
 
-// identityToken returns a token for u at app, reusing a recent one.
-func (g *Gateway) identityToken(u auth.User, app string) (string, error) {
+// identityToken returns a token for u at host, reusing a recent one that
+// says the same. The claims are the cache key, so a user whose groups or
+// name change is never handed a token that still says the old ones, and
+// nor is a user made afresh under a name just removed.
+func (g *Gateway) identityToken(u auth.User, host string) (string, error) {
 	now := g.now()
-	key := u.Username + "\x00" + app
+	key := strings.Join([]string{u.Username, host, u.DisplayName, u.Email, strings.Join(u.Groups, ",")}, "\x00")
 	g.tokens.mu.Lock()
 	if c, ok := g.tokens.m[key]; ok && now.Sub(c.minted) < tokenReuse && !now.Before(c.minted) {
 		g.tokens.mu.Unlock()
@@ -87,7 +91,7 @@ func (g *Gateway) identityToken(u auth.User, app string) (string, error) {
 	}
 	tok, err := signToken(sk, identityClaims{
 		Iss:    g.portalOrigin,
-		Aud:    g.appHost(app),
+		Aud:    host, // the one the request came to, which an app with two names checks against
 		Sub:    u.Username,
 		Name:   u.DisplayName,
 		Email:  u.Email,
