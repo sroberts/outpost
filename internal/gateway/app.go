@@ -309,6 +309,10 @@ func (g *Gateway) newProxy() *httputil.ReverseProxy {
 			pr.Out.Header.Del("True-Client-IP")
 			pr.Out.Header.Del("X-Client-IP")
 		},
+		ModifyResponse: func(resp *http.Response) error {
+			removeSetCookies(resp.Header, sessionCookieNames)
+			return nil
+		},
 		// Flush as data arrives, so server-sent events stream.
 		FlushInterval: -1,
 		Transport: &http.Transport{
