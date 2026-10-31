@@ -195,7 +195,6 @@ func (g *Gateway) proxyAs(w http.ResponseWriter, r *http.Request, rt route, u au
 	}
 	// The app never sees Outpost's own credential.
 	removeCookie(r.Header, g.cookieName)
-	setIdentity(r.Header, u, idTok)
 
 	ctx := context.WithValue(r.Context(), targetKey{}, target{
 		name:   rt.Name,
@@ -203,6 +202,8 @@ func (g *Gateway) proxyAs(w http.ResponseWriter, r *http.Request, rt route, u au
 		host:   g.rawHost(r),
 		client: g.clientIP(r),
 		admin:  u.Admin,
+		user:   &u,
+		token:  idTok,
 	})
 	g.proxy.ServeHTTP(w, r.WithContext(ctx))
 }
@@ -228,6 +229,10 @@ type target struct {
 	// admin is whether the caller may be told how to look closer if the
 	// app doesn't answer. The cookie is gone by then, so it's decided here.
 	admin bool
+	// user and token are who the request is from, for the identity headers;
+	// nil for a public path, which carries none.
+	user  *auth.User
+	token string
 }
 
 func (g *Gateway) newProxy() *httputil.ReverseProxy {
@@ -238,11 +243,24 @@ func (g *Gateway) newProxy() *httputil.ReverseProxy {
 			// The host the browser used, so an app that builds absolute URLs
 			// builds reachable ones.
 			pr.Out.Host = t.host
+			// Identity goes on the outgoing copy, here and not before the
+			// proxy is called: the proxy first drops every header the
+			// client's own Connection header names, so anything set
+			// earlier could be taken back by naming it there. Stripped
+			// again first, since a look-alike name survives the clone.
+			stripIdentity(pr.Out.Header)
+			if t.user != nil {
+				setIdentity(pr.Out.Header, *t.user, t.token)
+			}
 			// Rewrite has already dropped any X-Forwarded-* the client sent;
-			// these are the gateway's own account of the request.
+			// these are the gateway's own account of the request, under
+			// every name an app might take a client address from.
 			pr.Out.Header.Set("X-Forwarded-For", t.client)
 			pr.Out.Header.Set("X-Forwarded-Host", t.host)
 			pr.Out.Header.Set("X-Forwarded-Proto", g.scheme)
+			pr.Out.Header.Set("X-Real-IP", t.client)
+			pr.Out.Header.Del("True-Client-IP")
+			pr.Out.Header.Del("X-Client-IP")
 		},
 		// Flush as data arrives, so server-sent events stream.
 		FlushInterval: -1,

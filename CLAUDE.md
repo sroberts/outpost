@@ -76,9 +76,14 @@ build identity `make build` stamps).
 ## Invariants that bite
 
 **The gateway strips identity before anything else.** `ServeHTTP` removes every
-incoming `X-Outpost-*` header first, on every host and path, and the proxy
-removes the Outpost cookie. Anything new that handles a request has to come
-after that, and nothing may let a client choose the identity a service sees.
+incoming `X-Outpost-*` header first, on every host and path — matched with the
+punctuation taken out, because a CGI-style app reads `X_Outpost_User` as the
+same header — and the proxy removes the Outpost cookie. The gateway's own
+identity headers are set inside the proxy's `Rewrite`, on the outgoing copy,
+never on the inbound request: the proxy first drops every header the client's
+`Connection` header names, so anything set earlier could be taken back by
+naming it there. Anything new that handles a request has to come after the
+strip, and nothing may let a client choose the identity a service sees.
 
 **A request presenting an access token stands or falls by it.** `serveApp` takes
 `opat_` bearer tokens and `Outpost-Token` out of the headers before anything
