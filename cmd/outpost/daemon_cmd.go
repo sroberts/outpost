@@ -135,7 +135,7 @@ func (a *app) findDaemonJob(label string, systemOnly bool) (daemonJob, error) {
 	var looked []string
 	var foreign error
 	for _, system := range scopes {
-		mgr, cfg, err := a.autostartConfig(label, system, "")
+		mgr, cfg, err := a.autostartConfig(label, system)
 		if err != nil {
 			return daemonJob{}, err
 		}

@@ -519,8 +519,10 @@ running. Comments and layout don't count as a change.
 The file may hold an auth key, so every save makes it `0600`, including a file
 first written by hand. `outpost config --authkey` writes one without
 reinstalling; it reads the key from the terminal or stdin, never an argument,
-and `outpost config` shows only that one is set. `TS_AUTHKEY` in the daemon's
-environment, or `outpost install --authkey`, keeps it off disk instead.
+and `outpost config` shows only that one is set. `outpost install --authkey`
+saves it to the same file, never to the unit, which other users can read.
+`TS_AUTHKEY` in the daemon's own environment wins over the file. Services and
+tsnet nodes never inherit it, nor `GITHUB_TOKEN`.
 
 ## Running without Tailscale
 
@@ -768,15 +770,17 @@ outpost daemon restart     # restart the daemon through it
 than running them — registering a background service should be a deliberate act.
 Pass `--enable` to have Outpost run them for you.
 
-Pass `--authkey` (or set `TS_AUTHKEY`) to put a Tailscale auth key in the
-service environment, which keeps it out of the manifests.
+Pass `--authkey` to save a Tailscale auth key to `config.toml`, as
+`outpost config --authkey` does; that reads it from the terminal instead, out of
+the process table and shell history. `TS_AUTHKEY` in the shell running
+`install` isn't copied into the unit file, which other users can read.
 
 If `config.toml` doesn't yet say whether to use Tailscale, `install` checks
 whether Tailscale is running on the machine, says what it found, and asks
 whether each service should get its own Tailscale identity. The answer is
 written to `config.toml`, so it's asked once. `--tailscale` and
 `--no-tailscale` answer without asking, and so does an auth key: `--authkey`
-or `TS_AUTHKEY` means on, unless the home already has a setting or
+means on, unless the home already has a setting or
 `--no-tailscale` is given. Otherwise, with no terminal, a new install gets
 Tailscale off and an existing one is left as it is.
 

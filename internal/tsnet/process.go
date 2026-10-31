@@ -15,6 +15,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	outpostruntime "github.com/sroberts/outpost/internal/runtime"
 )
 
 // Each node runs in a child process rather than inside the daemon.
@@ -146,11 +148,13 @@ func (r *Router) startProcessNode(ctx context.Context, cfg nodeConfig) (tailnetN
 	if err != nil {
 		return nil, err
 	}
-	// Added to, not replaced: whatever environment nodeCmd built is kept.
+	// Added to, not replaced: whatever environment nodeCmd built is kept,
+	// less the daemon's credentials: the node needs only the key handed to
+	// it here, and nothing that acts on GitHub.
 	if cmd.Env == nil {
 		cmd.Env = os.Environ()
 	}
-	cmd.Env = append(cmd.Env, AuthKeyEnv+"="+cfg.AuthKey)
+	cmd.Env = append(outpostruntime.WithoutSecrets(cmd.Env), AuthKeyEnv+"="+cfg.AuthKey)
 	// Its own process group, so a Ctrl-C meant for a foreground daemon does
 	// not reach the node first and look like a crash; the daemon stops it in
 	// order on the way out.

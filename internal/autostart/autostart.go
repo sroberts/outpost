@@ -46,8 +46,9 @@ type Config struct {
 	Scope Scope
 	// User is the account a system-scope unit runs as. Ignored for user scope.
 	User string
-	// Env is injected into the daemon's environment, for values like
-	// TS_AUTHKEY that should not live in a manifest.
+	// Env is injected into the daemon's environment. install writes a unit
+	// that has one 0600, but systemd shows it to any local user regardless,
+	// so a secret such as an auth key belongs in config.toml instead.
 	Env map[string]string
 }
 
