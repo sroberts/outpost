@@ -124,11 +124,13 @@ func removeCookie(h http.Header, name string) {
 	}
 }
 
-// sessionCookieNames are both names the gateway's cookie can have. Neither
-// may come from an app, whichever one this gateway uses: an app setting it
-// could replace or clear the user's session, or, under http with a Domain,
-// plant its own session on sibling apps ahead of the user's.
-var sessionCookieNames = []string{"outpost", "__Host-outpost"}
+// sessionCookieNames are every name the gateway's own cookies can have:
+// the session, and the stamp a sign-in handshake leaves on an app's host.
+// None may come from an app, whichever ones this gateway uses: an app
+// setting the session could replace or clear it, or, under http with a
+// Domain, plant its own on sibling apps; one setting the stamp could clear
+// a handshake in flight.
+var sessionCookieNames = []string{"outpost", "__Host-outpost", "outpost-state", "__Host-outpost-state"}
 
 // removeSetCookies drops a response's Set-Cookie headers for any of names,
 // keeping the rest in order and exactly as sent.
