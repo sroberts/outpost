@@ -145,8 +145,19 @@ func (g *Gateway) refreshRoutes(ctx context.Context) {
 		}
 		byHost[r.Addr] = s.Name
 		if h := strings.ToLower(hosts[s.Name]); h != "" {
-			r.Host = h
-			byHost[h] = s.Name
+			// A node's name comes from Tailscale, not the manifests, so
+			// nothing has checked it against the addresses already taken;
+			// overwriting one would hand another app's traffic to this one.
+			if other, taken := byHost[h]; taken && other != s.Name {
+				key := "host:" + s.Name
+				if !g.routes.skipped[key] {
+					g.routes.skipped[key] = true
+					g.logf("gateway: %s and %s both want %s; only %s is served there", other, s.Name, h, other)
+				}
+			} else {
+				r.Host = h
+				byHost[h] = s.Name
+			}
 		}
 		g.warnUnknownAllow(s.Name, s.Allow)
 		byName[s.Name] = r
