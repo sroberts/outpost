@@ -156,12 +156,23 @@ This is how an operator gets one login for all their services, so:
   | `X-Outpost-Identity` | an Ed25519-signed JWT (`alg` `EdDSA`) |
 
   The gateway removes any `X-Outpost-*` header a client sends before setting
-  its own, so with a loopback bind (§1) the plain headers are enough. When you
-  want proof, verify the token against the keys at `OUTPOST_JWKS_URL`: `iss` is
+  its own, so nothing that came through the gateway can forge them. But your
+  port is on loopback, and the gateway is not the only thing on the machine:
+  any other process there — another service Outpost runs, for one — can
+  connect to your port directly and send whatever `X-Outpost-User` it likes.
+  The plain headers are fine for knowing who is using you; for anything a
+  neighbour on the machine must not be able to do as someone else, verify
+  `X-Outpost-Identity` against the keys at `OUTPOST_JWKS_URL`: `iss` is
   `OUTPOST_ISSUER`, `aud` is the host you are being served at, `sub` is the
   username, and it also carries `name`, `email` and `groups`. It lives for 60
   seconds, so verify per request rather than keeping it. Trust none of these
   headers when `OUTPOST_AUTH` is unset — nothing strips them then.
+- **Check the origin of your own forms.** Every app behind one gateway is on
+  the same site, `<name>.<domain>`, so the browser sends the user's cookie
+  with a request one app's page makes to another, and the gateway adds the
+  user's identity to it. The gateway checks `Origin` on its own forms only.
+  For anything of yours that changes state, require `Origin` (or `Referer`)
+  to be your own host, or use a CSRF token.
 - **Hard-code no hostname.** You are served at your node's own tailnet address,
   `https://<tailscale_name>.<tailnet>.ts.net` — or, if Tailscale had to rename
   the node because the name was taken, at the name it was given (`yarr-1`).
@@ -379,6 +390,8 @@ A service conforms when all of these are true.
 - [ ] Presents no login of its own
 - [ ] Takes the user from `X-Outpost-User`, or from the verified `X-Outpost-Identity`
 - [ ] Trusts `X-Outpost-*` headers only when `OUTPOST_AUTH=gateway`
+- [ ] Verifies `X-Outpost-Identity` for anything another process on the machine must not be able to do
+- [ ] Checks `Origin` on its own state-changing requests
 - [ ] Hard-codes no hostname; uses relative URLs, or `Host` and `X-Forwarded-*`
 - [ ] Serves nothing under `/.outpost/` and sets no cookie named `outpost` or `__Host-outpost`
 
