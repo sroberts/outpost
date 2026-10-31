@@ -244,6 +244,10 @@ func (g *Gateway) newProxy() *httputil.ReverseProxy {
 			pr.Out.Header.Set("X-Forwarded-Host", t.host)
 			pr.Out.Header.Set("X-Forwarded-Proto", g.scheme)
 		},
+		ModifyResponse: func(resp *http.Response) error {
+			removeSetCookies(resp.Header, sessionCookieNames)
+			return nil
+		},
 		// Flush as data arrives, so server-sent events stream.
 		FlushInterval: -1,
 		Transport: &http.Transport{

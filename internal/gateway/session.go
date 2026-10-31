@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -86,6 +87,42 @@ func removeCookie(h http.Header, name string) {
 	h.Del("Cookie")
 	if len(kept) > 0 {
 		h.Set("Cookie", strings.Join(kept, "; "))
+	}
+}
+
+// sessionCookieNames are both names the gateway's cookie can have. Neither
+// may come from an app, whichever one this gateway uses: an app setting it
+// could replace or clear the user's session, or, under http with a Domain,
+// plant its own session on sibling apps ahead of the user's.
+var sessionCookieNames = []string{"outpost", "__Host-outpost"}
+
+// removeSetCookies drops a response's Set-Cookie headers for any of names,
+// keeping the rest in order and exactly as sent.
+func removeSetCookies(h http.Header, names []string) {
+	var kept []string
+	dropped := false
+	for _, v := range h.Values("Set-Cookie") {
+		pair, _, _ := strings.Cut(v, ";")
+		n, rest, _ := strings.Cut(pair, "=")
+		n = strings.TrimSpace(n)
+		if n == "" {
+			// A browser sends a nameless cookie as its bare value, so
+			// "=outpost=x" would arrive as outpost=x.
+			n, _, _ = strings.Cut(rest, "=")
+			n = strings.TrimSpace(n)
+		}
+		if slices.Contains(names, n) {
+			dropped = true
+			continue
+		}
+		kept = append(kept, v)
+	}
+	if !dropped {
+		return
+	}
+	h.Del("Set-Cookie")
+	for _, v := range kept {
+		h.Add("Set-Cookie", v)
 	}
 }
 
