@@ -87,7 +87,7 @@ func (g *Gateway) home(w http.ResponseWriter, r *http.Request) {
 	}
 	if u.Admin && g.updater != nil {
 		g.checkIfStale()
-		d.Updates, d.Waiting = true, g.waiting()
+		d.Waiting = g.waiting()
 	}
 	g.render(w, r, http.StatusOK, "portal", d)
 }

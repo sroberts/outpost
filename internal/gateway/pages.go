@@ -78,8 +78,7 @@ type pageData struct {
 	Up, Down     int
 	Search       bool
 
-	Updates    bool // this admin can reach the update page
-	Waiting    int  // apps known to have a newer release
+	Waiting    int // apps known to have a newer release; only counted for an admin
 	UpdateRows []updateRow
 	ByHand     string // apps not from a release, in words
 	Checked    string // when releases were last checked, in words
