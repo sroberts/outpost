@@ -73,6 +73,14 @@ func main() {
 	mux.HandleFunc("/env", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, os.Getenv(r.URL.Query().Get("k")))
 	})
+	mux.HandleFunc("/cwd", func(w http.ResponseWriter, r *http.Request) {
+		dir, err := os.Getwd()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		fmt.Fprint(w, dir)
+	})
 
 	if *crashAfter > 0 {
 		go func() {

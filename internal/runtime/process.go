@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -124,6 +125,19 @@ func (r *ProcessRuntime) httpClient() *http.Client {
 	return r.client
 }
 
+// binaryPath makes a relative binary path such as bin/svc absolute against the
+// daemon's working directory, where it was always resolved, since exec would
+// otherwise resolve it against cmd.Dir. A bare name is left for PATH.
+func binaryPath(binary string) string {
+	if filepath.IsAbs(binary) || !strings.ContainsRune(binary, filepath.Separator) {
+		return binary
+	}
+	if abs, err := filepath.Abs(binary); err == nil {
+		return abs
+	}
+	return binary
+}
+
 // Start launches the service and begins reaping it in the background.
 func (r *ProcessRuntime) Start(ctx context.Context, svc *manifest.Service) (Handle, error) {
 	if svc.Binary == "" {
@@ -146,7 +160,12 @@ func (r *ProcessRuntime) Start(ctx context.Context, svc *manifest.Service) (Hand
 	// Deliberately not exec.CommandContext: the supervisor owns the service
 	// lifecycle through Stop, and a cancelled reconcile context must not take
 	// running services down with it.
-	cmd := exec.Command(svc.Binary, svc.Args...)
+	cmd := exec.Command(binaryPath(svc.Binary), svc.Args...)
+	cmd.Args[0] = svc.Binary // what the service sees as argv[0] is unchanged
+	// The service's own directory rather than the daemon's, which the unit
+	// files set to the Outpost home: an app writing ./config.toml must not
+	// overwrite Outpost's.
+	cmd.Dir = svc.ExpandStorage()
 	cmd.Stdout = lw
 	cmd.Stderr = lw
 	cmd.Env = buildEnv(svc, r.Env)

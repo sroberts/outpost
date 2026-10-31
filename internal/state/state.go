@@ -100,6 +100,17 @@ func Open(path string) (*Store, error) {
 			return nil, fmt.Errorf("create state dir: %w", err)
 		}
 	}
+	// Owner-only before SQLite sees it, as auth.db is: SQLite creates the file
+	// with the process umask and gives its -wal and -shm files the main file's
+	// mode. The chmod catches a file that already existed with a looser mode.
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("create state db: %w", err)
+	}
+	_ = f.Close() // nothing was written through it
+	if err := os.Chmod(path, 0o600); err != nil {
+		return nil, fmt.Errorf("chmod state db: %w", err)
+	}
 
 	// A single supervisor writes and the CLI reads; WAL keeps readers from
 	// blocking on the writer, and busy_timeout absorbs the overlap.
