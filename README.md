@@ -706,6 +706,53 @@ tell it from a browser. The app never sees the token itself.
   revoke the user's tokens, and enabling the user again doesn't bring them back.
   Ending one browser session on the account page leaves tokens alone.
 
+## What Outpost trusts
+
+Outpost is built for one person's machine, and its trust boundaries follow
+from that. Knowing where they are tells you what adding a service means.
+
+**A service is trusted as much as Outpost itself.** Every service runs as the
+same user as the daemon, with no sandbox. It can read everything under
+`~/.outpost` — `auth.db` with its password hashes and the keys that sign
+identity tokens, `config.toml` with the Tailscale auth key, each node's
+tailnet identity — write a manifest, which is running any command as that
+user, and talk to the control socket, which can add an admin or mint an
+access token. `outpost add <url>` installs a release binary from a GitHub
+repository; that is a decision to trust its author with the whole box. Read
+the repository before you add it.
+
+**Services trust the gateway by its headers, and so does anything else on the
+machine.** A service listens on loopback and reads `X-Outpost-User` from the
+gateway. Nothing stops another process on the machine — another service,
+say — connecting to that port directly and sending the same header with any
+name in it. The identity token in `X-Outpost-Identity` is the way a service
+tells the gateway from a neighbour; the [service contract](outpost-service-spec.md)
+says when to verify it. The login front door keeps the outside out; it does
+not keep services apart from each other.
+
+**Loopback is a trusted proxy.** By default `trusted_proxies` is the loopback
+range, because that is where the tailnet nodes and `tailscale serve` connect
+from, and they say in `X-Forwarded-For` who the client was. So can any other
+local process, which then chooses the address the activity feed records and
+the sign-in throttle counts by. Set `trusted_proxies` to exactly what is in
+front of the gateway if that matters to you.
+
+**Apps are one site.** Without Tailscale, every app is at `<name>.<domain>`,
+and browsers treat those as one site: a page in one app can make a request
+to another with the user's cookie, and the gateway adds the user's identity
+to it. The gateway checks the origin of its own forms, not of an app's. An
+app behind the gateway needs its own check on requests that change things;
+the service contract asks for one. On the tailnet each app has its own
+`.ts.net` name, which browsers keep apart. Under plain http, with the
+`outpost` cookie in place of `__Host-outpost`, apps can also set cookies for
+each other; use https anywhere that matters.
+
+**Tailscale sees its own logs.** Each node is a `tsnet` program, and by
+default tsnet sends its logs to Tailscale's log service, as the Tailscale
+client does. Nothing of Outpost's goes in them, but it is traffic you didn't
+configure; `TS_NO_LOGS_NO_SUPPORT=true` in the daemon's environment turns it
+off, at the cost of Tailscale's support.
+
 ## Layout
 
 Everything lives under `~/.outpost` (or `$OUTPOST_HOME`, or `--home`):
