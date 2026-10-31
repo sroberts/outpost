@@ -192,7 +192,9 @@ func (g *Gateway) changePassword(w http.ResponseWriter, r *http.Request, u auth.
 	ip := g.clientIP(r)
 	keys := []string{"user:" + u.Username, "ip:" + ip}
 	attempt := fmt.Sprintf("for %s from %s", quoted(u.Username), ip)
-	if d := g.throttle.wait(g.now(), keys...); d > 0 {
+	// Taken before the check, as at sign-in, so a burst can't all get in
+	// before the first failure counts.
+	if d := g.throttle.begin(g.now(), keys...); d > 0 {
 		g.activity.failed(EventPasswordFail, "from "+ip, true)
 		fail(http.StatusTooManyRequests, fmt.Sprintf("Too many attempts. Try again in %d seconds.", int(d.Seconds()+0.999)))
 		return
@@ -202,6 +204,7 @@ func (g *Gateway) changePassword(w http.ResponseWriter, r *http.Request, u auth.
 	<-g.checks
 	if err != nil {
 		if !errors.Is(err, auth.ErrBadCredentials) {
+			g.throttle.pass(keys...)
 			g.logf("gateway: change password: %v", err)
 			fail(http.StatusInternalServerError, "Something went wrong. Try again.")
 			return
@@ -211,7 +214,8 @@ func (g *Gateway) changePassword(w http.ResponseWriter, r *http.Request, u auth.
 		fail(http.StatusUnauthorized, "That isn't your current password.")
 		return
 	}
-	g.throttle.reset(keys...)
+	g.throttle.reset("user:" + u.Username)
+	g.throttle.pass("ip:" + ip)
 	g.activity.settle(EventPasswordFail, attempt)
 
 	// Counted first, since SetPassword leaves nothing to count. Only the feed

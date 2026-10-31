@@ -144,7 +144,10 @@ func (g *Gateway) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	ip := g.clientIP(r)
 	keys := []string{"user:" + username, "ip:" + ip}
 	attempt := fmt.Sprintf("for %s from %s", quoted(username), ip)
-	if d := g.throttle.wait(g.now(), keys...); d > 0 {
+	// Taken before the check, not after: the check is slow by design, and
+	// a burst sent together would otherwise all get in before the first
+	// failure counts.
+	if d := g.throttle.begin(g.now(), keys...); d > 0 {
 		// Counted by address alone: a throttled client changing the name
 		// it tries each time is still one line.
 		g.activity.failed(EventSignInFail, "from "+ip, true)
@@ -158,6 +161,7 @@ func (g *Gateway) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	<-g.checks
 	if err != nil {
 		if !errors.Is(err, auth.ErrBadCredentials) {
+			g.throttle.pass(keys...)
 			g.logf("gateway: login: %v", err)
 			form.Error = "Something went wrong. Try again."
 			g.render(w, r, http.StatusInternalServerError, "login", form)
@@ -169,7 +173,11 @@ func (g *Gateway) loginSubmit(w http.ResponseWriter, r *http.Request) {
 		g.render(w, r, http.StatusUnauthorized, "login", form)
 		return
 	}
-	g.throttle.reset(keys...)
+	// The user's own backoff is over; the address keeps its failures,
+	// since knowing one password clears nothing about the others tried
+	// from there.
+	g.throttle.reset("user:" + username)
+	g.throttle.pass("ip:" + ip)
 
 	// Always a new token, never the one the browser arrived with, so a
 	// session fixed in advance by someone else is worthless.
