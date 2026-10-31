@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -87,7 +88,9 @@ func Run(ctx context.Context, cfg Config, ready, logs io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("tsnet node %q did not come up: %w", cfg.Hostname, err)
 	}
+	ownName := ""
 	if status.Self != nil && status.Self.DNSName != "" {
+		ownName = status.Self.DNSName
 		if _, err := fmt.Fprintln(ready, outposttsnet.HostLinePrefix+status.Self.DNSName); err != nil {
 			return fmt.Errorf("report host: %w", err)
 		}
@@ -123,8 +126,8 @@ func Run(ctx context.Context, cfg Config, ready, logs io.Writer) error {
 			_ = tlsLn.Close() // failing anyway
 			return fmt.Errorf("listen on tailnet: %w", err)
 		}
-		serve(tlsLn, outposttsnet.NewUpstreamProxy(target, cfg.UpstreamServerName))
-		serve(ln, http.HandlerFunc(toHTTPS))
+		serve(tlsLn, onlyHost(ownName, outposttsnet.NewUpstreamProxy(target, cfg.UpstreamServerName)))
+		serve(ln, onlyHost(ownName, http.HandlerFunc(toHTTPS)))
 	}
 
 	if _, err := fmt.Fprintln(ready, outposttsnet.ReadyLine); err != nil {
@@ -176,6 +179,34 @@ func reportLogin(ctx context.Context, server *tsnet.Server, out io.Writer) {
 			return
 		}
 	}
+}
+
+// onlyHost passes on requests for this node's own name and refuses the rest.
+// The gateway routes on Host and trusts the node as its proxy, so without
+// this a peer allowed to reach only this node could name the portal or any
+// other app in Host and be sent there. Until the name is known (ownName
+// empty) nothing matches, which only refuses requests nobody could have
+// addressed to this node by name yet.
+func onlyHost(ownName string, next http.Handler) http.Handler {
+	own := strings.TrimSuffix(strings.ToLower(ownName), ".")
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if own == "" || hostname(r.Host) != own {
+			http.Error(w, "outpost: this tailnet node serves only its own name", http.StatusMisdirectedRequest)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// hostname is the host part of a Host header: lower case, without port or
+// a trailing dot.
+func hostname(raw string) string {
+	h := raw
+	if host, _, err := net.SplitHostPort(raw); err == nil {
+		h = host
+	}
+	h = strings.TrimPrefix(strings.TrimSuffix(h, "]"), "[")
+	return strings.TrimSuffix(strings.ToLower(h), ".")
 }
 
 // toHTTPS sends a plain-http request to the same place over HTTPS.
