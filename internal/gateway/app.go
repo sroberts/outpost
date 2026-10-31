@@ -52,6 +52,12 @@ func (g *Gateway) serveApp(w http.ResponseWriter, r *http.Request, rt route) {
 // Only a path already in its simplest form counts: "/webhook/../admin" names
 // /admin to the app, so it gets no exemption, and neither does an escaped
 // slash or backslash that the app might decode into one.
+//
+// Clean only knows "." and "..", but apps don't all stop there: servlet
+// containers drop ";params" from a segment, so "..;" climbs like "..", and an
+// app that decodes twice turns "%252e%252e" into "..". A dot-dot segment with
+// anything attached, a dot segment carrying ";", and any "%25" are all
+// refused; a name merely starting with one dot, like .well-known, is fine.
 func (g *Gateway) isPublic(r *http.Request, rt route) bool {
 	if len(rt.PublicPaths) == 0 {
 		return false
@@ -62,8 +68,14 @@ func (g *Gateway) isPublic(r *http.Request, rt route) bool {
 		clean += "/"
 	}
 	raw := strings.ToLower(r.URL.EscapedPath())
-	if clean != p || strings.Contains(raw, "%2f") || strings.Contains(raw, "%5c") || strings.Contains(p, "\\") {
+	if clean != p || strings.Contains(raw, "%2f") || strings.Contains(raw, "%5c") || strings.Contains(raw, "%25") || strings.Contains(p, "\\") {
 		return false
+	}
+	for _, seg := range strings.Split(p, "/") {
+		bare, _, _ := strings.Cut(seg, ";")
+		if strings.HasPrefix(seg, "..") || bare == "." || bare == ".." {
+			return false
+		}
 	}
 	return manifest.MatchPublicPath(rt.PublicPaths, p)
 }
