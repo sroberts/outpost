@@ -40,6 +40,10 @@ type Client struct {
 	// Logf reports a choice the operator did not make explicitly, such as
 	// picking the plain build over a variant. Nil discards.
 	Logf func(format string, args ...any)
+	// RequireChecksum makes Install refuse an asset the release publishes no
+	// checksum for, instead of installing it with a warning. An update sets it
+	// when the release it replaces was verified.
+	RequireChecksum bool
 }
 
 func (c *Client) logf(format string, args ...any) {

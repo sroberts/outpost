@@ -43,6 +43,7 @@ func (a *app) cmdUpdate(args []string) error {
 	force := fs.Bool("force", false, "reinstall even when the release is the one already installed")
 	noBackup := fs.Bool("no-backup", false, "skip the backup of the service's storage taken before updating")
 	wait := fs.Duration("wait", 0, "how long the new release has to pass its healthcheck (default 30s plus start_grace_seconds)")
+	allowUnverified := fs.Bool("allow-unverified", false, "install a release with no checksum to verify it against, even though the installed one was verified")
 	positional, err := parseOptionalService(fs, "update", args)
 	if err != nil {
 		return err
@@ -54,8 +55,8 @@ func (a *app) cmdUpdate(args []string) error {
 		switch {
 		case len(positional) > 0:
 			return fmt.Errorf("update: --all means every service, so it can't be given a service name (%q)", positional[0])
-		case *to != "" || *from != "" || *force:
-			return fmt.Errorf("update: --to, --from and --force are about one service, and can't be used with --all")
+		case *to != "" || *from != "" || *force || *allowUnverified:
+			return fmt.Errorf("update: --to, --from, --force and --allow-unverified are about one service, and can't be used with --all")
 		case *check:
 			return a.checkAll()
 		}
@@ -169,6 +170,13 @@ func (a *app) cmdUpdate(args []string) error {
 	if err := checkRecorded(updated, repo.String(), rel.Tag); err != nil {
 		return fmt.Errorf("%s: can't record the new release: %w; nothing was changed", path, err)
 	}
+	// Whether the download verifies isn't known yet, so both answers have to
+	// be recordable.
+	for _, v := range []bool{true, false} {
+		if err := checkVerified(setVerified(updated, v), v); err != nil {
+			return fmt.Errorf("%s: can't record whether the new release is verified: %w; nothing was changed", path, err)
+		}
+	}
 
 	// Replacing a binary Outpost did not put there could mean overwriting
 	// something the system or another tool owns.
@@ -200,6 +208,23 @@ func (a *app) cmdUpdate(args []string) error {
 	}
 	if err != nil {
 		return err
+	}
+	// A release that drops its checksums would otherwise replace a verified
+	// binary with nothing more than a warning, which is the same thing a
+	// tampered release would look like.
+	refuseUnverified := func(err error) error {
+		return fmt.Errorf("%s: %w, and the installed %s was checksum verified; nothing was changed. "+
+			"If that is expected, `outpost update %s --allow-unverified` installs it anyway", name, err, installed, name)
+	}
+	client.RequireChecksum = svc.Verified && !*allowUnverified
+	if client.RequireChecksum {
+		if err := client.CheckVerifiable(ctx, rel, asset.Name); err != nil {
+			var unverified *acquire.UnverifiedError
+			if errors.As(err, &unverified) {
+				return refuseUnverified(err)
+			}
+			return err
+		}
 	}
 
 	// Two updates of one service at once would each keep the other's binary
@@ -261,6 +286,11 @@ func (a *app) cmdUpdate(args []string) error {
 		if previous != "" {
 			_ = os.Remove(previous) // the binary was never replaced
 		}
+		// The release changed since the check above.
+		var unverified *acquire.UnverifiedError
+		if errors.As(err, &unverified) {
+			return refuseUnverified(err)
+		}
 		return err
 	}
 	if res.Warning != "" {
@@ -271,6 +301,7 @@ func (a *app) cmdUpdate(args []string) error {
 		verified = "checksum verified"
 	}
 	fmt.Fprintf(a.out, "installed %s %s (%s)\n", repo, rel.Tag, verified)
+	updated = setVerified(updated, res.Verified)
 
 	timeout := *wait
 	if timeout == 0 {
@@ -631,6 +662,61 @@ func checkRecorded(body []byte, source, release string) error {
 	}
 	if got.Source != source || got.Release != release {
 		return fmt.Errorf("the edit would record source %q and release %q", got.Source, got.Release)
+	}
+	return nil
+}
+
+// verifiedKey matches a top-level verified key, bare or quoted, and captures
+// what follows the =.
+var verifiedKey = regexp.MustCompile(`^\s*(?:verified|"verified"|'verified')\s*=(.*)$`)
+
+// setVerified records whether the installed release was verified, changing
+// only that line as setRelease does. An absent key reads as false, so false is
+// only written over a line that already says otherwise.
+func setVerified(body []byte, verified bool) []byte {
+	line := fmt.Sprintf("%-14s = %t\n", "verified", verified)
+	lines := strings.SplitAfter(string(body), "\n")
+	if lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	end := len(lines)
+	for i, l := range lines {
+		if strings.HasPrefix(strings.TrimSpace(l), "[") {
+			end = i
+			break
+		}
+	}
+	for i := 0; i < end; i++ {
+		if m := verifiedKey.FindStringSubmatch(strings.TrimRight(lines[i], "\r\n")); m != nil {
+			// A boolean can't contain a #, so the first one starts a comment.
+			lines[i] = line
+			if c := strings.IndexByte(m[1], '#'); c >= 0 {
+				lines[i] = fmt.Sprintf("%-14s = %t  %s\n", "verified", verified, m[1][c:])
+			}
+			return []byte(strings.Join(lines, ""))
+		}
+	}
+	if !verified {
+		return body
+	}
+	if end > 0 && !strings.HasSuffix(lines[end-1], "\n") {
+		lines[end-1] += "\n"
+	}
+	out := append(append(append([]string{}, lines[:end]...), line), lines[end:]...)
+	return []byte(strings.Join(out, ""))
+}
+
+// checkVerified reports whether a rewritten manifest still parses and records
+// the given verified, as checkRecorded does for source and release.
+func checkVerified(body []byte, verified bool) error {
+	var got struct {
+		Verified bool `toml:"verified"`
+	}
+	if _, err := toml.Decode(string(body), &got); err != nil {
+		return err
+	}
+	if got.Verified != verified {
+		return fmt.Errorf("the edit would record verified = %t", got.Verified)
 	}
 	return nil
 }

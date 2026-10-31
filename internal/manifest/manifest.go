@@ -34,6 +34,10 @@ type Service struct {
 	// to fetch. Neither affects what runs, so neither restarts the service.
 	Source  string `toml:"source"`
 	Release string `toml:"release"`
+	// Verified records that the installed release was checked against a
+	// checksum it published, so an update can refuse to replace it with one
+	// that can't be.
+	Verified bool `toml:"verified"`
 
 	// What the gateway's catalog shows and who may reach the app; see
 	// catalog.go. All optional.
