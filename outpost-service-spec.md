@@ -195,6 +195,7 @@ secret itself is not in the manifest.
 
 Outpost hands you `OUTPOST_STORAGE_DIR`. It is created with mode `0700` before
 your process starts, so it always exists and is writable by the time you run.
+It is also your working directory, so a relative path lands inside it.
 
 **Everything you need to survive a restart goes there.** Nothing else is
 preserved. This is not merely a convention — it is the unit Outpost backs up and
