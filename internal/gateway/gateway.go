@@ -284,13 +284,29 @@ func (g *Gateway) appOrigin(name string) string {
 	return g.scheme + "://" + h
 }
 
-// stripIdentity removes every X-Outpost-* header.
+// stripIdentity removes every header an app could read as X-Outpost-*. The
+// name is matched with its punctuation taken out: a CGI-style server folds
+// "X_Outpost_User" into the same HTTP_X_OUTPOST_USER as the real header,
+// and Go passes such names on as sent.
 func stripIdentity(h http.Header) {
 	for k := range h {
-		if strings.HasPrefix(http.CanonicalHeaderKey(k), "X-Outpost-") {
+		if isIdentityName(k) {
 			delete(h, k)
 		}
 	}
+}
+
+func isIdentityName(name string) bool {
+	var b strings.Builder
+	for _, c := range name {
+		switch {
+		case c >= 'A' && c <= 'Z':
+			b.WriteRune(c + 'a' - 'A')
+		case c >= 'a' && c <= 'z', c >= '0' && c <= '9':
+			b.WriteRune(c)
+		}
+	}
+	return strings.HasPrefix(b.String(), "xoutpost")
 }
 
 // ServiceEnv is what every service is told about the gateway: that identity
