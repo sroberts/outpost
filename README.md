@@ -48,7 +48,9 @@ make check      # everything CI runs
 
 `make build` stamps the version into the binary; a bare `go build` works but
 reports a pseudo-version. Tagged releases publish static binaries for macOS
-and Linux, on arm64 and amd64, with a `SHA256SUMS` file.
+and Linux, on arm64 and amd64, with a `SHA256SUMS` file. Each binary also
+carries a build provenance attestation, which
+`gh attestation verify outpost-<os>-<arch> --owner sroberts` checks.
 
 The binary is ~36 MB, most of which is the `tailscale.com` dependency.
 

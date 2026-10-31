@@ -5,7 +5,7 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   CGO_ENABLED: "0"
@@ -13,12 +13,20 @@ env:
 jobs:
   binaries:
     runs-on: ubuntu-latest
+    # Scoped to the one job that needs them: contents to create the release,
+    # id-token and attestations to sign the provenance for what it publishes.
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # No module cache: a cache restored into a release build is an input
+      # nobody reviewed, and the binaries are what users run.
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
 
       # Pure Go with cgo off cross-compiles from one runner, and the output is
       # statically linked — the property that lets Outpost be dropped onto a
@@ -41,6 +49,13 @@ jobs:
           done
           ./dist/outpost-linux-amd64 --version || true
           cd dist && sha256sum outpost-* > SHA256SUMS && cat SHA256SUMS
+
+      # Provenance ties each binary to this workflow run and commit, which a
+      # SHA256SUMS file published alongside them cannot.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*
 
       - name: Upload to the release
         env:
