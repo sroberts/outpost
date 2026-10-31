@@ -233,7 +233,7 @@ func (g *Gateway) proxyApp(w http.ResponseWriter, r *http.Request, rt route) {
 // through the allow check. Every way of being signed in comes through here, so
 // an app can't tell them apart.
 func (g *Gateway) proxyAs(w http.ResponseWriter, r *http.Request, rt route, u auth.User) {
-	idTok, err := g.identityToken(u, rt.Name)
+	idTok, err := g.identityToken(u, g.hostOf(r))
 	if err != nil {
 		g.logf("gateway: %s: identity token: %v", rt.Name, err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
