@@ -344,6 +344,9 @@ func renderManifest(s *manifest.Service) string {
 	if s.Release != "" {
 		fmt.Fprintf(&b, "release        = %s\n", tomlString(s.Release))
 	}
+	if s.Verified {
+		b.WriteString("verified       = true\n")
+	}
 	if len(s.Args) > 0 {
 		fmt.Fprintf(&b, "args           = %s\n", tomlStrings(s.Args))
 	}

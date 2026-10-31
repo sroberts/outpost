@@ -435,6 +435,36 @@ func isChecksumName(name string) bool {
 	return hasSuffixAny(lower, checksumExts)
 }
 
+// UnverifiedError is an asset with no published checksum, refused because the
+// client was told to require one.
+type UnverifiedError struct {
+	Tag, Asset string
+	// Published says the release has a checksum file, just not one listing
+	// this asset.
+	Published bool
+}
+
+func (e *UnverifiedError) Error() string {
+	if e.Published {
+		return fmt.Sprintf("release %s publishes checksums but none for %s", e.Tag, e.Asset)
+	}
+	return fmt.Sprintf("release %s publishes no checksums for %s", e.Tag, e.Asset)
+}
+
+// CheckVerifiable returns an *UnverifiedError if Install could not verify the
+// asset against the release's checksums, so a caller can refuse before doing
+// anything Install would otherwise have to undo.
+func (c *Client) CheckVerifiable(ctx context.Context, rel *Release, assetName string) error {
+	want, published, err := c.expectedSum(ctx, rel, assetName)
+	if err != nil {
+		return err
+	}
+	if want == "" {
+		return &UnverifiedError{Tag: rel.Tag, Asset: assetName, Published: published}
+	}
+	return nil
+}
+
 // checksumExts are per-asset checksum files. Only the SHA-256 ones are read;
 // the rest are recognised so that they are never mistaken for a binary.
 var checksumExts = []string{".sha256", ".sha256sum", ".sha512", ".sha512sum", ".sha1", ".sha1sum", ".md5", ".md5sum"}
@@ -453,6 +483,10 @@ func (c *Client) Install(ctx context.Context, rel *Release, asset Asset, dest st
 	want, published, err := c.expectedSum(ctx, rel, asset.Name)
 	if err != nil {
 		return res, err
+	}
+	// Refused before downloading, so nothing at dest has been touched.
+	if want == "" && c.RequireChecksum {
+		return res, &UnverifiedError{Tag: rel.Tag, Asset: asset.Name, Published: published}
 	}
 
 	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {

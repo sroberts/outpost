@@ -157,7 +157,8 @@ An update:
    on first start (`--no-backup` skips it);
 2. downloads and verifies the release exactly as `add` does, keeping the binary
    it replaces as `<binary>.previous`;
-3. records the new `release` in the manifest, changing only that line;
+3. records the new `release` in the manifest, and whether it was `verified`,
+   changing only those lines;
 4. restarts the service and waits for its healthcheck to pass twice in a row,
    for up to 30 seconds plus `start_grace_seconds` (or `--wait`).
 
@@ -174,6 +175,10 @@ Tags are compared as semantic versions, with or without a leading `v`, so
 
 If the binary has gone missing there is nothing to roll back to, so update asks
 for `--force`, and with it puts the binary back from the release.
+
+A service whose installed release was checked against its checksums isn't
+updated to one that publishes none for its asset: update refuses before
+downloading, and `--allow-unverified` installs it anyway.
 
 Only the binary changes. Args, env and the rest of the manifest are yours by
 now, so if a release's `outpost.toml` asks for something new, compare it with

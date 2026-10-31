@@ -180,6 +180,10 @@ func (a *app) addFromRepo(ref string, opts addOptions) error {
 	}
 	fmt.Fprintf(a.out, "installed %s (%s)\n", dest, verified)
 
+	// Only known now the download is checked; an update reads it to refuse a
+	// later release that can't be.
+	svc.Verified = res.Verified
+	body = renderManifest(svc)
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
