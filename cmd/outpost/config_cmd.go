@@ -145,12 +145,10 @@ func (a *app) readAuthKey() (string, error) {
 // saveAuthKey writes the auth key to config.toml, or removes it when key is
 // "", keeping everything else in the file.
 func (a *app) saveAuthKey(key string) error {
-	cfg := a.config
-	cfg.Tailscale.AuthKey = key
-	if err := config.Save(a.configPath(), cfg); err != nil {
+	if err := a.storeAuthKey(key); err != nil {
 		return err
 	}
-	a.config = cfg
+	cfg := a.config
 	if key == "" {
 		fmt.Fprintf(a.out, "Tailscale auth key: removed from %s\n", a.configPath())
 	} else {
@@ -164,6 +162,18 @@ func (a *app) saveAuthKey(key string) error {
 		fmt.Fprintln(a.out, "  note: TS_AUTHKEY is set in this environment; where it is set for the daemon too, it wins over config.toml")
 	}
 	a.hintRestart()
+	return nil
+}
+
+// storeAuthKey writes the auth key to config.toml, which Save keeps 0600,
+// without saying anything about it.
+func (a *app) storeAuthKey(key string) error {
+	cfg := a.config
+	cfg.Tailscale.AuthKey = key
+	if err := config.Save(a.configPath(), cfg); err != nil {
+		return err
+	}
+	a.config = cfg
 	return nil
 }
 

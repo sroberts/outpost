@@ -194,9 +194,10 @@ func (h *processHandle) reap() {
 }
 
 // buildEnv layers the manifest's env, then the runtime's extra env and
-// OUTPOST_STORAGE_DIR, over the daemon's own environment (§2).
+// OUTPOST_STORAGE_DIR, over the daemon's own environment (§2), less the
+// daemon's credentials. A manifest can still name one itself.
 func buildEnv(svc *manifest.Service, extra []string) []string {
-	env := append([]string{}, os.Environ()...)
+	env := WithoutSecrets(os.Environ())
 	for k, v := range svc.Env {
 		env = append(env, fmt.Sprintf("%s=%s", k, v))
 	}

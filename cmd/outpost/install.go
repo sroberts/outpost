@@ -23,7 +23,8 @@ func (a *app) cmdInstall(args []string) error {
 	enable := fs.Bool("enable", false, "run the commands that start and enable the service")
 	printOnly := fs.Bool("print", false, "write nothing; print the generated file to stdout")
 	label := fs.String("label", autostart.DefaultLabel, "job label / unit name")
-	authKey := fs.String("authkey", "", "TS_AUTHKEY to put in the service environment")
+	authKey := fs.String("authkey", "", "Tailscale auth key to save to config.toml; visible in the process table and\n"+
+		"shell history, so prefer outpost config --authkey, which reads it from the terminal")
 	tsOn := fs.Bool("tailscale", false, "give each service its own Tailscale identity, without asking")
 	tsOff := fs.Bool("no-tailscale", false, "keep services on loopback only, without asking")
 	if err := fs.Parse(args); err != nil {
@@ -33,7 +34,7 @@ func (a *app) cmdInstall(args []string) error {
 		return fmt.Errorf("install: --tailscale and --no-tailscale can't be used together")
 	}
 
-	mgr, cfg, err := a.autostartConfig(*label, *system, *authKey)
+	mgr, cfg, err := a.autostartConfig(*label, *system)
 	if err != nil {
 		return err
 	}
@@ -61,7 +62,7 @@ func (a *app) cmdInstall(args []string) error {
 		}
 	}
 	on := *tsOn
-	key := cfg.Env["TS_AUTHKEY"]
+	key := *authKey
 	// An auth key is only any use with Tailscale on, so giving one answers
 	// the question, unless the home already has a setting.
 	if key != "" && !on && !*tsOff && !explicit {
@@ -71,8 +72,20 @@ func (a *app) cmdInstall(args []string) error {
 	if err := a.chooseTailscale(on, *tsOff, fresh, explicit); err != nil {
 		return err
 	}
-	if key != "" && !a.config.TailscaleEnabled() {
-		fmt.Fprintln(a.out, "  note: with Tailscale off, the auth key won't be used")
+	if key != "" {
+		// config.toml rather than the unit file: the unit is world-readable,
+		// and systemd shows its environment to any local user.
+		if err := a.storeAuthKey(key); err != nil {
+			return err
+		}
+		fmt.Fprintf(a.out, "Tailscale auth key: saved to %s, readable only by you\n", a.configPath())
+		if !a.config.TailscaleEnabled() {
+			fmt.Fprintln(a.out, "  note: with Tailscale off, the auth key won't be used")
+		}
+	} else if os.Getenv("TS_AUTHKEY") != "" {
+		// The installed daemon doesn't inherit this shell's environment, and
+		// copying the key into the unit would publish it.
+		fmt.Fprintln(a.out, "  note: TS_AUTHKEY in this shell isn't passed to the service; save it with `outpost config --authkey`")
 	}
 
 	unitPath, err := mgr.UnitPath(cfg)
@@ -82,7 +95,12 @@ func (a *app) cmdInstall(args []string) error {
 	// Read before it is overwritten: a file that was already there is what
 	// makes it worth asking the init system whether the job is loaded.
 	previous, readErr := os.ReadFile(unitPath)
-	if err := writeUnit(unitPath, body, mgr.FileMode()); err != nil {
+	mode := mgr.FileMode()
+	if len(cfg.Env) > 0 {
+		// An environment is where secrets go, so it isn't for other users.
+		mode = 0o600
+	}
+	if err := writeUnit(unitPath, body, mode); err != nil {
 		return err
 	}
 	fmt.Fprintf(a.out, "wrote %s (%s, %s scope)\n", unitPath, mgr.Name(), cfg.Scope)
@@ -150,7 +168,7 @@ func (a *app) cmdUninstall(args []string) error {
 		return err
 	}
 
-	mgr, cfg, err := a.autostartConfig(*label, *system, "")
+	mgr, cfg, err := a.autostartConfig(*label, *system)
 	if err != nil {
 		return err
 	}
@@ -183,7 +201,7 @@ func (a *app) cmdUninstall(args []string) error {
 }
 
 // autostartConfig resolves the platform manager and the job description.
-func (a *app) autostartConfig(label string, system bool, authKey string) (autostart.Manager, autostart.Config, error) {
+func (a *app) autostartConfig(label string, system bool) (autostart.Manager, autostart.Config, error) {
 	mgr, err := autostart.ForHost()
 	if err != nil {
 		return nil, autostart.Config{}, err
@@ -209,14 +227,6 @@ func (a *app) autostartConfig(label string, system bool, authKey string) (autost
 			return nil, autostart.Config{}, fmt.Errorf("determine the user to run as: %w", err)
 		}
 		cfg.User = u.Username
-	}
-	// An auth key in the unit file keeps it out of the manifests, which are
-	// world-readable to anyone who can read the Outpost root.
-	if authKey == "" {
-		authKey = os.Getenv("TS_AUTHKEY")
-	}
-	if authKey != "" {
-		cfg.Env = map[string]string{"TS_AUTHKEY": authKey}
 	}
 	return mgr, cfg, nil
 }
@@ -266,6 +276,11 @@ func writeUnit(path, body string, mode os.FileMode) error {
 			return fmt.Errorf("write %s: %w (a system-scope install needs sudo)", path, err)
 		}
 		return fmt.Errorf("write %s: %w", path, err)
+	}
+	// WriteFile sets the mode only on a file it creates, and one written by
+	// an older install may be more open than this one should be.
+	if err := os.Chmod(path, mode); err != nil {
+		return fmt.Errorf("chmod %s: %w", path, err)
 	}
 	return nil
 }
