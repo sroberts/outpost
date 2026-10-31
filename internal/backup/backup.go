@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -215,6 +216,14 @@ func untar(tr *tar.Reader, target string) error {
 			return err
 		}
 
+		// An entry the archive already planted as a symlink must not be
+		// written through either: MkdirAll and O_CREATE both follow it.
+		if header.Typeflag == tar.TypeDir || header.Typeflag == tar.TypeReg {
+			if fi, err := os.Lstat(path); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+				return fmt.Errorf("archive entry %q is written through a symlink the archive created", header.Name)
+			}
+		}
+
 		switch header.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(path, os.FileMode(header.Mode).Perm()); err != nil {
@@ -224,7 +233,7 @@ func untar(tr *tar.Reader, target string) error {
 			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 				return fmt.Errorf("create %s: %w", filepath.Dir(path), err)
 			}
-			out, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, os.FileMode(header.Mode).Perm())
+			out, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY|syscall.O_NOFOLLOW, os.FileMode(header.Mode).Perm())
 			if err != nil {
 				return fmt.Errorf("create %s: %w", path, err)
 			}
@@ -258,12 +267,30 @@ func untar(tr *tar.Reader, target string) error {
 // An absolute target must be refused outright: filepath.Join drops the leading
 // separator, so an absolute Linkname would otherwise look contained while
 // os.Symlink still creates a genuinely absolute link.
+//
+// The lexical check alone is not enough either: in "sub/link/.." the ".."
+// is applied on disk after following sub/link, which an earlier (or later)
+// entry may have made a symlink, so Clean's answer is not where it lands. A
+// ".." is therefore only accepted before any named component, where it walks
+// up real directories from the link's own; the descent after that only
+// passes through links that were held to the same rule.
 func checkLinkTarget(name, linkname string) error {
 	if linkname == "" {
 		return fmt.Errorf("archive entry %q is a symlink with no target", name)
 	}
 	if filepath.IsAbs(linkname) || strings.HasPrefix(linkname, "/") {
 		return fmt.Errorf("archive entry %q points at absolute path %q, which escapes the target directory", name, linkname)
+	}
+	named := false
+	for _, part := range strings.Split(filepath.ToSlash(linkname), "/") {
+		switch {
+		case part == "..":
+			if named {
+				return fmt.Errorf("archive entry %q points at %q, which climbs out of a path that may be a symlink", name, linkname)
+			}
+		case part != "" && part != ".":
+			named = true
+		}
 	}
 	// Resolve the link relative to its own directory, as the filesystem would.
 	resolved := filepath.Join(filepath.Dir(filepath.FromSlash(name)), filepath.FromSlash(linkname))
