@@ -54,6 +54,40 @@ func (g *Gateway) setCookie(w http.ResponseWriter, tok string) {
 	})
 }
 
+// stateMaxAge is how long a browser's stamp on an app handshake lasts: two
+// redirects, with room for a slow link.
+const stateMaxAge = 5 * time.Minute
+
+// stateCookieName is the cookie an app's host stamps a browser with in the
+// middle of a handshake, so the session at the end goes to the browser the
+// handshake started in. It takes the session cookie's prefix, and so its
+// protection, under https.
+func (g *Gateway) stateCookieName() string { return g.cookieName + "-state" }
+
+func (g *Gateway) setStateCookie(w http.ResponseWriter, stamp string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     g.stateCookieName(),
+		Value:    stamp,
+		Path:     "/",
+		MaxAge:   int(stateMaxAge.Seconds()),
+		HttpOnly: true,
+		Secure:   g.secure,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func (g *Gateway) clearStateCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     g.stateCookieName(),
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   g.secure,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
 func (g *Gateway) clearCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     g.cookieName,

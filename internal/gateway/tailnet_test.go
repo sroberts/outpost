@@ -51,7 +51,18 @@ func TestTailnetHost_HandshakeLandsOnTheNode(t *testing.T) {
 		t.Fatalf("login sent us to %s; want the node's https callback", loc)
 	}
 
-	// The node terminates TLS, so the gateway itself sees plain http.
+	// The node terminates TLS, so the gateway itself sees plain http. The
+	// callback goes round through the portal once, to tie the sign-in to
+	// this browser, and comes back to the node's https callback to land.
+	loc.Scheme = "http"
+	back, err := h.get(c, loc.String()).Location()
+	if err != nil || back.Host != "outpost.test" || back.Path != "/continue" {
+		t.Fatalf("first callback hop went to %v, %v; want the portal's /continue", back, err)
+	}
+	loc, err = h.get(c, back.String()).Location()
+	if err != nil || loc.Scheme != "https" || loc.Host != yarrNode || loc.Path != "/.outpost/callback" {
+		t.Fatalf("portal sent us to %v, %v; want the node's https callback", loc, err)
+	}
 	loc.Scheme = "http"
 	resp = h.get(c, loc.String())
 	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/feeds" {
