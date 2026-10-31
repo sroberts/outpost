@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/sroberts/outpost/internal/auth"
@@ -27,6 +28,8 @@ func (g *Gateway) servePortal(w http.ResponseWriter, r *http.Request) {
 		} else {
 			g.loginPage(w, r)
 		}
+	case "/continue":
+		g.continueApp(w, r)
 	case "/logout":
 		g.logout(w, r)
 	case "/account":
@@ -187,6 +190,59 @@ func (g *Gateway) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	g.activity.record(EventSignIn, "%s signed in from %s", u.Username, ip)
 	g.setCookie(w, tok)
 	g.continueTo(w, r, tok, u, app, next)
+}
+
+// continueApp is the middle of an app handshake. The app's host has stamped
+// the browser and sent it here with a fresh code, and the session that
+// minted the code has to be the one this browser holds at the portal: the
+// link the browser arrived on would otherwise work for any browser at all.
+func (g *Gateway) continueApp(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	q := r.URL.Query()
+	next := safeNext(q.Get("next"))
+	stamp := q.Get("state")
+	p, ok := g.codes.take(q.Get("code"), g.now())
+	if !ok || p.state == "" || !sameToken(stamp, p.state) {
+		g.message(w, r, http.StatusBadRequest, "Sign-in link expired",
+			"This sign-in link has expired or was already used.", g.portalLink(), "Back to apps")
+		return
+	}
+	again := g.loginURL(p.app, next)
+	tok, s, u, ok := g.session(r)
+	if !ok || s.App != "" || !sameToken(tok, p.parent) {
+		// Not the sign-in this code came from: someone else's link, or a
+		// session that has since ended.
+		g.message(w, r, http.StatusBadRequest, "Sign in again",
+			"This sign-in link was for another browser, or your sign-in has ended.", again, "Sign in")
+		return
+	}
+	g.touch(tok, s)
+	rt, ok := g.routes.get(p.app)
+	if !ok {
+		g.message(w, r, http.StatusNotFound, "Nothing here",
+			"That app is no longer here.", g.portalLink(), "Back to apps")
+		return
+	}
+	if !allowed(u, rt) {
+		g.denied(w, r, rt, u)
+		return
+	}
+	code, err := g.codes.mint(pendingCode{user: u.Username, app: p.app, parent: tok, state: stamp}, g.now())
+	if err != nil {
+		g.logf("gateway: %v", err)
+		g.message(w, r, http.StatusServiceUnavailable, "Try again", err.Error(), again, "Try again")
+		return
+	}
+	v := url.Values{"code": {code}, "state": {stamp}}
+	if next != "/" {
+		v.Set("next", next)
+	}
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	http.Redirect(w, r, g.appOrigin(p.app)+"/.outpost/callback?"+v.Encode(), http.StatusSeeOther)
 }
 
 // logout ends the portal session and every app session it handed out.

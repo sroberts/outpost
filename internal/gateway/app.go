@@ -73,6 +73,7 @@ func (g *Gateway) isPublic(r *http.Request, rt route) bool {
 // too, so the app can't mistake it for a signed-in one.
 func (g *Gateway) proxyPublic(w http.ResponseWriter, r *http.Request, rt route) {
 	removeCookie(r.Header, g.cookieName)
+	removeCookie(r.Header, g.stateCookieName())
 	ctx := context.WithValue(r.Context(), targetKey{}, target{
 		name:   rt.Name,
 		port:   rt.Port,
@@ -82,8 +83,14 @@ func (g *Gateway) proxyPublic(w http.ResponseWriter, r *http.Request, rt route) 
 	g.proxy.ServeHTTP(w, r.WithContext(ctx))
 }
 
-// callback trades a one-time code from the portal for a session on this
-// app's host, then goes on to where the user was headed.
+// callback is both ends of the handshake that turns a sign-in at the portal
+// into a session on this app's host. The code the portal minted says who
+// signed in, not whose browser this is: the link it's in would work wherever
+// it was opened, and a link made by one person and opened by another would
+// sign the second in as the first. So the first visit stamps the browser
+// with a cookie and sends it back to the portal, which checks that the
+// session that minted the code is the one this browser holds, and the second
+// visit, with a code minted for that stamp, is the one that gets a session.
 func (g *Gateway) callback(w http.ResponseWriter, r *http.Request, rt route) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
@@ -111,6 +118,19 @@ func (g *Gateway) callback(w http.ResponseWriter, r *http.Request, rt route) {
 			"This sign-in link has expired or was already used.", again, onward)
 		return
 	}
+	if p.state == "" {
+		g.stampAndReturn(w, r, p, next)
+		return
+	}
+	// The last hop: the stamp in the link, the one the browser holds and the
+	// one the code was minted for have to be one and the same.
+	stamp, err := r.Cookie(g.stateCookieName())
+	if err != nil || !sameToken(q.Get("state"), p.state) || !sameToken(stamp.Value, p.state) {
+		g.codeThrottle.fail(g.now(), key)
+		g.message(w, r, http.StatusBadRequest, "Sign-in link expired",
+			"This sign-in link was for another browser, or has expired.", again, onward)
+		return
+	}
 	// The allow list may have changed in the minute since the code was
 	// minted.
 	if u, err := g.auth.GetUser(p.user); err == nil && !allowed(u, rt) {
@@ -130,8 +150,34 @@ func (g *Gateway) callback(w http.ResponseWriter, r *http.Request, rt route) {
 		_ = g.auth.RevokeSession(old.Value) // replaced either way; a stale row is pruned later
 	}
 	g.setCookie(w, tok)
+	g.clearStateCookie(w)
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	http.Redirect(w, r, next, http.StatusSeeOther)
+}
+
+// stampAndReturn is the first hop of a handshake: the browser gets a stamp
+// of its own, and goes back to the portal with it and a fresh code to show
+// that it holds the session the sign-in came from.
+func (g *Gateway) stampAndReturn(w http.ResponseWriter, r *http.Request, p pendingCode, next string) {
+	stamp, err := auth.NewToken()
+	if err != nil {
+		g.logf("gateway: %s: callback: %v", p.app, err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	code, err := g.codes.mint(pendingCode{user: p.user, app: p.app, parent: p.parent, state: stamp}, g.now())
+	if err != nil {
+		g.logf("gateway: %v", err)
+		g.message(w, r, http.StatusServiceUnavailable, "Try again", err.Error(), g.loginURL(p.app, next), "Try again")
+		return
+	}
+	g.setStateCookie(w, stamp)
+	v := url.Values{"code": {code}, "state": {stamp}}
+	if next != "/" {
+		v.Set("next", next)
+	}
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	http.Redirect(w, r, g.portalOrigin+"/continue?"+v.Encode(), http.StatusSeeOther)
 }
 
 // appLogout, from any app host, ends the whole login: the portal session and
@@ -193,8 +239,9 @@ func (g *Gateway) proxyAs(w http.ResponseWriter, r *http.Request, rt route, u au
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	// The app never sees Outpost's own credential.
+	// The app never sees Outpost's own credential, nor a handshake's stamp.
 	removeCookie(r.Header, g.cookieName)
+	removeCookie(r.Header, g.stateCookieName())
 
 	ctx := context.WithValue(r.Context(), targetKey{}, target{
 		name:   rt.Name,
