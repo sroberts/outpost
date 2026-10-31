@@ -228,7 +228,8 @@ nothing.
 ### From the portal
 
 With the [login gateway](#the-login-gateway) on, an admin can do the same from
-a phone. The catalog links to `/updates`, and says when an update is waiting.
+a phone. When an update is waiting, the catalog says so and links to
+`/updates`; with nothing to install there's no link, but the page is still there.
 The page shows each app installed from a release, what it runs and what's
 available, with a button to update.
 
