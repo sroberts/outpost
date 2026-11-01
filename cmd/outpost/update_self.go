@@ -15,6 +15,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/sroberts/outpost/internal/ipc"
+
 	"github.com/sroberts/outpost/internal/acquire"
 	"github.com/sroberts/outpost/internal/auth"
 	"github.com/sroberts/outpost/internal/autostart"
@@ -197,6 +199,10 @@ type selfOpts struct {
 	// the update and for a rollback alike. nil is the job's own restart
 	// commands, as the CLI runs them.
 	restart func(job daemonJob) error
+	// selfStarts says restart only stops the daemon and leaves starting the
+	// next one to the init system, which does so by itself after a crash
+	// too. A rollback after a crash loop then has nothing to stop.
+	selfStarts bool
 	// progress is told each phase as it starts, with the release being
 	// installed once that is known. nil tells no one.
 	progress func(phase, tag string)
@@ -418,8 +424,12 @@ func (a *app) updateSelfWith(o selfOpts) error {
 	fmt.Fprintln(a.out, "Every service stops with it, each with SIGTERM and SIGKILL after 10s. The new daemon starts them")
 	fmt.Fprintln(a.out, "again, apart from any stopped by hand or halted after a crash loop, which stay that way.")
 
+	// quiet is a restart after which nothing answered at all, the old daemon
+	// included: a crash loop, in which the init system restarts the job on
+	// its own.
+	quiet := false
 	back := func(cause error) error {
-		return a.rollbackSelf(o, job, binary, previous, installed, rel.Tag, snapshot, cause)
+		return a.rollbackSelf(o, job, binary, previous, installed, rel.Tag, snapshot, quiet, cause)
 	}
 	// Nothing comes between the swap and the restart: until the restart, the
 	// old daemon is running from a binary that is no longer on disk, and any
@@ -438,6 +448,7 @@ func (a *app) updateSelfWith(o selfOpts) error {
 	if err != nil {
 		var none *noNewDaemonError
 		if errors.As(err, &none) {
+			quiet = true
 			// Said without "probably down", which the rollback may undo.
 			err = fmt.Errorf("the old daemon has gone, but no new one answered within %s. Its log: %s", none.wait, none.logs)
 		}
@@ -570,7 +581,7 @@ func (a *app) pruneAuthSnapshots(keep int) {
 // the daemon on it, and returns why the update failed. auth.db is left as the
 // new daemon left it: one that migrated it may have done so correctly, and
 // only the operator can tell, so the snapshot is named for them to decide.
-func (a *app) rollbackSelf(o selfOpts, job daemonJob, binary, previous, installed, tag, snapshot string, cause error) error {
+func (a *app) rollbackSelf(o selfOpts, job daemonJob, binary, previous, installed, tag, snapshot string, quiet bool, cause error) error {
 	o.progress(selfRollingBack, tag)
 	wait := o.wait
 	snap := ""
@@ -583,6 +594,22 @@ func (a *app) rollbackSelf(o selfOpts, job daemonJob, binary, previous, installe
 			"and the previous binary is at %s.%s", cause, err, tag, binary, previous, snap)
 	}
 	fmt.Fprintf(a.out, "Rolling back to %s.\n", installed)
+	// After a restart in which nothing answered, the init system is already
+	// starting the job again, and starts it on whatever binary is in place:
+	// now the previous one. Restarting would only stop that daemon if it
+	// came up first, so wait for whichever daemon answers. One running but
+	// not answering goes the usual way, which says so.
+	if _, pid := a.supervisorPID(); quiet && o.selfStarts && !pid {
+		if _, err := a.client().Identity(); err != nil {
+			fmt.Fprintf(a.out, "  No daemon is answering after the update; %s starts one on the binary now in place.\n", job.mgr.Name())
+		}
+		back, err := a.awaitNewDaemon(ipc.DaemonIdentity{}, wait, logs)
+		if err != nil {
+			return fmt.Errorf("%w\nRolled back to the previous binary, but no daemon answered within %s, "+
+				"so the services are probably down. Log: %s%s", cause, wait, logs, snap)
+		}
+		return fmt.Errorf("%w\nRolled back: the daemon is running %s again.%s", cause, orDash(back.Version), snap)
+	}
 	old := a.currentDaemon()
 	if err := o.restart(job); err != nil {
 		return fmt.Errorf("%w\nRolled back to the previous binary, but restarting the daemon on it failed: %v. "+

@@ -225,10 +225,11 @@ func (a *app) cmdSelfUpdate(args []string) error {
 	run := *a
 	run.out, run.err = rec, rec
 	err = run.updateSelfWith(selfOpts{
-		label:    *label,
-		wait:     selfWebWait,
-		restart:  run.signalRestart,
-		progress: rec.phase,
+		label:      *label,
+		wait:       selfWebWait,
+		restart:    run.signalRestart,
+		selfStarts: true,
+		progress:   rec.phase,
 	})
 	rec.finish(err)
 	return err
