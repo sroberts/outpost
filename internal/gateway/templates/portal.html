@@ -5,15 +5,15 @@
 <div class="hub">
 <span class="lamp" aria-hidden="true"></span>
 <h1>{{.Portal}}</h1>
-<p class="tally">{{.Up}} running{{if .Down}} · {{.Down}} not running{{end}}</p>
-{{if .Waiting}}<p class="tally"><a href="/updates">{{.Waiting}} {{if eq .Waiting 1}}update{{else}}updates{{end}} available</a></p>{{end}}
+{{with .Counts}}<p class="tally">{{.Up}} running{{if .Starting}} · {{.Starting}} starting{{end}}{{if .Down}} · {{.Down}} down{{end}}{{if .Stopped}} · {{.Stopped}} stopped{{end}}</p>{{end}}
+{{if .Waiting}}<p class="tally"><a href="/updates">{{.Waiting}} {{if eq .Waiting 1}}update{{else}}updates{{end}} available</a></p>{{else if .UpdatesLink}}<p class="tally"><a href="/updates">Updates</a></p>{{end}}
 </div>
 {{if .Search}}<label class="filter" hidden>Filter apps
 <input id="filter" type="search" autocomplete="off" spellcheck="false" hidden>
 </label>{{end}}
-{{if .Stations}}{{$net := false}}
+{{if .Stations}}
 <ol class="line" id="line">
-{{range .Stations}}{{with .Usage}}{{if .Net}}{{$net = true}}{{end}}{{end}}<li class="stop {{.State}}{{if .Busy}} busy{{end}}{{if .Acts}} managed{{end}}" id="app-{{.Name}}" data-find="{{lower .Title}} {{lower .Name}} {{lower .Description}}">
+{{range .Stations}}<li class="stop {{.State}}{{if .Busy}} busy{{end}}{{if .Acts}} managed{{end}}" id="app-{{.Name}}" data-find="{{lower .Title}} {{lower .Name}} {{lower .Description}}">
 <div class="row">
 <span class="mark" aria-hidden="true"></span>
 <div class="body">
@@ -31,7 +31,6 @@
 </li>
 {{end}}</ol>
 <p id="nomatch" class="empty" role="status" hidden>No apps match that.</p>
-{{if $net}}<p class="hint net-note">Network counts only traffic through Outpost.</p>{{end}}
 {{else}}
 <p class="empty">{{if .Admin}}No apps yet. Add one with <code>outpost add</code>.{{else}}You don't have access to any apps yet.{{end}}</p>
 {{end}}
@@ -62,12 +61,13 @@
 </form>
 {{end}}{{end}}</div>
 </details>{{end}}{{end}}
-{{define "usage"}}{{if .Tiles}}<details class="stats"><summary class="usage">{{template "figures" .}}<span class="when">{{if .Line}}<span class="sr">, </span>{{end}}{{.When}}</span><span class="sr"> for {{.Title}}</span></summary>
+{{define "usage"}}{{if .Tiles}}<details class="stats"><summary class="usage">{{template "figures" .}}{{if not .Line}}Usage{{end}}<span class="sr"> for {{.Title}}</span></summary>
 <div class="stats-panel">
+<p class="when">{{.When}}</p>
 <dl class="tiles">
 {{range .Tiles}}<div class="tile"><dt>{{.Name}}</dt>
 <dd><svg viewBox="0 0 96 36" preserveAspectRatio="none" aria-hidden="true" focusable="false">{{if .Gap}}<path class="unmeasured" d="{{.Gap}}" vector-effect="non-scaling-stroke"/>{{end}}<path class="base" d="{{.Base}}" vector-effect="non-scaling-stroke"/>{{range .Paths}}<path class="{{.Class}}" d="{{.D}}" vector-effect="non-scaling-stroke"/>{{end}}{{range .Dots}}<path class="{{.Class}}" d="{{.D}}" vector-effect="non-scaling-stroke"/>{{end}}</svg>
-{{range .Keys}}<span class="tile-val {{.Class}}">{{.Text}}</span>{{end}}{{range .Values}}<span class="tile-val">{{.}}</span>{{end}}</dd></div>
+{{range .Keys}}<span class="tile-val {{.Class}}">{{.Text}}</span>{{end}}{{range .Values}}<span class="tile-val">{{.}}</span>{{end}}{{with .Note}}<span class="tile-note">{{.}}</span>{{end}}</dd></div>
 {{end}}</dl>
 </div>
 </details>

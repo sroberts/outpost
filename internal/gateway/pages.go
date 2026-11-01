@@ -86,7 +86,7 @@ type pageData struct {
 	SignInNotice string
 	Admin        bool
 	Stations     []station
-	Up, Down     int
+	Counts       counts
 	Search       bool
 
 	Waiting     int  // apps known to have a newer release; only counted for an admin

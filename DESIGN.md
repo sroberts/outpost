@@ -289,7 +289,7 @@ Plain and certain; one filled button per form.
 The rail: a full-width bar with a 1px rule beneath. Left, the host in 13px dim monospace (porcelain on hover), padded to a tall tap area and truncated with an ellipsis. Right, the account pill and the quiet sign-out pill. A skip link ("Skip to apps") sits above the rail off-screen and drops in as an amber tab on focus.
 
 ### The Hub (signature)
-The lamp (a 44px glowing amber disc) beside the portal name in headline type, with the tally beneath in 12px beam monospace ("3 running · 2 not running"). The lamp sits in the same 44px column as the line, which starts just below it. On door pages without the line the hub may drop the lamp (sign-in, which carries the plate instead).
+The lamp (a 44px glowing amber disc) beside the portal name in headline type, with the tally beneath in 12px beam monospace ("3 running · 1 down · 1 stopped"). The lamp sits in the same 44px column as the line, which starts just below it. On door pages without the line the hub may drop the lamp (sign-in, which carries the plate instead).
 
 ### The Line and its Stations (signature)
 An ordered list; each station draws the stretch of line above it, so the line ends exactly at the last running station.

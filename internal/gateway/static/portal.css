@@ -373,7 +373,8 @@ button.plain:hover { background: none; border-color: var(--beam); }
   border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
   transform: rotate(45deg); transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
-.when { font-size: 13px; }
+.when { margin: 0 0 0.6rem; font-size: 13px; color: var(--dim); }
+.tile-note { display: block; margin-top: 0.15rem; font-size: 12px; color: var(--dim); }
 .stats > summary:hover, .stats[open] > summary { color: var(--porcelain); }
 .stats[open] > summary::after { transform: translateY(3px) rotate(-135deg); }
 .stats-panel {
@@ -410,7 +411,6 @@ button.plain:hover { background: none; border-color: var(--beam); }
   vertical-align: middle; border-radius: 1px; background: var(--beam);
 }
 .key.out::before { background: var(--porcelain); }
-.net-note { margin: 1rem 0 0 58px; }
 @media (min-width: 42rem) {
   .tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }

@@ -2,11 +2,13 @@ package gateway
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/sroberts/outpost/internal/auth"
+	"github.com/sroberts/outpost/internal/supervisor"
 )
 
 // Stopped on purpose isn't an alarm: it has its own state, nothing to go and
@@ -29,8 +31,8 @@ func TestStoppedOnPurposeIsNotDown(t *testing.T) {
 	if strings.Count(row, `name="action" value="start"`) != 1 {
 		t.Errorf("Start should be offered once:\n%s", row)
 	}
-	if !strings.Contains(b, "not running") {
-		t.Error("the tally should still count it as not running")
+	if !strings.Contains(b, "· 1 stopped") {
+		t.Errorf("the tally should count it apart from anything down:\n%s", b)
 	}
 
 	// One that's crashed is still down, and still says how to look closer.
@@ -131,5 +133,29 @@ func TestEverySignedInPageCanLoadItsMenus(t *testing.T) {
 	}
 	if resp := h.get(c, portal+menusURL); resp.StatusCode != http.StatusOK {
 		t.Errorf("GET %s = %d", menusURL, resp.StatusCode)
+	}
+}
+
+// withNothingComingBack drops the harness's starting app, which would otherwise
+// keep the catalog refreshing.
+func withNothingComingBack(h *harness) {
+	h.withServices(slices.DeleteFunc(slices.Clone(actionServices), func(s supervisor.ServiceStatus) bool {
+		return s.Status == "starting"
+	})...)
+}
+
+// A crash is nobody's action, so nothing else would refresh the row while the
+// app comes back, and that holds for anyone who can see it.
+func TestCatalogPollsWhileAnAppIsComingBack(t *testing.T) {
+	h, _ := actionHarness(t)
+	h.withServices(supervisor.ServiceStatus{Name: "yarr", Status: "failed", Desired: "running", NextAttempt: time.Now().Add(time.Minute)})
+	for _, who := range []string{"root", "alice"} {
+		if b := body(t, h.login(h.client(true), who, "", "/")); !strings.Contains(b, pollPath) {
+			t.Errorf("%s: a restarting app doesn't refresh the catalog:\n%s", who, b)
+		}
+	}
+	h.withServices(supervisor.ServiceStatus{Name: "yarr", Status: "running", Desired: "running"})
+	if b := body(t, h.login(h.client(true), "root", "", "/")); strings.Contains(b, pollPath) {
+		t.Errorf("an idle catalog is polling:\n%s", b)
 	}
 }

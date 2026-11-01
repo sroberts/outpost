@@ -192,16 +192,26 @@ func crashes(n int) string {
 	return fmt.Sprintf("%d crashes", n)
 }
 
-// tally counts the stations by state, for the line under the portal's name.
-func tally(sts []station) (up, down int) {
+// counts is the stations by state, for the line under the portal's name.
+type counts struct {
+	Up, Starting, Down, Stopped int
+}
+
+func tally(sts []station) counts {
+	var c counts
 	for _, s := range sts {
-		if s.State == stateUp {
-			up++
-		} else {
-			down++
+		switch s.State {
+		case stateUp:
+			c.Up++
+		case stateStarting:
+			c.Starting++
+		case stateStopped:
+			c.Stopped++
+		default:
+			c.Down++
 		}
 	}
-	return up, down
+	return c
 }
 
 // denied is the page for someone signed in who may not open an app: a plain

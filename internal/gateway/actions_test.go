@@ -284,6 +284,7 @@ func TestActionRefusals(t *testing.T) {
 
 func TestBusyAppShowsProgressThenTheOutcome(t *testing.T) {
 	h, f := actionHarness(t)
+	withNothingComingBack(h)
 	// Set once, before any request, so moving it later races nothing.
 	var ahead atomic.Int64
 	h.g.now = func() time.Time { return time.Now().Add(time.Duration(ahead.Load())) }
@@ -405,8 +406,8 @@ func TestUpdateIsOfferedOnlyWhenOneIsWaiting(t *testing.T) {
 	f.mu.Unlock()
 	h.post(c, portal+"/updates", portal, url.Values{"action": {"check"}})
 	h.settled()
-	if b := body(t, h.get(c, portal+"/")); strings.Contains(b, "/updates") {
-		t.Errorf("the catalog mentions updates with none waiting:\n%s", b)
+	if b := body(t, h.get(c, portal+"/")); strings.Contains(b, "available</a>") || strings.Contains(b, `value="update"`) {
+		t.Errorf("the catalog offers an update with none waiting:\n%s", b)
 	}
 }
 
@@ -487,6 +488,7 @@ func TestOneMenuAndOneConfirmOpenAtATime(t *testing.T) {
 
 func TestCatalogPollsByScriptOnlyWhileBusy(t *testing.T) {
 	h, f := actionHarness(t)
+	withNothingComingBack(h)
 	c := h.client(true)
 	b := body(t, h.login(c, "root", "", "/"))
 	if strings.Contains(b, pollPath) || strings.Contains(b, `http-equiv="refresh"`) {

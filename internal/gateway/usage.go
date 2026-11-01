@@ -38,7 +38,6 @@ type usageView struct {
 	Line  []usagePart // the figures, which are also the disclosure's label
 	Tiles []usageTile // the day's graphs
 	When  string      // what the graphs span: the whole day, or since when
-	Net   bool        // a network graph is drawn, which needs its footnote
 }
 
 // usagePart is one figure in the summary line. Pending is a CPU reading not
@@ -60,6 +59,7 @@ type usageTile struct {
 	Dots   []sparkLine // a dot on each line's latest point, so one sample shows
 	Values []string
 	Keys   []sparkLine
+	Note   string // what the figures don't count
 }
 
 // sparkLine is one path in a graph, and for network, its key.
@@ -137,12 +137,12 @@ func (g *Gateway) usageOf(name, title string) *usageView {
 		top := max(inPeak, outPeak, networkFloor)
 		v.Tiles = append(v.Tiles, graph(start, usageTile{
 			Name: "Network",
+			Note: "Only traffic through Outpost",
 			Keys: []sparkLine{
 				{Class: "key in", Text: humanBytes(u.In24) + " in"},
 				{Class: "key out", Text: humanBytes(u.Out24) + " out"},
 			},
 		}, line("in", u.InSeries, top), line("out", u.OutSeries, top)))
-		v.Net = true
 	}
 	if _, ok := highest(u.StorageSeries); ok && !u.StorageAt.IsZero() {
 		v.Tiles = append(v.Tiles, graph(start, usageTile{Name: "Storage", Values: []string{"now " + storageText(u)}},
