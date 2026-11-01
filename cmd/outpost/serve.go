@@ -17,6 +17,7 @@ import (
 	"github.com/sroberts/outpost/internal/manifest"
 	"github.com/sroberts/outpost/internal/runtime"
 	"github.com/sroberts/outpost/internal/state"
+	"github.com/sroberts/outpost/internal/stats"
 	"github.com/sroberts/outpost/internal/supervisor"
 	outposttsnet "github.com/sroberts/outpost/internal/tsnet"
 	"github.com/sroberts/outpost/internal/version"
@@ -175,7 +176,17 @@ func (a *app) cmdServe(args []string) error {
 	srv.UseConfig(a.config.Fingerprint())
 
 	var gw *gateway.Gateway
+	// Only the gateway's catalog shows usage, so without it there is nothing
+	// to sample for and no ps or storage walks to pay for.
+	var sampler *stats.Sampler
 	if a.config.Gateway.Enabled {
+		// Reads the service list like any other client; traffic comes from
+		// the gateway, which exists by the time Run starts the sampler.
+		sampler = stats.New(stats.Options{
+			Services: sup,
+			Traffic:  func() map[string]stats.Bytes { return gw.Traffic() },
+			Logf:     func(format string, v ...any) { fmt.Fprintf(a.out, format+"\n", v...) },
+		})
 		watch.at("starting the gateway")
 		gw, err = gateway.New(gateway.Options{
 			Config:   a.config.Gateway,
@@ -187,6 +198,7 @@ func (a *app) cmdServe(args []string) error {
 			TailnetHosts: tailnetHosts,
 			Updates:      supervisedUpdates{daemonUpdates{a}, sup},
 			Control:      sup,
+			Stats:        sampler,
 		})
 		if err != nil {
 			return err
@@ -247,10 +259,22 @@ func (a *app) cmdServe(args []string) error {
 		defer close(checksDone)
 		sup.RunReleaseChecks(ctx)
 	}()
+	// Also off the loop; it lists services, so it too must stop before the
+	// stores close.
+	statsDone := make(chan struct{})
+	if sampler != nil {
+		go func() {
+			defer close(statsDone)
+			sampler.Run(ctx)
+		}()
+	} else {
+		close(statsDone)
+	}
 
 	// Run reloads manifests each tick and stops every service on the way out.
 	runErr := sup.Run(ctx)
 	<-checksDone
+	<-statsDone
 	srv.Close()
 	if err := <-serveErr; err != nil {
 		fmt.Fprintf(a.err, "outpost: socket server: %v\n", err)

@@ -94,6 +94,7 @@ type station struct {
 	Reason      string // why it isn't up, in words
 	Command     string // what an admin runs to look closer
 	Hidden      bool
+	Usage       *usageView // nil when there's nothing measured to show
 
 	// For an admin, when the portal can control apps.
 	Acts   []appAction // the Manage menu
@@ -126,6 +127,7 @@ func (g *Gateway) stations(u auth.User) []station {
 		if st.State != stateUp && u.Admin {
 			st.Command = "outpost status " + rt.Name
 		}
+		st.Usage = g.usageOf(rt.Name, st.Title)
 		out = append(out, st)
 	}
 	rank := map[string]int{stateUp: 0, stateStarting: 1, stateDown: 2}

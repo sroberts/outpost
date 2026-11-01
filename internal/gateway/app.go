@@ -328,7 +328,7 @@ func (g *Gateway) newProxy() *httputil.ReverseProxy {
 		// Flush as data arrives, so server-sent events stream.
 		FlushInterval: -1,
 		Transport: &http.Transport{
-			DialContext:         (&net.Dialer{Timeout: 5 * time.Second}).DialContext,
+			DialContext:         g.traffic.dial((&net.Dialer{Timeout: 5 * time.Second}).DialContext),
 			IdleConnTimeout:     90 * time.Second,
 			MaxIdleConnsPerHost: 8,
 		},

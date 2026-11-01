@@ -12,6 +12,8 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/sroberts/outpost/internal/size"
+
 	"github.com/sroberts/outpost/internal/autostart"
 )
 
@@ -294,16 +296,10 @@ func parseTimeOfDay(s string) (hour, minute int, err error) {
 	return hour, minute, nil
 }
 
-// humanSize renders a byte count compactly.
+// humanSize renders a byte count in the units the portal uses.
 func humanSize(n int64) string {
-	const unit = 1024
-	if n < unit {
-		return fmt.Sprintf("%d B", n)
+	if n < 0 {
+		n = 0
 	}
-	div, exp := int64(unit), 0
-	for size := n / unit; size >= unit; size /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
+	return size.Bytes(uint64(n))
 }

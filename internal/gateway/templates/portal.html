@@ -11,9 +11,9 @@
 {{if .Search}}<label class="filter" hidden>Filter apps
 <input id="filter" type="search" autocomplete="off" spellcheck="false" hidden>
 </label>{{end}}
-{{if .Stations}}
+{{if .Stations}}{{$net := false}}
 <ol class="line" id="line">
-{{range .Stations}}<li class="stop {{.State}}{{if .Busy}} busy{{end}}{{if .Acts}} managed{{end}}" id="app-{{.Name}}" data-find="{{lower .Title}} {{lower .Name}} {{lower .Description}}">
+{{range .Stations}}{{with .Usage}}{{if .Net}}{{$net = true}}{{end}}{{end}}<li class="stop {{.State}}{{if .Busy}} busy{{end}}{{if .Acts}} managed{{end}}" id="app-{{.Name}}" data-find="{{lower .Title}} {{lower .Name}} {{lower .Description}}">
 <div class="row">
 <span class="mark" aria-hidden="true"></span>
 <div class="body">
@@ -25,11 +25,12 @@
 <a class="addr" href="{{.URL}}">{{.Addr}}<span class="sr"> (open anyway)</span></a>
 {{end}}{{if .Busy}}<p class="act-note" id="note-{{.Name}}" tabindex="-1" role="status">{{.Busy}}</p>
 {{else if .Done}}<p class="act-note{{if .Failed}} failed{{end}}" id="note-{{.Name}}" tabindex="-1" {{if .Alert}}role="alert"{{else if not .Failed}}role="status"{{end}}>{{.Done}}</p>
-{{end}}{{template "acts" .}}</div>
+{{end}}{{template "acts" .}}{{with .Usage}}{{template "usage" .}}{{end}}</div>
 </div>
 </li>
 {{end}}</ol>
 <p id="nomatch" class="empty" hidden>No apps match that.</p>
+{{if $net}}<p class="hint net-note">Network counts only traffic through Outpost.</p>{{end}}
 {{else}}
 <p class="empty">{{if .Admin}}No apps yet. Add one with <code>outpost add</code>.{{else}}You don't have access to any apps yet.{{end}}</p>
 {{end}}
@@ -55,3 +56,15 @@
 </form>
 {{end}}{{end}}</div>
 </details>{{end}}{{end}}
+{{define "usage"}}{{if .Tiles}}<details class="stats"><summary class="usage">{{template "figures" .}}<span class="when">{{if .Line}}<span class="sr">, </span>{{end}}{{.When}}</span><span class="sr"> for {{.Title}}</span></summary>
+<div class="stats-panel">
+<dl class="tiles">
+{{range .Tiles}}<div class="tile"><dt>{{.Name}}</dt>
+<dd><svg viewBox="0 0 96 36" preserveAspectRatio="none" aria-hidden="true" focusable="false">{{if .Gap}}<path class="unmeasured" d="{{.Gap}}" vector-effect="non-scaling-stroke"/>{{end}}<path class="base" d="{{.Base}}" vector-effect="non-scaling-stroke"/>{{range .Paths}}<path class="{{.Class}}" d="{{.D}}" vector-effect="non-scaling-stroke"/>{{end}}{{range .Dots}}<path class="{{.Class}}" d="{{.D}}" vector-effect="non-scaling-stroke"/>{{end}}</svg>
+{{range .Keys}}<span class="tile-val {{.Class}}">{{.Text}}</span>{{end}}{{range .Values}}<span class="tile-val">{{.}}</span>{{end}}</dd></div>
+{{end}}</dl>
+</div>
+</details>
+{{else if .Line}}<p class="usage">{{template "figures" .}}</p>
+{{end}}{{end}}
+{{define "figures"}}{{if .Line}}<span class="figs">{{range $i, $p := .Line}}{{if $i}} · {{end}}{{if $p.Pending}}<span aria-hidden="true">– CPU</span><span class="sr">CPU not measured yet</span>{{else}}{{$p.Text}}{{end}}{{end}}</span>{{end}}{{end}}
