@@ -855,7 +855,9 @@ release's `SHA256SUMS`, and replaces the binary the daemon's launchd job or
 systemd unit runs. Before anything stops, it runs the download to make sure it
 is the release asked for and runs on this machine, and copies `auth.db` to
 `~/.outpost/backups/auth-<old release>-<time>.db`, since a new daemon may
-migrate it and nothing else can rebuild your users. Then it restarts the daemon
+migrate it and nothing else can rebuild your users. Only the two newest of
+those copies are kept, since each holds password hashes and keys as they were,
+including ones you have since changed. Then it restarts the daemon
 through the job, so **every service restarts with it**, just as with
 `outpost daemon restart`.
 
@@ -876,8 +878,18 @@ first. It refuses, changing nothing, when:
   user, or its directory isn't writable. Update it the way it was installed.
 - the release publishes no checksum for it. `--allow-unverified` installs it
   anyway.
-- a service update is running, or a manifest doesn't validate. `--force` goes
-  ahead.
+- a service update is running, since the restart would end it with no rollback.
+  Wait for it to finish.
+- a manifest doesn't validate, since the new daemon wouldn't start and every
+  service would stay down. Fix it first.
+- another `update --self` is running, for this home or for another home whose
+  daemon runs the same binary.
+
+`--force` reinstalls the release that is already installed, or installs over a
+development build; it doesn't override any of the above.
+
+While it runs, `outpost daemon restart` refuses unless given `--force`, naming
+the update of Outpost itself.
 
 Going back works as it does for a service: an older release is only installed
 when you name it with `--to`, and then with a warning.

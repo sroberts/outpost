@@ -328,9 +328,10 @@ func processAlive(pid int) bool {
 	return !errors.Is(syscall.Kill(pid, 0), syscall.ESRCH)
 }
 
-// holdUpdateLocks probes the lock lockUpdate takes beside each binary, and keeps
-// every one that was free until release is called. It returns the binaries
-// with an update running. The files are found on disk rather than through the
+// holdUpdateLocks probes the lock lockUpdate takes beside each binary, and the
+// one `update --self` takes for the home, and keeps every one that was free
+// until release is called. It returns what has an update running: a binary's
+// name, or selfUpdateName. The files are found on disk rather than through the
 // manifests, because a manifest that doesn't parse shouldn't hide an update, and
 // update refuses any binary outside the home's bin directory.
 func holdUpdateLocks(home string) (updating []string, release func(), err error) {
@@ -340,6 +341,26 @@ func holdUpdateLocks(home string) (updating []string, release func(), err error)
 			_ = f.Close() // closing releases the lock, and there's nothing to do if it fails
 		}
 		held = nil
+	}
+	probe := func(path, name string) error {
+		f, err := os.OpenFile(path, os.O_RDWR, 0)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		switch err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); {
+		case err == nil:
+			held = append(held, f)
+		case errors.Is(err, syscall.EWOULDBLOCK):
+			_ = f.Close() // only the lock's state mattered
+			updating = append(updating, name)
+		default:
+			_ = f.Close() // the flock error is the one that matters
+			return fmt.Errorf("check for a running update: %w", err)
+		}
+		return nil
 	}
 	walkErr := filepath.WalkDir(filepath.Join(home, "bin"), func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -352,22 +373,11 @@ func holdUpdateLocks(home string) (updating []string, release func(), err error)
 		if d.IsDir() || !strings.HasPrefix(name, ".") || !strings.HasSuffix(name, ".update-lock") {
 			return nil
 		}
-		f, err := os.OpenFile(path, os.O_RDWR, 0)
-		if err != nil {
-			return err
-		}
-		switch err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); {
-		case err == nil:
-			held = append(held, f)
-		case errors.Is(err, syscall.EWOULDBLOCK):
-			_ = f.Close() // only the lock's state mattered
-			updating = append(updating, strings.TrimSuffix(strings.TrimPrefix(name, "."), ".update-lock"))
-		default:
-			_ = f.Close() // the flock error is the one that matters
-			return fmt.Errorf("check for a running update: %w", err)
-		}
-		return nil
+		return probe(path, strings.TrimSuffix(strings.TrimPrefix(name, "."), ".update-lock"))
 	})
+	if walkErr == nil {
+		walkErr = probe(selfUpdateLock(home), selfUpdateName)
+	}
 	if walkErr != nil {
 		release()
 		return nil, func() {}, walkErr

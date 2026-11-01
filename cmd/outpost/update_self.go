@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -229,23 +230,7 @@ func (a *app) updateSelf(check, force, allowUnverified bool, to, label string, w
 	same := clean && sameRelease(installed, rel.Tag)
 	newer := ordered && order > 0 && to == ""
 	if check {
-		switch {
-		case !clean:
-			fmt.Fprintf(a.out, "This outpost is a development build (%s); the latest release is %s.\n", build, rel.Tag)
-			return nil
-		case same:
-			fmt.Fprintf(a.out, "Outpost is up to date (%s)\n", rel.Tag)
-			return nil
-		case newer:
-			fmt.Fprintf(a.out, "Outpost is at %s, newer than its latest release, %s\n", installed, rel.Tag)
-			return nil
-		}
-		fmt.Fprintf(a.out, "Outpost: %s installed, %s available\n", installed, rel.Tag)
-		hint := "--self"
-		if to != "" {
-			hint += " --to " + to // the latest may be a different release
-		}
-		fmt.Fprintf(a.out, "Install it with `outpost update %s`.\n", hint)
+		a.checkSelf(build, installed, clean, rel.Tag, to)
 		return nil
 	}
 	if same && !force {
@@ -290,48 +275,20 @@ func (a *app) updateSelf(check, force, allowUnverified bool, to, label string, w
 		}
 	}
 
-	// This lock is taken before holdUpdateLocks, which would otherwise find
-	// it and count it as an update running: a second open of the same file
-	// conflicts with the first even within one process. Held through the
-	// rollback, so a second update --self can't start on a half-swapped
-	// binary.
-	binDir := filepath.Join(a.home, "bin")
-	if err := os.MkdirAll(binDir, 0o700); err != nil {
-		return err
-	}
-	unlockSelf, err := lockUpdate(filepath.Join(binDir, "outpost-self"))
+	// The home's lock keeps a second update --self of this home out, and the
+	// binary's keeps out another home's daemon running the same binary, which
+	// would otherwise share the staged and .previous files. Both are held
+	// through the rollback, so neither can start on a half-swapped binary.
+	unlockSelf, err := lockFile(selfUpdateLock(a.home))
 	if err != nil {
 		return fmt.Errorf("update --self: %w", err)
 	}
 	defer unlockSelf()
-	// A service update going on when the daemon restarts would end where it
-	// stands, with no rollback.
-	updating, releaseLocks, err := holdUpdateLocks(a.home)
+	unlockBinary, err := lockUpdate(binary)
 	if err != nil {
-		return err
+		return fmt.Errorf("update --self: %s: %w", binary, err)
 	}
-	defer releaseLocks()
-	services := updating[:0]
-	for _, name := range updating {
-		if name != "outpost-self" {
-			services = append(services, name)
-		}
-	}
-	if len(services) > 0 {
-		if !force {
-			return fmt.Errorf("an update is running (%s), and restarting the daemon would end it where it stands, "+
-				"with no rollback; wait for it to finish, or pass --force", strings.Join(services, ", "))
-		}
-		fmt.Fprintf(a.err, "outpost: --force: ending the running update of %s with no rollback\n", strings.Join(services, ", "))
-	}
-
-	if _, err := a.validateManifests(); err != nil {
-		if !force {
-			return fmt.Errorf("the new daemon would refuse to start, leaving every service down: %w\n"+
-				"Nothing was changed. Fix that, or pass --force", err)
-		}
-		fmt.Fprintf(a.err, "outpost: --force: the new daemon may refuse to start: %v\n", err)
-	}
+	defer unlockBinary()
 
 	// Staged beside the binary, so the swap is a rename within one directory.
 	staged := filepath.Join(filepath.Dir(binary), ".outpost-selfupdate-new")
@@ -346,18 +303,24 @@ func (a *app) updateSelf(check, force, allowUnverified bool, to, label string, w
 		}
 		return err
 	}
+	// From here until the swap, a refusal only has the download to clear up.
+	refuse := func(err error) error {
+		_ = os.Remove(staged) // refused; the binary in use was never touched
+		return err
+	}
 	if res.Warning != "" {
 		fmt.Fprintf(a.err, "outpost: %s\n", res.Warning)
 	}
 	got, err := probeBinaryVersion(staged)
 	if err == nil {
-		if tag, _ := buildRelease(got); !sameRelease(tag, rel.Tag) {
+		// A build from a modified tree under the right tag is not that
+		// release, however it names itself.
+		if tag, ok := buildRelease(got); !ok || !sameRelease(tag, rel.Tag) {
 			err = fmt.Errorf("it says it is %s", got)
 		}
 	}
 	if err != nil {
-		_ = os.Remove(staged) // refused; the binary in use was never touched
-		return fmt.Errorf("the downloaded %s doesn't run here as %s (%v); nothing was changed", asset.Name, rel.Tag, err)
+		return refuse(fmt.Errorf("the downloaded %s doesn't run here as %s (%v); nothing was changed", asset.Name, rel.Tag, err))
 	}
 	verified := "unverified"
 	if res.Verified {
@@ -367,14 +330,43 @@ func (a *app) updateSelf(check, force, allowUnverified bool, to, label string, w
 
 	snapshot, err := a.snapshotAuth(installed)
 	if err != nil {
-		_ = os.Remove(staged) // refused; the binary in use was never touched
-		return fmt.Errorf("copy %s before updating: %w; nothing was changed", a.authPath(), err)
+		return refuse(fmt.Errorf("copy %s before updating: %w; nothing was changed", a.authPath(), err))
+	}
+
+	// Taken as late as possible, so a long download doesn't hold up service
+	// updates, and held until this returns: through the restart, the wait and
+	// any rollback, every one of which a service update would be cut short
+	// by. The two locks above are this update's own, and show up here as
+	// held by someone else, since a second open of a file conflicts with the
+	// first even within one process.
+	updating, releaseLocks, err := holdUpdateLocks(a.home)
+	if err != nil {
+		return refuse(err)
+	}
+	defer releaseLocks()
+	var services []string
+	for _, name := range updating {
+		own := name == selfUpdateName ||
+			(name == filepath.Base(binary) && samePath(filepath.Dir(binary), filepath.Join(a.home, "bin")))
+		if !own {
+			services = append(services, name)
+		}
+	}
+	// Neither of these is --force's to override: restarting the daemon would
+	// end a service's update with no rollback, and a daemon that won't start
+	// leaves every service down, both for the sake of an update that can wait.
+	if len(services) > 0 {
+		return refuse(fmt.Errorf("an update is running (%s), and restarting the daemon would end it where it stands, "+
+			"with no rollback; nothing was changed. Wait for it to finish, and run this again", strings.Join(services, ", ")))
+	}
+	if _, err := a.validateManifests(); err != nil {
+		return refuse(fmt.Errorf("the new daemon would refuse to start, leaving every service down: %w\n"+
+			"Nothing was changed. Fix the manifest, and run this again", err))
 	}
 
 	previous := binary + ".previous"
 	if err := keepPrevious(binary, previous); err != nil {
-		_ = os.Remove(staged) // refused; the binary in use was never touched
-		return fmt.Errorf("keep %s to roll back to: %w; nothing was changed", binary, err)
+		return refuse(fmt.Errorf("keep %s to roll back to: %w; nothing was changed", binary, err))
 	}
 
 	old := a.currentDaemon()
@@ -398,21 +390,62 @@ func (a *app) updateSelf(check, force, allowUnverified bool, to, label string, w
 		_ = os.Remove(previous) // a link to the binary in use; nothing to roll back to
 		return fmt.Errorf("replace %s: %w; nothing was changed", binary, err)
 	}
-	err = a.runAll(job.mgr.RestartCommands(job.cfg, uid))
-	releaseLocks()
-	if err != nil {
+	if err := a.runAll(job.mgr.RestartCommands(job.cfg, uid)); err != nil {
 		return back(fmt.Errorf("%w; the daemon may have stopped. Its log: %s", err, logs))
 	}
 	now, err := a.awaitNewDaemon(old, wait, logs)
 	if err != nil {
 		return back(fmt.Errorf("the new daemon (%s) did not come up: %w", rel.Tag, err))
 	}
-	if tag, _ := buildRelease(now.Version); !sameRelease(tag, rel.Tag) {
+	if tag, ok := buildRelease(now.Version); !ok || !sameRelease(tag, rel.Tag) {
 		return back(fmt.Errorf("the new daemon came back as %s, not %s", orDash(now.Version), rel.Tag))
 	}
 	fmt.Fprintf(a.out, "Outpost is running %s (was %s); the previous binary is kept at %s.\n", rel.Tag, installed, previous)
 	fmt.Fprintln(a.out, "`outpost list` shows the services coming up.")
 	return nil
+}
+
+// selfUpdateName is what holdUpdateLocks calls an update --self in progress.
+const selfUpdateName = "Outpost itself"
+
+// selfUpdateLock is the lock update --self holds for a home. It sits outside
+// bin/, where a service's binary could be called anything, this name included.
+func selfUpdateLock(home string) string { return filepath.Join(home, ".self-update.lock") }
+
+// checkSelf says what update --self would do, for --check. With --to the
+// release is the one named, not the latest, and may be older than this one.
+func (a *app) checkSelf(build version.Info, installed string, clean bool, tag, to string) {
+	which := "the latest release is " + tag
+	if to != "" {
+		which = "release " + tag + " is available"
+	}
+	if !clean {
+		fmt.Fprintf(a.out, "This outpost is a development build (%s); %s.\n", build, which)
+		return
+	}
+	order, ordered := compareReleases(installed, tag)
+	switch {
+	case sameRelease(installed, tag) && to == "":
+		fmt.Fprintf(a.out, "Outpost is up to date (%s)\n", tag)
+		return
+	case sameRelease(installed, tag):
+		fmt.Fprintf(a.out, "Outpost is already at %s\n", tag)
+		return
+	case ordered && order > 0 && to == "":
+		fmt.Fprintf(a.out, "Outpost is at %s, newer than its latest release, %s\n", installed, tag)
+		return
+	case ordered && order > 0:
+		fmt.Fprintf(a.out, "Outpost is at %s, newer than %s, so installing %s would go back.\n"+
+			"If that is what you want, `outpost update --self --to %s`.\n", installed, tag, tag, tag)
+		return
+	}
+	if to != "" {
+		fmt.Fprintf(a.out, "Outpost: %s installed, release %s available\n", installed, tag)
+		fmt.Fprintf(a.out, "Install it with `outpost update --self --to %s`.\n", to)
+		return
+	}
+	fmt.Fprintf(a.out, "Outpost: %s installed, %s available\n", installed, tag)
+	fmt.Fprintln(a.out, "Install it with `outpost update --self`.")
 }
 
 // snapshotAuth copies auth.db into the backups directory before a new daemon
@@ -437,7 +470,51 @@ func (a *app) snapshotAuth(installed string) (string, error) {
 		return "", err
 	}
 	fmt.Fprintf(a.out, "copied auth.db to %s\n", dst)
+	a.pruneAuthSnapshots(keepAuthSnapshots)
 	return dst, nil
+}
+
+// keepAuthSnapshots is how many auth.db copies update --self keeps. Each holds
+// password hashes and signing keys as they were, including ones since changed
+// or revoked, so they aren't kept forever.
+const keepAuthSnapshots = 2
+
+// authSnapshotName matches only the names snapshotAuth gives its copies, so
+// nothing else in the backups directory is ever touched.
+var authSnapshotName = regexp.MustCompile(`^auth-[A-Za-z0-9._-]+-(\d{8}T\d{6}Z)\.db$`)
+
+// pruneAuthSnapshots removes all but the newest keep copies, by the time in
+// their names. A copy it can't remove is only reported: the update matters
+// more than the tidying.
+func (a *app) pruneAuthSnapshots(keep int) {
+	entries, err := os.ReadDir(a.backupsDir())
+	if err != nil {
+		fmt.Fprintf(a.err, "outpost: can't tidy older copies of auth.db: %v\n", err)
+		return
+	}
+	type snap struct{ name, stamp string }
+	var snaps []snap
+	for _, e := range entries {
+		m := authSnapshotName.FindStringSubmatch(e.Name())
+		if m == nil || !e.Type().IsRegular() {
+			continue
+		}
+		snaps = append(snaps, snap{e.Name(), m[1]})
+	}
+	sort.Slice(snaps, func(i, j int) bool {
+		if snaps[i].stamp != snaps[j].stamp {
+			return snaps[i].stamp > snaps[j].stamp
+		}
+		return snaps[i].name > snaps[j].name
+	})
+	for i := keep; i < len(snaps); i++ {
+		path := filepath.Join(a.backupsDir(), snaps[i].name)
+		if err := os.Remove(path); err != nil {
+			fmt.Fprintf(a.err, "outpost: can't remove an older copy of auth.db: %v\n", err)
+			continue
+		}
+		fmt.Fprintf(a.out, "removed an older copy, %s\n", path)
+	}
 }
 
 // rollbackSelf puts the previous binary back after a failed update, restarts

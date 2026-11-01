@@ -590,11 +590,13 @@ func TestUpdateSelf_RefusesDuringAServiceUpdate(t *testing.T) {
 	}
 	defer unlock()
 
-	_, _, err = f.update()
-	if err == nil || !strings.Contains(err.Error(), "an update is running (svc)") {
-		t.Fatalf("err = %v", err)
+	for _, args := range [][]string{nil, {"--force"}} {
+		_, _, err = f.update(args...)
+		if err == nil || !strings.Contains(err.Error(), "an update is running (svc)") || !strings.Contains(err.Error(), "Wait for it") {
+			t.Errorf("%v: err = %v", args, err)
+		}
+		f.untouched()
 	}
-	f.untouched()
 }
 
 // Two at once would each keep the other's binary as the one to roll back to.
@@ -605,7 +607,7 @@ func TestUpdateSelf_RefusesASecondUpdateSelf(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(f.home, "bin"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	unlock, err := lockUpdate(filepath.Join(f.home, "bin", "outpost-self"))
+	unlock, err := lockFile(selfUpdateLock(f.home))
 	if err != nil {
 		t.Fatal(err)
 	}
