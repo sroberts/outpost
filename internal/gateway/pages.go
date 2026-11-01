@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-//go:embed templates/*.html static/portal.css static/catalog.js static/poll.js static/lighthouse.webp
+//go:embed templates/*.html static/portal.css static/catalog.js static/poll.js static/selfupdate.js static/lighthouse.webp
 var assets embed.FS
 
 const (
@@ -21,6 +21,9 @@ const (
 	// pollPath reloads the catalog while an action runs. A meta refresh
 	// would close a Manage menu or a confirmation under the admin's thumb.
 	pollPath = "/.outpost/static/poll.js"
+	// selfJSPath waits out Outpost's restart on the update page, asking
+	// until it's back, where a refresh would stop at the browser's error page.
+	selfJSPath = "/.outpost/static/selfupdate.js"
 	// artPath is the lighthouse from the Outpost header, cropped, for the
 	// sign-in page.
 	artPath = "/.outpost/static/lighthouse.webp"
@@ -35,6 +38,7 @@ var (
 	cssURL  = versioned(cssPath, "static/portal.css")
 	jsURL   = versioned(jsPath, "static/catalog.js")
 	pollURL = versioned(pollPath, "static/poll.js")
+	selfURL = versioned(selfJSPath, "static/selfupdate.js")
 	artURL  = versioned(artPath, "static/lighthouse.webp")
 )
 
@@ -90,6 +94,12 @@ type pageData struct {
 	// Poll reloads the catalog while an action runs, by script so an open
 	// menu stays open, with a meta refresh only where there's no script.
 	Poll bool
+	// Self is Outpost's own row on the update page, when it has one, and
+	// SelfPoll waits out its restart by script. SelfBusy holds back the
+	// apps' updates meanwhile.
+	Self     *selfRow
+	SelfPoll bool
+	SelfBusy bool
 
 	Message  string
 	Link     string
@@ -99,6 +109,7 @@ type pageData struct {
 
 	// Filled in by render for every page.
 	CSS, JS, PollJS, Art string // the assets' versioned URLs
+	SelfJS               string
 	Portal               string // what the portal calls itself
 	Host                 string // the portal's address, for reading
 	Home                 string // the catalog's URL
@@ -106,7 +117,7 @@ type pageData struct {
 
 // render writes a page with the headers every gateway page carries.
 func (g *Gateway) render(w http.ResponseWriter, r *http.Request, status int, name string, d pageData) {
-	d.CSS, d.JS, d.PollJS, d.Art = cssURL, jsURL, pollURL, artURL
+	d.CSS, d.JS, d.PollJS, d.Art, d.SelfJS = cssURL, jsURL, pollURL, artURL, selfURL
 	d.Portal = g.cfg.PortalName()
 	d.Host = strings.TrimPrefix(strings.TrimPrefix(g.portalOrigin, "https://"), "http://")
 	d.Home = g.portalLink()

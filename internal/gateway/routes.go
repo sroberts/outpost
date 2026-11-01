@@ -178,6 +178,7 @@ func (g *Gateway) keepRoutesFresh(ctx context.Context) {
 			return
 		case <-t.C:
 			g.refreshRoutes(ctx)
+			g.noteSelfUpdate()
 		}
 	}
 }

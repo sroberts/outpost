@@ -188,6 +188,9 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return a.cmdAuth(cmdArgs)
 	case "gateway":
 		return a.cmdGateway(cmdArgs)
+	case selfUpdateCommand:
+		// Started by the gateway, not an operator, so it isn't in the usage.
+		return a.cmdSelfUpdate(cmdArgs)
 
 	case "help", "-h", "--help":
 		fmt.Fprint(stdout, usage)

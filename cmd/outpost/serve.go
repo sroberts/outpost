@@ -186,6 +186,7 @@ func (a *app) cmdServe(args []string) error {
 
 			TailnetHosts: tailnetHosts,
 			Updates:      supervisedUpdates{daemonUpdates{a}, sup},
+			SelfUpdates:  &selfWeb{a: a},
 			Control:      sup,
 		})
 		if err != nil {

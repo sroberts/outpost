@@ -294,6 +294,7 @@ func (a *app) awaitNewDaemon(old ipc.DaemonIdentity, wait time.Duration, logs st
 		}
 
 		var now, failure string
+		var none *noNewDaemonError
 		switch {
 		case err == nil:
 			now = fmt.Sprintf("Waiting for the old daemon (pid %d) to go.", old.PID)
@@ -305,18 +306,35 @@ func (a *app) awaitNewDaemon(old ipc.DaemonIdentity, wait time.Duration, logs st
 				"the init system kills it once it has had 60s. Log: %s", old.PID, wait, logs)
 		default:
 			now = "Waiting for the new daemon to answer."
-			failure = fmt.Sprintf("the old daemon has gone, but no new one answered within %s, "+
-				"so the services are probably down. Log: %s", wait, logs)
+			none = &noNewDaemonError{wait: wait, logs: logs}
+			failure = none.Error()
 		}
 		if now != stage {
 			fmt.Fprintf(a.out, "  %s\n", now)
 			stage = now
 		}
 		if time.Now().After(deadline) {
+			if none != nil {
+				return ipc.DaemonIdentity{}, none
+			}
 			return ipc.DaemonIdentity{}, errors.New(failure)
 		}
 		time.Sleep(daemonPoll)
 	}
+}
+
+// noNewDaemonError is a restart after which nothing answered at all. It is
+// its own type because "the services are probably down" stops being true
+// once an update has rolled back and the old daemon is running again, and
+// the rollback has to be able to say what happened without it.
+type noNewDaemonError struct {
+	wait time.Duration
+	logs string
+}
+
+func (e *noNewDaemonError) Error() string {
+	return fmt.Sprintf("the old daemon has gone, but no new one answered within %s, "+
+		"so the services are probably down. Log: %s", e.wait, e.logs)
 }
 
 // processAlive reports whether pid exists; 0 is no process at all. A process
