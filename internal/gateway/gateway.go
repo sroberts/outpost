@@ -45,6 +45,9 @@ type Options struct {
 	Events Events
 	// Updates, when set, gives admins a page for updating apps.
 	Updates Updates
+	// Control, when set, gives admins a menu on each app in the catalog to
+	// start, stop, restart or back it up.
+	Control Control
 }
 
 // Gateway is the HTTP front door. It is an http.Handler, so tests can serve
@@ -59,6 +62,11 @@ type Gateway struct {
 	tailnetHosts func() map[string]string
 	updater      Updates
 	updateState  updateState
+	control      Control
+	ops          appOps
+	// claim serialises the busy checks of the catalog's actions and the
+	// update page against each other; each side's own lock covers only itself.
+	claim sync.Mutex
 
 	scheme       string // public_url's scheme
 	portalHost   string // public_url's host name, lower case
@@ -115,6 +123,7 @@ func New(opts Options) (*Gateway, error) {
 		now:          time.Now,
 		tailnetHosts: opts.TailnetHosts,
 		updater:      opts.Updates,
+		control:      opts.Control,
 		scheme:       u.Scheme,
 		portalHost:   strings.ToLower(u.Hostname()),
 		portalOrigin: u.Scheme + "://" + strings.ToLower(u.Host),

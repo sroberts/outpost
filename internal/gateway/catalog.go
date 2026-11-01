@@ -94,6 +94,13 @@ type station struct {
 	Reason      string // why it isn't up, in words
 	Command     string // what an admin runs to look closer
 	Hidden      bool
+
+	// For an admin, when the portal can control apps.
+	Acts   []appAction // the Manage menu
+	Busy   string      // what's under way instead, in words
+	Done   string      // how the last action went, in words
+	Failed bool
+	Alert  bool // a failure new enough to announce
 }
 
 // stations lists the apps u may open, running first.

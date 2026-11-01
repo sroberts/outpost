@@ -22,6 +22,9 @@ import (
 	"github.com/sroberts/outpost/internal/version"
 )
 
+// The portal's Manage menu drives the supervisor directly, through its API.
+var _ gateway.Control = (*supervisor.Supervisor)(nil)
+
 // cmdServe runs the daemon: the reconcile loop plus the Unix socket the CLI
 // talks to (§12). launchd keeps this alive across reboots; see `outpost install`.
 func (a *app) cmdServe(args []string) error {
@@ -183,6 +186,7 @@ func (a *app) cmdServe(args []string) error {
 
 			TailnetHosts: tailnetHosts,
 			Updates:      supervisedUpdates{daemonUpdates{a}, sup},
+			Control:      sup,
 		})
 		if err != nil {
 			return err
