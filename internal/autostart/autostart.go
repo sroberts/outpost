@@ -91,6 +91,9 @@ type Manager interface {
 	// unique per user, not per home, so this is what tells a job belonging to
 	// this home from one that merely has the same name.
 	UnitHome(unit string) (string, error)
+	// UnitBinary reads back the executable a generated file runs, which is the
+	// one an update of Outpost itself has to replace.
+	UnitBinary(unit string) (string, error)
 }
 
 // For returns the Manager for a GOOS value.

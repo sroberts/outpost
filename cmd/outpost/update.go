@@ -44,12 +44,29 @@ func (a *app) cmdUpdate(args []string) error {
 	noBackup := fs.Bool("no-backup", false, "skip the backup of the service's storage taken before updating")
 	wait := fs.Duration("wait", 0, "how long the new release has to pass its healthcheck (default 30s plus start_grace_seconds)")
 	allowUnverified := fs.Bool("allow-unverified", false, "install a release with no checksum to verify it against, even though the installed one was verified")
+	self := fs.Bool("self", false, "update Outpost itself, restarting the daemon and every service with it")
+	label := fs.String("label", "", "with --self: the label of the daemon's autostart job, if `outpost install` was given one")
 	positional, err := parseOptionalService(fs, "update", args)
 	if err != nil {
 		return err
 	}
 	if *wait < 0 {
 		return fmt.Errorf("update: --wait must not be negative")
+	}
+	if *label != "" && !*self {
+		return fmt.Errorf("update: --label names the daemon's job, so it only goes with --self")
+	}
+	if *self {
+		switch {
+		case len(positional) > 0:
+			return fmt.Errorf("update: --self updates Outpost, so it can't be given a service name (%q)", positional[0])
+		case *all || *from != "" || *noBackup:
+			return fmt.Errorf("update: --all, --from and --no-backup are about services, and can't be used with --self")
+		}
+		if *wait == 0 {
+			*wait = defaultRestartWait
+		}
+		return a.updateSelf(*check, *force, *allowUnverified, *to, *label, *wait)
 	}
 	if *all {
 		switch {

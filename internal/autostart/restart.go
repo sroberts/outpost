@@ -33,6 +33,14 @@ func homeFromArgs(args []string) (string, error) {
 	return "", errors.New("its command line has no --home")
 }
 
+// binaryFromArgs finds the executable a daemon's command line runs.
+func binaryFromArgs(args []string) (string, error) {
+	if len(args) == 0 || args[0] == "" {
+		return "", errors.New("its command line is empty")
+	}
+	return args[0], nil
+}
+
 // launchdTarget names a job the way launchctl's newer verbs want it. The gui
 // domain is the logged-in user's, where a LaunchAgent loads.
 func launchdTarget(cfg Config, uid int) string {
@@ -76,6 +84,23 @@ func (launchd) LogHint(cfg Config) string {
 }
 
 func (launchd) UnitHome(unit string) (string, error) {
+	args, err := launchdArgs(unit)
+	if err != nil {
+		return "", err
+	}
+	return homeFromArgs(args)
+}
+
+func (launchd) UnitBinary(unit string) (string, error) {
+	args, err := launchdArgs(unit)
+	if err != nil {
+		return "", err
+	}
+	return binaryFromArgs(args)
+}
+
+// launchdArgs reads a plist's ProgramArguments.
+func launchdArgs(unit string) ([]string, error) {
 	dec := xml.NewDecoder(strings.NewReader(unit))
 	var key string
 	var args []string
@@ -83,30 +108,30 @@ func (launchd) UnitHome(unit string) (string, error) {
 	for {
 		tok, err := dec.Token()
 		if errors.Is(err, io.EOF) {
-			return homeFromArgs(args)
+			return args, nil
 		}
 		if err != nil {
-			return "", fmt.Errorf("parse plist: %w", err)
+			return nil, fmt.Errorf("parse plist: %w", err)
 		}
 		switch t := tok.(type) {
 		case xml.StartElement:
 			switch {
 			case t.Name.Local == "key":
 				if err := dec.DecodeElement(&key, &t); err != nil {
-					return "", fmt.Errorf("parse plist: %w", err)
+					return nil, fmt.Errorf("parse plist: %w", err)
 				}
 			case t.Name.Local == "array" && key == "ProgramArguments":
 				inArgs = true
 			case t.Name.Local == "string" && inArgs:
 				var arg string
 				if err := dec.DecodeElement(&arg, &t); err != nil {
-					return "", fmt.Errorf("parse plist: %w", err)
+					return nil, fmt.Errorf("parse plist: %w", err)
 				}
 				args = append(args, arg)
 			}
 		case xml.EndElement:
 			if t.Name.Local == "array" && inArgs {
-				return homeFromArgs(args)
+				return args, nil
 			}
 		}
 	}
@@ -155,12 +180,29 @@ func (systemd) LogHint(cfg Config) string {
 }
 
 func (systemd) UnitHome(unit string) (string, error) {
+	args, err := systemdArgs(unit)
+	if err != nil {
+		return "", err
+	}
+	return homeFromArgs(args)
+}
+
+func (systemd) UnitBinary(unit string) (string, error) {
+	args, err := systemdArgs(unit)
+	if err != nil {
+		return "", err
+	}
+	return binaryFromArgs(args)
+}
+
+// systemdArgs reads a unit's ExecStart as arguments.
+func systemdArgs(unit string) ([]string, error) {
 	for line := range strings.SplitSeq(unit, "\n") {
 		if exec, ok := strings.CutPrefix(strings.TrimSpace(line), "ExecStart="); ok {
-			return homeFromArgs(systemdFields(exec))
+			return systemdFields(exec), nil
 		}
 	}
-	return "", errors.New("it has no ExecStart")
+	return nil, errors.New("it has no ExecStart")
 }
 
 // systemdFields splits a command line written by systemdQuote back into its

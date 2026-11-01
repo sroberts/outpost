@@ -57,17 +57,11 @@ func (a *app) daemonRestart(args []string) error {
 		return fmt.Errorf("daemon restart: unexpected argument %q", fset.Arg(0))
 	}
 
-	job, err := a.findDaemonJob(*label, *system)
+	job, err := a.loadedDaemonJob(*label, *system)
 	if err != nil {
 		return err
 	}
 	uid := effectiveUID()
-	if job.cfg.Scope == autostart.User && uid == 0 {
-		return fmt.Errorf("%s is a per-user job, and root can't reach it; run this without sudo", job.cfg.Label)
-	}
-	if !job.loaded {
-		return a.jobNotLoaded(job)
-	}
 
 	// The daemon refuses to start on a manifest it can't validate, while a
 	// running one only logs it and carries on, so a bad edit can sit unnoticed
@@ -120,6 +114,22 @@ func (a *app) daemonRestart(args []string) error {
 			"`outpost install` says if so.\n", version.Get())
 	}
 	return nil
+}
+
+// loadedDaemonJob finds this home's job and checks it is one the init system
+// has loaded and this user can restart.
+func (a *app) loadedDaemonJob(label string, system bool) (daemonJob, error) {
+	job, err := a.findDaemonJob(label, system)
+	if err != nil {
+		return daemonJob{}, err
+	}
+	if job.cfg.Scope == autostart.User && effectiveUID() == 0 {
+		return daemonJob{}, fmt.Errorf("%s is a per-user job, and root can't reach it; run this without sudo", job.cfg.Label)
+	}
+	if !job.loaded {
+		return daemonJob{}, a.jobNotLoaded(job)
+	}
+	return job, nil
 }
 
 // findDaemonJob looks for this home's job at each scope. The label alone isn't

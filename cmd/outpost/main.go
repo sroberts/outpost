@@ -31,6 +31,8 @@ Commands:
   update <service>         install a newer release of it, rolling back if the
                            new one fails its healthcheck (--check, --to TAG,
                            --all for every service with a newer release)
+  update --self            update Outpost itself, restarting the daemon and
+                           every service on it (--check, --to TAG)
   remove <service>         undeclare a service (--purge deletes its data)
   apply                    validate manifests and reconcile
   list                     table of services and their status
