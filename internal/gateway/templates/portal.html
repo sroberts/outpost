@@ -30,7 +30,7 @@
 </div>
 </li>
 {{end}}</ol>
-<p id="nomatch" class="empty" hidden>No apps match that.</p>
+<p id="nomatch" class="empty" role="status" hidden>No apps match that.</p>
 {{if $net}}<p class="hint net-note">Network counts only traffic through Outpost.</p>{{end}}
 {{else}}
 <p class="empty">{{if .Admin}}No apps yet. Add one with <code>outpost add</code>.{{else}}You don't have access to any apps yet.{{end}}</p>

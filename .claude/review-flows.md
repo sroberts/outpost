@@ -18,12 +18,12 @@ real home, and never with `outpost install`. Check each at 1280px and 390px.
 
 ## 3. Catalog
 1. Open `/`. Expected: one row per app with its state and a usage line in KB, MB or GB.
-2. Type in the filter. Expected: rows narrow to matches; clearing restores them.
+2. With 13 or more apps, type in the filter. Expected: rows narrow to matches; clearing restores them. It isn't there with fewer.
 3. Open a row's usage panel. Expected: CPU, memory, traffic and storage sparklines.
 
 ## 4. Open an app through the gateway
 1. Follow an app's link. Expected: the app answers at its own host with no second sign-in.
-2. Go back and reopen the catalog. Expected: the app's traffic has grown.
+2. Go back and reopen the catalog within a minute or so. Expected: the app's traffic has grown; the sampler reads it every half minute.
 
 ## 5. App actions (admin)
 1. Open a row's Manage menu and stop the app. Expected: a confirmation, then the row shows stopped.
@@ -32,7 +32,7 @@ real home, and never with `outpost install`. Check each at 1280px and 390px.
 4. Open a usage panel during an action. Expected: the refresh still runs.
 
 ## 6. Updates page (admin)
-1. Open `/updates`. Expected: an Outpost row and a row per app.
+1. Open `/updates`. Expected: an Outpost row, a row per app installed from a release, and a line naming the rest.
 2. On a dev build. Expected: a one-line note and no update button for Outpost.
 3. Fetch `/updates/self`. Expected: 200 JSON.
 4. As a non-admin. Expected: `/updates` and `/updates/self` refuse.
