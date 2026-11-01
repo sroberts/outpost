@@ -51,6 +51,8 @@ type Options struct {
 	// Control, when set, gives admins a menu on each app in the catalog to
 	// start, stop, restart or back it up.
 	Control Control
+	// Stats, when set, is where each app's usage is read from.
+	Stats Stats
 }
 
 // Gateway is the HTTP front door. It is an http.Handler, so tests can serve
@@ -70,7 +72,9 @@ type Gateway struct {
 	ops          appOps
 	// claim serialises the busy checks of the catalog's actions and the
 	// update page against each other; each side's own lock covers only itself.
-	claim sync.Mutex
+	claim   sync.Mutex
+	stats   Stats
+	traffic trafficMeter
 
 	scheme       string // public_url's scheme
 	portalHost   string // public_url's host name, lower case
@@ -129,6 +133,7 @@ func New(opts Options) (*Gateway, error) {
 		updater:      opts.Updates,
 		selfUpdater:  opts.SelfUpdates,
 		control:      opts.Control,
+		stats:        opts.Stats,
 		scheme:       u.Scheme,
 		portalHost:   strings.ToLower(u.Hostname()),
 		portalOrigin: u.Scheme + "://" + strings.ToLower(u.Host),

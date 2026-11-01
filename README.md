@@ -646,6 +646,26 @@ refreshes until it's done (holding off while a menu is open), and the outcome
 stays on the row for five minutes.
 `outpost gateway activity` records who did what.
 
+Each app also shows what it's using, to everyone who can see it: a line such
+as `2.0% CPU · 84 MB memory · 1.2 GB stored`, and under **Last 24 hours** a
+small graph of each:
+
+- **CPU** is a percent of one core, as `top` shows it, so a busy app on
+  several cores can pass 100%. Each point is the busiest half minute in its
+  quarter hour.
+- **Memory** is the resident memory of the app's whole process group.
+- **Network** is the bytes the gateway carried to (in) and from (out) the
+  app. Only traffic through Outpost's gateway is counted; anything that
+  reaches the app directly, on loopback or its own tailnet node without the
+  gateway, isn't.
+- **Storage** is the size of the app's storage directory, measured every ten
+  minutes, whether or not it runs. A walk that stops short says "at least".
+
+A gap in a graph is time the app wasn't running. The history is kept in the
+daemon's memory, a day of it, and starts again when the daemon restarts; until
+there's a full day, the graphs fill in from the right and say when they start.
+CPU and memory are read with `/bin/ps` on macOS and from `/proc` on Linux.
+
 What the catalog shows, and who may open an app, come from optional manifest
 fields:
 
