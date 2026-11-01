@@ -296,7 +296,8 @@ An ordered list; each station draws the stretch of line above it, so the line en
 - **Up:** a 26px porcelain disc in a 6px beam ring on a solid line. The whole row is one link to the app. Name, then description with the address right-aligned beneath. Hover underlines the name in beam (2px, 4px offset) and scales the station to 1.15.
 - **Starting / restarting:** the disc's centre goes night with a beam core inset 3px, "half lit"; the RESTARTING label is outlined in beam; the reason is dim; the inspect command follows in a command chip; the address remains as an "open anyway" link.
 - **Down:** the ring turns Signal Red around a hollow night centre; the line through the row becomes a broken stretch (beam dashes, 7px on, 7px off) that runs on past the station to the end of its row; the DOWN label is porcelain on Signal Red Plate; the reason is in Signal Red Ink; then the command chip and the address.
-- **Order:** running first, then starting, then down, so the broken stretches gather at the end of the line.
+- **Stopped on purpose:** a hollow night centre in a Field Edge ring on the same broken line; the STOPPED label is dim on a rule outline and the reason is dim. Someone chose this, so it spends no red. Start sits in the row, not behind Manage.
+- **Order:** running first, then starting, then down, then stopped, so the broken stretches gather at the end of the line.
 - **Hidden:** admins see a HIDDEN tag (dim text, rule outline) beside the name.
 - **Solo:** a message page can show a single station on a short line to explain why an app is unavailable.
 

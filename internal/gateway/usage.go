@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -45,6 +46,7 @@ type usageView struct {
 type usagePart struct {
 	Text    string
 	Pending bool
+	Live    bool // only true of a running process
 }
 
 // usageTile is one graph. Values are its text equivalent, a line each so a
@@ -67,6 +69,11 @@ type sparkLine struct {
 	Text  string
 }
 
+// dropLive leaves out the figures that only mean something while it runs.
+func (v *usageView) dropLive() {
+	v.Line = slices.DeleteFunc(v.Line, func(p usagePart) bool { return p.Live })
+}
+
 // usageOf builds the view of a service's usage, or nil when there's nothing
 // to show: no sampler, or one that hasn't seen the service yet.
 func (g *Gateway) usageOf(name, title string) *usageView {
@@ -83,11 +90,11 @@ func (g *Gateway) usageOf(name, title string) *usageView {
 	// stopped app still has its storage.
 	if u.Measured {
 		if finite(u.CPU) {
-			v.Line = append(v.Line, usagePart{Text: cpuPercent(u.CPU) + " CPU"})
+			v.Line = append(v.Line, usagePart{Text: cpuPercent(u.CPU) + " CPU", Live: true})
 		} else {
-			v.Line = append(v.Line, usagePart{Pending: true})
+			v.Line = append(v.Line, usagePart{Pending: true, Live: true})
 		}
-		v.Line = append(v.Line, usagePart{Text: humanBytes(u.RSS) + " memory"})
+		v.Line = append(v.Line, usagePart{Text: humanBytes(u.RSS) + " memory", Live: true})
 	}
 	if !u.StorageAt.IsZero() {
 		v.Line = append(v.Line, usagePart{Text: storageText(u) + " stored"})

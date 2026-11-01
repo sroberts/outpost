@@ -81,6 +81,8 @@ func (g *Gateway) servePortal(w http.ResponseWriter, r *http.Request) {
 		g.serveJS(w, r)
 	case pollPath:
 		g.servePoll(w, r)
+	case menusPath:
+		g.serveAsset(w, r, "static/menus.js", "text/javascript; charset=utf-8")
 	case selfJSPath:
 		g.serveAsset(w, r, "static/selfupdate.js", "text/javascript; charset=utf-8")
 	case artPath:
@@ -180,7 +182,7 @@ func (g *Gateway) loginSubmit(w http.ResponseWriter, r *http.Request) {
 		// Counted by address alone: a throttled client changing the name
 		// it tries each time is still one line.
 		g.activity.failed(EventSignInFail, "from "+ip, true)
-		form.Error = fmt.Sprintf("Too many attempts. Try again in %d seconds.", int(d.Seconds()+0.999))
+		form.Error = "Too many attempts. Try again in " + waitWords(d) + "."
 		g.render(w, r, http.StatusTooManyRequests, "login", form)
 		return
 	}

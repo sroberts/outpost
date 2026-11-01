@@ -80,6 +80,7 @@ const (
 	stateUp       = "up"
 	stateStarting = "starting"
 	stateDown     = "down"
+	stateStopped  = "stopped" // stopped on purpose: not running, but nothing is wrong
 )
 
 // station is one app as the catalog draws it.
@@ -97,6 +98,7 @@ type station struct {
 	Usage       *usageView // nil when there's nothing measured to show
 
 	// For an admin, when the portal can control apps.
+	Quick  *appAction  // the one step that brings it back, outside the menu
 	Acts   []appAction // the Manage menu
 	Busy   string      // what's under way instead, in words
 	Done   string      // how the last action went, in words
@@ -124,13 +126,19 @@ func (g *Gateway) stations(u auth.User) []station {
 			st.Title = rt.Name
 		}
 		st.State, st.Label, st.Reason = g.describe(rt)
-		if st.State != stateUp && u.Admin {
+		// Stopped on purpose, there's nothing to look closer at.
+		if st.State != stateUp && st.State != stateStopped && u.Admin {
 			st.Command = "outpost status " + rt.Name
 		}
 		st.Usage = g.usageOf(rt.Name, st.Title)
+		// The sampler only notices every half minute; until then the row
+		// would show a stopped app still using a CPU and memory.
+		if st.Usage != nil && (st.State == stateDown || st.State == stateStopped) {
+			st.Usage.dropLive()
+		}
 		out = append(out, st)
 	}
-	rank := map[string]int{stateUp: 0, stateStarting: 1, stateDown: 2}
+	rank := map[string]int{stateUp: 0, stateStarting: 1, stateDown: 2, stateStopped: 3}
 	sort.SliceStable(out, func(i, j int) bool {
 		if rank[out[i].State] != rank[out[j].State] {
 			return rank[out[i].State] < rank[out[j].State]
@@ -150,7 +158,7 @@ func (g *Gateway) describe(rt route) (state, label, reason string) {
 	case rt.Status == "starting":
 		return stateStarting, "Starting", "Starting up"
 	case rt.Desired == "stopped":
-		return stateDown, "Down", "Stopped on purpose"
+		return stateStopped, "Stopped", "Stopped on purpose"
 	case rt.Halted && rt.RestartCount == 0:
 		// Halted on its first exit, by a restart policy that doesn't restart
 		// it: there were no repeated crashes to count. After a daemon restart

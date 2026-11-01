@@ -10,6 +10,7 @@
 {{if .SelfPoll}}<noscript><meta http-equiv="refresh" content="5"></noscript>{{end}}
 <title>{{.Title}} · {{.Portal}}</title>
 <link rel="stylesheet" href="{{.CSS}}">
+{{if .Who}}<script src="{{.MenusJS}}" defer></script>{{end}}
 </head>
 <body>
 {{template "body" .}}

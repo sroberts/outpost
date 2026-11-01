@@ -28,6 +28,7 @@ func (g *Gateway) accountPage(w http.ResponseWriter, r *http.Request) {
 
 func (g *Gateway) accountData(r *http.Request, u auth.User) pageData {
 	return pageData{
+		UpdatesLink: u.Admin && g.updater != nil,
 		Title:       "Account",
 		Who:         displayName(u),
 		Username:    u.Username,
@@ -196,7 +197,7 @@ func (g *Gateway) changePassword(w http.ResponseWriter, r *http.Request, u auth.
 	// before the first failure counts.
 	if d := g.throttle.begin(g.now(), keys...); d > 0 {
 		g.activity.failed(EventPasswordFail, "from "+ip, true)
-		fail(http.StatusTooManyRequests, fmt.Sprintf("Too many attempts. Try again in %d seconds.", int(d.Seconds()+0.999)))
+		fail(http.StatusTooManyRequests, "Too many attempts. Try again in "+waitWords(d)+".")
 		return
 	}
 	g.checks <- struct{}{}

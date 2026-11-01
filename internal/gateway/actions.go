@@ -204,10 +204,16 @@ func (g *Gateway) manage(sts []station) (busy bool) {
 		switch {
 		case doing != "":
 			st.Busy = verbs[doing].doing
+			st.Label = strings.TrimSuffix(st.Busy, "…")
 		case g.updateBusy(st.Name):
-			st.Busy = "Updating…"
+			st.Busy, st.Label = "Updating…", "Updating"
 		default:
 			st.Acts = g.menu(rt, st.Title)
+			// Start asks nothing and is what a stopped app is waiting for, so
+			// it doesn't wait behind the menu with the rest.
+			if st.State != stateUp && len(st.Acts) > 0 && st.Acts[0].Action == actStart {
+				st.Quick, st.Acts = &st.Acts[0], st.Acts[1:]
+			}
 		}
 		if st.Busy != "" {
 			busy = true

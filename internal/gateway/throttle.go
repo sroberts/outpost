@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"fmt"
 	"sync"
 	"time"
 )
@@ -162,4 +163,12 @@ func (t *throttle) forget(now time.Time) {
 			delete(t.m, k)
 		}
 	}
+}
+
+// waitWords says how long a throttled client has to wait, rounded up.
+func waitWords(d time.Duration) string {
+	if n := int(d.Seconds() + 0.999); n != 1 {
+		return fmt.Sprintf("%d seconds", n)
+	}
+	return "1 second"
 }

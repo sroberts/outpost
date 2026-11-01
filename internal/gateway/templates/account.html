@@ -1,8 +1,10 @@
 {{define "body"}}
 {{template "rail" .}}
 <main class="page">
+<p class="back"><a href="{{.Home}}">Back to apps</a></p>
 <h1>Account</h1>
 <p class="lede">Signed in as <strong>{{.Who}}</strong>{{if ne .Who .Username}}, username <code>{{.Username}}</code>{{end}}.{{if .Admin}} As an admin you can open every app.{{end}}</p>
+{{if .UpdatesLink}}<p class="back"><a href="/updates">Updates for Outpost and its apps</a></p>{{end}}
 {{if .Notice}}<p class="notice" role="status">{{.Notice}}</p>{{end}}
 {{if .SignIns}}<section class="panel" aria-labelledby="where-title" id="where">
 <h2 id="where-title">Where you're signed in</h2>
@@ -13,7 +15,7 @@
 <div class="body">
 <span class="device-name">{{.Device}}</span>
 <p class="device-meta">Signed in {{.Since}}{{if .Address}} from <span class="addr">{{.Address}}</span>{{end}}</p>
-<p class="device-meta">{{.Active}} · {{if .Apps}}Apps: {{.Apps}}{{else}}No apps opened yet{{end}}</p>
+<p class="device-meta">{{if .This}}Active now{{else}}{{.Active}}{{end}} · {{if .Apps}}Apps: {{.Apps}}{{else}}No apps opened yet{{end}}</p>
 </div>
 {{if .This}}<p class="device-here">You're using this one</p>{{else}}<form method="post" action="/account#where">
 <input type="hidden" name="action" value="end">
@@ -22,10 +24,14 @@
 </form>{{end}}
 </li>
 {{end}}</ul>
-{{if gt (len .SignIns) 1}}<form method="post" action="/account#where">
+{{if gt (len .SignIns) 1}}<details class="confirm"><summary class="pill danger"><span>Sign out every other device…</span></summary>
+<p>Every device but this one is signed out, and out of every app it opened.</p>
+<form method="post" action="/account#where">
 <input type="hidden" name="action" value="others">
 <button class="ghost" type="submit">Sign out every other device</button>
-</form>{{end}}
+</form>
+<noscript><p class="hint">Tap Sign out every other device… again to cancel.</p></noscript>
+</details>{{end}}
 </section>
 {{end}}<section class="panel" aria-labelledby="pw">
 <h2 id="pw">Change password</h2>
@@ -49,10 +55,14 @@
 <section class="panel" aria-labelledby="all">
 <h2 id="all">Sign out everywhere</h2>
 <p>Ends every session on every device, this one included, and every app you were signed in to. Any access tokens you have are revoked too.</p>
+<details class="confirm"><summary class="pill danger"><span>Sign out everywhere…</span></summary>
+<p>This can't be undone: access tokens stay revoked, and you'll need to sign in again here too.</p>
 <form method="post" action="/account">
 <input type="hidden" name="action" value="everywhere">
 <button class="ghost" type="submit">Sign out everywhere</button>
 </form>
+<noscript><p class="hint">Tap Sign out everywhere… again to cancel.</p></noscript>
+</details>
 </section>
 </main>
 {{end}}

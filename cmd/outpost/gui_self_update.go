@@ -137,7 +137,7 @@ func selfVerdict(latest seenRelease) gateway.ReleaseCheck {
 	switch order, ordered := compareReleases(installed, latest.tag); {
 	case !clean:
 		// The row already shows the build; saying it again only repeats it.
-		check.Note = fmt.Sprintf("This is a development build, so there's no telling whether %s is newer.", latest.tag)
+		check.Note = fmt.Sprintf("This is a development build, so Outpost can't tell whether %s is newer.", latest.tag)
 	case sameRelease(installed, latest.tag):
 	case ordered && order > 0:
 		check.Note = fmt.Sprintf("Newer than the latest release, %s.", latest.tag)

@@ -17,12 +17,13 @@
 <div class="row">
 <span class="mark" aria-hidden="true"></span>
 <div class="body">
-{{if eq .State "up"}}<div class="top"><a class="name go" href="{{.URL}}">{{.Title}}</a>{{if .Hidden}}<span class="tag">Hidden</span>{{end}}<span class="sr">, {{.Label}}</span></div>
+{{if eq .State "up"}}<div class="top"><a class="name go" href="{{.URL}}">{{.Title}}</a>{{if .Hidden}}<span class="tag">Hidden</span>{{end}}{{if .Busy}}<span class="state">{{.Label}}</span>{{else}}<span class="sr">, {{.Label}}</span>{{end}}</div>
 <span class="meta">{{if .Description}}<span class="desc">{{.Description}}</span>{{end}}<span class="addr">{{.Addr}}</span></span>
 {{else}}<div class="top"><span class="name">{{.Title}}</span>{{if .Hidden}}<span class="tag">Hidden</span>{{end}}<span class="state">{{.Label}}</span></div>
-<span class="why">{{.Reason}}</span>
-{{if .Command}}<code class="cmd">{{.Command}}</code>{{end}}
-<a class="addr" href="{{.URL}}">{{.Addr}}<span class="sr"> (open anyway)</span></a>
+{{if not .Busy}}<span class="why">{{.Reason}}</span>
+{{template "quick" .}}
+{{if .Command}}<code class="cmd">{{.Command}}</code>{{end}}{{end}}
+{{if eq .State "stopped"}}<span class="addr">{{.Addr}}</span>{{else}}<a class="addr" href="{{.URL}}">{{.Addr}}<span class="anyway"> (open anyway)</span></a>{{end}}
 {{end}}{{if .Busy}}<p class="act-note" id="note-{{.Name}}" tabindex="-1" role="status">{{.Busy}}</p>
 {{else if .Done}}<p class="act-note{{if .Failed}} failed{{end}}" id="note-{{.Name}}" tabindex="-1" {{if .Alert}}role="alert"{{else if not .Failed}}role="status"{{end}}>{{.Done}}</p>
 {{end}}{{template "acts" .}}{{with .Usage}}{{template "usage" .}}{{end}}</div>
@@ -38,6 +39,11 @@
 {{if .Search}}<script src="{{.JS}}" defer></script>{{end}}
 {{if .Poll}}<script src="{{.PollJS}}" defer></script>{{end}}
 {{end}}
+{{define "quick"}}{{$s := .}}{{with .Quick}}<form class="quick" method="post" action="{{.Path}}">
+<input type="hidden" name="action" value="{{.Action}}">
+<input type="hidden" name="service" value="{{$s.Name}}">
+<button class="plain" type="submit"><span>{{.Verb}}<span class="sr"> {{$s.Title}}</span></span></button>
+</form>{{end}}{{end}}
 {{define "acts"}}{{if .Acts}}{{$s := .}}<details class="acts" name="manage"><summary class="pill"><span>Manage<span class="sr"> {{.Title}}</span></span></summary>
 <div class="act-list">
 {{range .Acts}}{{if .Confirm}}<details class="confirm" name="confirm-{{$s.Name}}"><summary class="pill{{if .Danger}} danger{{end}}"><span>{{.Verb}}<span class="sr"> {{$s.Title}}</span>{{.Suffix}}…</span></summary>
@@ -47,7 +53,7 @@
 <input type="hidden" name="service" value="{{$s.Name}}">
 <button class="{{if .Danger}}ghost{{else}}plain{{end}}" type="submit"><span>{{.Verb}} {{$s.Title}}{{.Suffix}}</span></button>
 </form>
-<p class="hint">Tap {{.Verb}}… again to cancel.</p>
+<noscript><p class="hint">Tap {{.Verb}}… again to cancel.</p></noscript>
 </details>
 {{else}}<form method="post" action="{{.Path}}">
 <input type="hidden" name="action" value="{{.Action}}">
