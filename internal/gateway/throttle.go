@@ -108,6 +108,13 @@ func (t *throttle) fail(now time.Time, keys ...string) {
 			continue
 		}
 		b.pending = max(b.pending-1, 0)
+		// forget only runs when the table is full, and a success no longer
+		// clears an address, so without this an address's failures would add
+		// up for as long as the daemon runs: enough typos over months, and one
+		// more locks everyone behind it out for a minute.
+		if now.Sub(b.last) > throttleForget {
+			b.fails = 0
+		}
 		b.fails++
 		b.last = now
 		over := b.fails - t.free
