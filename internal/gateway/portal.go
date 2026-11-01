@@ -60,6 +60,13 @@ func (g *Gateway) servePortal(w http.ResponseWriter, r *http.Request) {
 		default:
 			g.updatesPage(w, r)
 		}
+	case "/updates/self":
+		if g.updater == nil || g.selfUpdater == nil {
+			g.message(w, r, http.StatusNotFound, "Nothing here",
+				"There's no page at this address.", g.portalLink(), "Back to apps")
+			return
+		}
+		g.selfStatusJSON(w, r)
 	case "/setup":
 		if r.Method == http.MethodPost {
 			g.setupSubmit(w, r)
@@ -74,6 +81,8 @@ func (g *Gateway) servePortal(w http.ResponseWriter, r *http.Request) {
 		g.serveJS(w, r)
 	case pollPath:
 		g.servePoll(w, r)
+	case selfJSPath:
+		g.serveAsset(w, r, "static/selfupdate.js", "text/javascript; charset=utf-8")
 	case artPath:
 		g.serveArt(w, r)
 	default:

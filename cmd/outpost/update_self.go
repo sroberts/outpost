@@ -15,6 +15,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/sroberts/outpost/internal/ipc"
+
 	"github.com/sroberts/outpost/internal/acquire"
 	"github.com/sroberts/outpost/internal/auth"
 	"github.com/sroberts/outpost/internal/autostart"
@@ -183,6 +185,49 @@ func (a *app) selfJob(label string) (daemonJob, string, error) {
 // Outpost, restarts the daemon on it, and puts the old binary back if the new
 // daemon doesn't come up as that release.
 func (a *app) updateSelf(check, force, allowUnverified bool, to, label string, wait time.Duration) error {
+	return a.updateSelfWith(selfOpts{check: check, force: force, allowUnverified: allowUnverified, to: to, label: label, wait: wait})
+}
+
+// selfOpts are updateSelf's flags, and the two things the gateway's helper
+// does differently from the CLI: how the daemon is restarted, and telling
+// someone watching a page how far it has got.
+type selfOpts struct {
+	check, force, allowUnverified bool
+	to, label                     string
+	wait                          time.Duration
+	// restart restarts the daemon on whatever binary is now in place, for
+	// the update and for a rollback alike. nil is the job's own restart
+	// commands, as the CLI runs them.
+	restart func(job daemonJob) error
+	// selfStarts says restart only stops the daemon and leaves starting the
+	// next one to the init system, which does so by itself after a crash
+	// too. A rollback after a crash loop then has nothing to stop.
+	selfStarts bool
+	// progress is told each phase as it starts, with the release being
+	// installed once that is known. nil tells no one.
+	progress func(phase, tag string)
+}
+
+// Phases of an update --self, as progress is told them and the status file
+// records them.
+const (
+	selfStarting    = "starting"
+	selfDownloading = "downloading"
+	selfRestarting  = "restarting"
+	selfWaiting     = "waiting"
+	selfRollingBack = "rolling back"
+	selfDone        = "done"
+	selfFailed      = "failed"
+)
+
+func (a *app) updateSelfWith(o selfOpts) error {
+	check, force, allowUnverified, to, label, wait := o.check, o.force, o.allowUnverified, o.to, o.label, o.wait
+	if o.restart == nil {
+		o.restart = func(job daemonJob) error { return a.runAll(job.mgr.RestartCommands(job.cfg, effectiveUID())) }
+	}
+	if o.progress == nil {
+		o.progress = func(string, string) {}
+	}
 	build := selfBuild()
 	installed, clean := buildRelease(build.String())
 	// A development build has no place in the order of releases, so neither
@@ -205,7 +250,7 @@ func (a *app) updateSelf(check, force, allowUnverified bool, to, label string, w
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), selfUpdateTimeout)
 	defer cancel()
 	client := acquireClient()
 	client.Logf = func(format string, args ...any) {
@@ -293,6 +338,7 @@ func (a *app) updateSelf(check, force, allowUnverified bool, to, label string, w
 	// Staged beside the binary, so the swap is a rename within one directory.
 	staged := filepath.Join(filepath.Dir(binary), ".outpost-selfupdate-new")
 	_ = os.Remove(staged) // left by an update that was killed; nothing else uses the name
+	o.progress(selfDownloading, rel.Tag)
 	fmt.Fprintf(a.err, "downloading %s from release %s…\n", asset.Name, rel.Tag)
 	res, err := client.Install(ctx, rel, asset, staged)
 	if err != nil {
@@ -373,14 +419,17 @@ func (a *app) updateSelf(check, force, allowUnverified bool, to, label string, w
 	if old.Version != "" && old.Version != build.String() {
 		fmt.Fprintf(a.out, "The daemon is running %s, not this binary's %s; both become %s.\n", old.Version, build, rel.Tag)
 	}
-	uid := effectiveUID()
 	logs := job.mgr.LogHint(job.cfg)
 	fmt.Fprintf(a.out, "Restarting the daemon on %s: %s job %s, %s scope.\n", rel.Tag, job.mgr.Name(), job.cfg.Label, job.cfg.Scope)
 	fmt.Fprintln(a.out, "Every service stops with it, each with SIGTERM and SIGKILL after 10s. The new daemon starts them")
 	fmt.Fprintln(a.out, "again, apart from any stopped by hand or halted after a crash loop, which stay that way.")
 
+	// quiet is a restart after which nothing answered at all, the old daemon
+	// included: a crash loop, in which the init system restarts the job on
+	// its own.
+	quiet := false
 	back := func(cause error) error {
-		return a.rollbackSelf(job, binary, previous, installed, rel.Tag, snapshot, wait, cause)
+		return a.rollbackSelf(o, job, binary, previous, installed, rel.Tag, snapshot, quiet, cause)
 	}
 	// Nothing comes between the swap and the restart: until the restart, the
 	// old daemon is running from a binary that is no longer on disk, and any
@@ -390,11 +439,19 @@ func (a *app) updateSelf(check, force, allowUnverified bool, to, label string, w
 		_ = os.Remove(previous) // a link to the binary in use; nothing to roll back to
 		return fmt.Errorf("replace %s: %w; nothing was changed", binary, err)
 	}
-	if err := a.runAll(job.mgr.RestartCommands(job.cfg, uid)); err != nil {
+	o.progress(selfRestarting, rel.Tag)
+	if err := o.restart(job); err != nil {
 		return back(fmt.Errorf("%w; the daemon may have stopped. Its log: %s", err, logs))
 	}
+	o.progress(selfWaiting, rel.Tag)
 	now, err := a.awaitNewDaemon(old, wait, logs)
 	if err != nil {
+		var none *noNewDaemonError
+		if errors.As(err, &none) {
+			quiet = true
+			// Said without "probably down", which the rollback may undo.
+			err = fmt.Errorf("the old daemon has gone, but no new one answered within %s. Its log: %s", none.wait, none.logs)
+		}
 		return back(fmt.Errorf("the new daemon (%s) did not come up: %w", rel.Tag, err))
 	}
 	if tag, ok := buildRelease(now.Version); !ok || !sameRelease(tag, rel.Tag) {
@@ -404,6 +461,9 @@ func (a *app) updateSelf(check, force, allowUnverified bool, to, label string, w
 	fmt.Fprintln(a.out, "`outpost list` shows the services coming up.")
 	return nil
 }
+
+// selfUpdateTimeout bounds asking GitHub about a release and downloading it.
+const selfUpdateTimeout = 10 * time.Minute
 
 // selfUpdateName is what holdUpdateLocks calls an update --self in progress.
 const selfUpdateName = "Outpost itself"
@@ -521,7 +581,9 @@ func (a *app) pruneAuthSnapshots(keep int) {
 // the daemon on it, and returns why the update failed. auth.db is left as the
 // new daemon left it: one that migrated it may have done so correctly, and
 // only the operator can tell, so the snapshot is named for them to decide.
-func (a *app) rollbackSelf(job daemonJob, binary, previous, installed, tag, snapshot string, wait time.Duration, cause error) error {
+func (a *app) rollbackSelf(o selfOpts, job daemonJob, binary, previous, installed, tag, snapshot string, quiet bool, cause error) error {
+	o.progress(selfRollingBack, tag)
+	wait := o.wait
 	snap := ""
 	if snapshot != "" {
 		snap = fmt.Sprintf("\nauth.db as it was before the update is at %s.", snapshot)
@@ -532,8 +594,22 @@ func (a *app) rollbackSelf(job daemonJob, binary, previous, installed, tag, snap
 			"and the previous binary is at %s.%s", cause, err, tag, binary, previous, snap)
 	}
 	fmt.Fprintf(a.out, "Rolling back to %s.\n", installed)
+	// After a restart in which nothing answered, the init system is already
+	// starting the job again, and starts it on whatever binary is in place:
+	// now the previous one. Restarting would only stop that daemon if it
+	// came up first, so wait for whichever daemon answers. One running but
+	// not answering goes the usual way, which says so.
+	if _, pid := a.supervisorPID(); quiet && o.selfStarts && !pid {
+		fmt.Fprintf(a.out, "  No daemon is answering after the update; %s starts one on the binary now in place.\n", job.mgr.Name())
+		back, err := a.awaitNewDaemon(ipc.DaemonIdentity{}, wait, logs)
+		if err != nil {
+			return fmt.Errorf("%w\nRolled back to the previous binary, but no daemon answered within %s, "+
+				"so the services are probably down. Log: %s%s", cause, wait, logs, snap)
+		}
+		return fmt.Errorf("%w\nRolled back: the daemon is running %s again.%s", cause, orDash(back.Version), snap)
+	}
 	old := a.currentDaemon()
-	if err := a.runAll(job.mgr.RestartCommands(job.cfg, effectiveUID())); err != nil {
+	if err := o.restart(job); err != nil {
 		return fmt.Errorf("%w\nRolled back to the previous binary, but restarting the daemon on it failed: %v. "+
 			"The services are probably down. Log: %s%s", cause, err, logs, snap)
 	}

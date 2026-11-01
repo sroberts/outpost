@@ -238,7 +238,8 @@ With the [login gateway](#the-login-gateway) on, an admin can do the same from
 a phone. When an update is waiting, the catalog says so and links to
 `/updates`; with nothing to install there's no link, but the page is still there.
 The page shows each app installed from a release, what it runs and what's
-available, with a button to update.
+available, with a button to update. Outpost itself has a row there too: see
+[Updating Outpost itself](#updating-outpost-itself).
 
 That button runs `outpost update <service>` inside the daemon, over its own
 socket: the same backup, lock, health wait and rollback, and the same manifest
@@ -893,6 +894,29 @@ the update of Outpost itself.
 
 Going back works as it does for a service: an older release is only installed
 when you name it with `--to`, and then with a warning.
+
+#### From the portal
+
+With the gateway on, the Updates page has a row for Outpost, and an admin can
+install its latest release from there. It is `update --self` with no flags:
+the same checks, download, `auth.db` copy, wait and rollback. Pressing the
+button starts `outpost __self-update` as a process of its own, since the
+daemon can't outlive its own restart. That process replaces the binary and
+stops the daemon with SIGTERM, and launchd or systemd starts it again on the
+new binary. **Every app restarts with it.** The page waits it out and reloads
+once Outpost is back, with the result. The activity feed records who started
+it and how it ended.
+
+The row says why instead of offering the button when Outpost can't be updated
+from there: a development build, a binary a package manager or another user
+owns, a daemon that wasn't started by its launchd job or systemd unit (and so
+wouldn't be started again), or a systemd system service, which has to be
+updated on the host with `sudo outpost update --self`. While it runs, apps'
+Update buttons are turned off and the catalog's Manage actions are refused,
+and it won't start while one of those is under way. Its progress is kept in
+`~/.outpost/self-update.json`. Its output goes to
+`~/.outpost/logs/self-update.log` on macOS, and to
+`journalctl --user -u outpost-self-update-<label>` under systemd.
 
 ### Upgrading
 

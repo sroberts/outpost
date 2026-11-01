@@ -45,6 +45,9 @@ type Options struct {
 	Events Events
 	// Updates, when set, gives admins a page for updating apps.
 	Updates Updates
+	// SelfUpdates, when set alongside Updates, puts Outpost itself on that
+	// page.
+	SelfUpdates SelfUpdates
 	// Control, when set, gives admins a menu on each app in the catalog to
 	// start, stop, restart or back it up.
 	Control Control
@@ -61,6 +64,7 @@ type Gateway struct {
 
 	tailnetHosts func() map[string]string
 	updater      Updates
+	selfUpdater  SelfUpdates
 	updateState  updateState
 	control      Control
 	ops          appOps
@@ -123,6 +127,7 @@ func New(opts Options) (*Gateway, error) {
 		now:          time.Now,
 		tailnetHosts: opts.TailnetHosts,
 		updater:      opts.Updates,
+		selfUpdater:  opts.SelfUpdates,
 		control:      opts.Control,
 		scheme:       u.Scheme,
 		portalHost:   strings.ToLower(u.Hostname()),

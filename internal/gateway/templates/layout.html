@@ -7,6 +7,7 @@
 <meta name="theme-color" content="#141a21">
 {{if .Refresh}}<meta http-equiv="refresh" content="3">{{end}}
 {{if .Poll}}<noscript><meta http-equiv="refresh" content="3"></noscript>{{end}}
+{{if .SelfPoll}}<noscript><meta http-equiv="refresh" content="5"></noscript>{{end}}
 <title>{{.Title}} · {{.Portal}}</title>
 <link rel="stylesheet" href="{{.CSS}}">
 </head>

@@ -64,6 +64,17 @@ type updateState struct {
 	daemonAt  map[string]time.Time // the daemon's latest answer taken into checks
 	running   map[string]bool
 	results   map[string]updateResult
+
+	// Outpost's own check, made with the apps', and whether it can be
+	// updated from the page at all, in words if not.
+	self         checked
+	selfChecked  bool
+	selfRefusal  string
+	selfStarting bool // between the button and the update writing its status
+	// The last answer about an update of Outpost, and when it was read.
+	selfMemo   SelfStatus
+	selfMemoOK bool
+	selfMemoAt time.Time
 }
 
 // begin claims a service for an update, and reports false if one is running.
@@ -172,6 +183,9 @@ func (g *Gateway) startCheck() {
 			g.updateState.checkedAt = g.now()
 			g.updateState.mu.Unlock()
 		}()
+		if g.selfUpdater != nil {
+			g.checkSelf()
+		}
 		for _, rt := range g.routes.all() {
 			if rt.Source != "" {
 				g.checkOne(rt.Name, rt.Release)
@@ -243,12 +257,17 @@ func (g *Gateway) runUpdate(service string) {
 	}
 }
 
-// waiting counts the apps with a newer release to install, from what's known.
+// waiting counts the apps with a newer release to install, from what's known,
+// and Outpost itself when it has one that can be installed from here.
 func (g *Gateway) waiting() int {
+	busy := g.selfBusy()
 	s := &g.updateState
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	n := 0
+	if g.selfUpdater != nil && !busy && s.selfWaiting() {
+		n++
+	}
 	for _, rt := range g.routes.all() {
 		if c, ok := s.checks[rt.Name]; ok && c.Newer && c.Installed == rt.Release {
 			n++
@@ -260,7 +279,8 @@ func (g *Gateway) waiting() int {
 // waitingFor is the release waiting to be installed for one app, from what's
 // known, when there is one and it isn't being installed already.
 func (g *Gateway) waitingFor(rt route) (latest string, ok bool) {
-	if g.updater == nil {
+	// Not while Outpost is updating: its restart would cut an app's short.
+	if g.updater == nil || g.selfBusy() {
 		return "", false
 	}
 	s := &g.updateState
@@ -387,6 +407,12 @@ func (g *Gateway) updatesPage(w http.ResponseWriter, r *http.Request) {
 		UpdateRows: rows,
 		ByHand:     strings.Join(byHand, ", "),
 		Refresh:    busy,
+		Self:       g.selfUpdateRow(),
+	}
+	if d.Self != nil && d.Self.State == updateRunning {
+		// A meta refresh would land on the browser's own error page while
+		// Outpost is down, and stop there; the script waits it out instead.
+		d.Refresh, d.SelfPoll, d.SelfBusy = false, true, true
 	}
 	if !at.IsZero() {
 		d.Checked = checkedWords(at, g.now())
@@ -421,6 +447,9 @@ func (g *Gateway) updatesSubmit(w http.ResponseWriter, r *http.Request) {
 	switch r.PostForm.Get("action") {
 	case "check":
 		g.startCheck()
+	case "self":
+		g.startSelfUpdate(w, r, u.Username)
+		return
 	case "update":
 		// Only a service in the route table with a recorded source. This is
 		// also what keeps the name from being anything the update command
@@ -435,6 +464,12 @@ func (g *Gateway) updatesSubmit(w http.ResponseWriter, r *http.Request) {
 		// An update stops, backs up and restarts the app itself, so it can't
 		// run alongside a stop or backup asked for from the catalog.
 		g.claim.Lock()
+		if g.selfBusy() {
+			g.claim.Unlock()
+			g.message(w, r, http.StatusConflict, "Busy",
+				"Outpost is updating, and its restart would cut this short. Try again once it's back.", "/updates", "Back to updates")
+			return
+		}
 		if doing, _, _ := g.ops.state(name); doing != "" {
 			g.claim.Unlock()
 			g.message(w, r, http.StatusConflict, "Busy",

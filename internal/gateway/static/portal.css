@@ -35,7 +35,7 @@ body {
 ::selection { background: var(--lamp); color: var(--night); }
 a { color: var(--porcelain); text-decoration-color: var(--beam); text-underline-offset: 3px; }
 :focus-visible { outline: 2px solid var(--lamp); outline-offset: 3px; border-radius: 4px; }
-code, .addr, .tally, .home, .cmd {
+code, .addr, .tally, .home, .cmd, pre.output {
   font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
   font-variant-numeric: tabular-nums;
 }
@@ -203,6 +203,7 @@ button, .button {
   font: inherit; font-weight: 680; text-decoration: none; cursor: pointer;
 }
 button:hover, .button:hover { background: var(--porcelain-press); }
+button:disabled, button:disabled:hover { opacity: 0.5; cursor: not-allowed; background: var(--porcelain); }
 button.ghost { background: none; color: var(--down-ink); border: 1px solid rgba(242, 154, 133, 0.6); }
 button.ghost:hover { background: rgba(217, 88, 59, 0.12); }
 .error { margin: 0.75rem 0 0; color: var(--down-ink); font-weight: 550; }
@@ -244,6 +245,23 @@ button.small { padding: 0 0.95rem; font-size: 14px; }
 .updates p { margin: 0.35rem 0 0; }
 .updates form { margin-top: 0.5rem; justify-self: start; }
 .output { font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Outpost's own update: a sentence for how it ended, and the helper's whole
+   output behind it, since that is a machine's account, read only when the
+   sentence isn't enough. */
+.updates .outcome { font-size: 16px; }
+.updates details.log { margin-top: 0.25rem; }
+.updates details.log summary {
+  display: inline-flex; align-items: center; min-height: 44px;
+  color: var(--dim); font-size: 14px; cursor: pointer;
+  text-decoration: underline; text-decoration-color: var(--beam);
+  text-underline-offset: 3px;
+}
+.updates details.log summary:hover { color: var(--porcelain); }
+.updates details.log[open] summary { color: var(--porcelain); }
+.updates pre.output {
+  margin: 0.25rem 0 0; padding: 0 0 0 0.85rem; border-left: 1px solid var(--rule);
+  font-size: 12px; line-height: 1.55; color: var(--dim);
+}
 .recheck { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; }
 button.plain { background: none; color: var(--porcelain); border: 1px solid var(--field-edge); }
 button.plain:hover { background: none; border-color: var(--beam); }
