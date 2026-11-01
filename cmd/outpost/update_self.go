@@ -600,9 +600,7 @@ func (a *app) rollbackSelf(o selfOpts, job daemonJob, binary, previous, installe
 	// came up first, so wait for whichever daemon answers. One running but
 	// not answering goes the usual way, which says so.
 	if _, pid := a.supervisorPID(); quiet && o.selfStarts && !pid {
-		if _, err := a.client().Identity(); err != nil {
-			fmt.Fprintf(a.out, "  No daemon is answering after the update; %s starts one on the binary now in place.\n", job.mgr.Name())
-		}
+		fmt.Fprintf(a.out, "  No daemon is answering after the update; %s starts one on the binary now in place.\n", job.mgr.Name())
 		back, err := a.awaitNewDaemon(ipc.DaemonIdentity{}, wait, logs)
 		if err != nil {
 			return fmt.Errorf("%w\nRolled back to the previous binary, but no daemon answered within %s, "+
