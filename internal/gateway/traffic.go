@@ -96,6 +96,11 @@ func (c *countConn) Write(b []byte) (int, error) {
 // Traffic is the bytes carried to and from each routed service since the
 // gateway started. A port that two routes share can't be told apart, so it
 // is left out rather than put down to either.
+//
+// A routed service nothing has reached yet reads as zero rather than being
+// left out: the sampler takes its first reading of a service as a baseline,
+// and a counter that first appeared already holding the first requests would
+// have them taken as that baseline and never counted.
 func (g *Gateway) Traffic() map[string]stats.Bytes {
 	names := map[int]string{}
 	shared := map[int]bool{}
@@ -105,11 +110,17 @@ func (g *Gateway) Traffic() map[string]stats.Bytes {
 		}
 		names[rt.Port] = rt.Name
 	}
+	counted := g.traffic.snapshot()
 	out := map[string]stats.Bytes{}
-	for port, b := range g.traffic.snapshot() {
-		if name, ok := names[port]; ok && !shared[port] {
-			out[name] = b
+	for port, name := range names {
+		if shared[port] {
+			continue
 		}
+		b, ok := counted[port]
+		if !ok {
+			b = stats.Bytes{Source: port}
+		}
+		out[name] = b
 	}
 	return out
 }
