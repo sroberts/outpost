@@ -286,7 +286,10 @@ button.small { padding: 0 0.95rem; font-size: 14px; }
 button.plain { background: none; color: var(--porcelain); border: 1px solid var(--field-edge); }
 button.plain:hover { background: none; border-color: var(--beam); }
 .byhand { margin: 1.25rem 0 0; }
-.tally a { display: inline-block; padding: 0.7rem 0; color: var(--beam); }
+/* On the tally's line, so the service line still leaves the lamp; it looks
+   small, but its target reaches past the 44px floor. */
+.tally a { position: relative; color: var(--beam); }
+.tally a::before { content: ""; position: absolute; inset: -16px -8px; }
 
 /* An admin's Manage menu. Its pill is pinned to the row's top right, so
    opening it moves nothing above; the actions open as a strip at the foot

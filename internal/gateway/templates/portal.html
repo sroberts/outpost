@@ -5,8 +5,7 @@
 <div class="hub">
 <span class="lamp" aria-hidden="true"></span>
 <h1>{{.Portal}}</h1>
-{{with .Counts}}<p class="tally">{{.Up}} running{{if .Starting}} · {{.Starting}} starting{{end}}{{if .Down}} · {{.Down}} down{{end}}{{if .Stopped}} · {{.Stopped}} stopped{{end}}</p>{{end}}
-{{if .Waiting}}<p class="tally"><a href="/updates">{{.Waiting}} {{if eq .Waiting 1}}update{{else}}updates{{end}} available</a></p>{{else if .UpdatesLink}}<p class="tally"><a href="/updates">Updates</a></p>{{end}}
+<p class="tally">{{with .Counts}}{{.Up}} running{{if .Starting}} · {{.Starting}} starting{{end}}{{if .Down}} · {{.Down}} down{{end}}{{if .Stopped}} · {{.Stopped}} stopped{{end}}{{end}}{{if .Waiting}} · <a href="/updates">{{.Waiting}} {{if eq .Waiting 1}}update{{else}}updates{{end}} available</a>{{else if .UpdatesLink}} · <a href="/updates">Updates</a>{{end}}</p>
 </div>
 {{if .Search}}<label class="filter" hidden>Filter apps
 <input id="filter" type="search" autocomplete="off" spellcheck="false" hidden>

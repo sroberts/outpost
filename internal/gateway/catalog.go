@@ -132,8 +132,8 @@ func (g *Gateway) stations(u auth.User) []station {
 		}
 		st.Usage = g.usageOf(rt.Name, st.Title)
 		// The sampler only notices every half minute; until then the row
-		// would show a stopped app still using a CPU and memory.
-		if st.Usage != nil && (st.State == stateDown || st.State == stateStopped) {
+		// would show an app with no process still using a CPU and memory.
+		if st.Usage != nil && st.State != stateUp {
 			st.Usage.dropLive()
 		}
 		out = append(out, st)

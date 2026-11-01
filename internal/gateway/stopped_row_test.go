@@ -159,3 +159,14 @@ func TestCatalogPollsWhileAnAppIsComingBack(t *testing.T) {
 		t.Errorf("an idle catalog is polling:\n%s", b)
 	}
 }
+
+// A crashed app has no process, whatever the sampler last read.
+func TestRestartingAppShowsNoLiveFigures(t *testing.T) {
+	h, _ := actionHarness(t)
+	h.g.stats = fakeStats{"yarr": busyUsage(h.g.now())}
+	h.withServices(supervisor.ServiceStatus{Name: "yarr", Status: "failed", Desired: "running", NextAttempt: time.Now().Add(time.Minute)})
+	row := rowOf(t, body(t, h.login(h.client(true), "root", "", "/")), "yarr")
+	if !strings.Contains(row, "Restarting") || strings.Contains(row, "% CPU ·") || strings.Contains(row, "memory ·") {
+		t.Errorf("a restarting app shows live figures:\n%s", row)
+	}
+}
