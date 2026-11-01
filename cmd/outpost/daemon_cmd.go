@@ -57,17 +57,11 @@ func (a *app) daemonRestart(args []string) error {
 		return fmt.Errorf("daemon restart: unexpected argument %q", fset.Arg(0))
 	}
 
-	job, err := a.findDaemonJob(*label, *system)
+	job, err := a.loadedDaemonJob(*label, *system)
 	if err != nil {
 		return err
 	}
 	uid := effectiveUID()
-	if job.cfg.Scope == autostart.User && uid == 0 {
-		return fmt.Errorf("%s is a per-user job, and root can't reach it; run this without sudo", job.cfg.Label)
-	}
-	if !job.loaded {
-		return a.jobNotLoaded(job)
-	}
 
 	// The daemon refuses to start on a manifest it can't validate, while a
 	// running one only logs it and carries on, so a bad edit can sit unnoticed
@@ -120,6 +114,22 @@ func (a *app) daemonRestart(args []string) error {
 			"`outpost install` says if so.\n", version.Get())
 	}
 	return nil
+}
+
+// loadedDaemonJob finds this home's job and checks it is one the init system
+// has loaded and this user can restart.
+func (a *app) loadedDaemonJob(label string, system bool) (daemonJob, error) {
+	job, err := a.findDaemonJob(label, system)
+	if err != nil {
+		return daemonJob{}, err
+	}
+	if job.cfg.Scope == autostart.User && effectiveUID() == 0 {
+		return daemonJob{}, fmt.Errorf("%s is a per-user job, and root can't reach it; run this without sudo", job.cfg.Label)
+	}
+	if !job.loaded {
+		return daemonJob{}, a.jobNotLoaded(job)
+	}
+	return job, nil
 }
 
 // findDaemonJob looks for this home's job at each scope. The label alone isn't
@@ -318,9 +328,10 @@ func processAlive(pid int) bool {
 	return !errors.Is(syscall.Kill(pid, 0), syscall.ESRCH)
 }
 
-// holdUpdateLocks probes the lock lockUpdate takes beside each binary, and keeps
-// every one that was free until release is called. It returns the binaries
-// with an update running. The files are found on disk rather than through the
+// holdUpdateLocks probes the lock lockUpdate takes beside each binary, and the
+// one `update --self` takes for the home, and keeps every one that was free
+// until release is called. It returns what has an update running: a binary's
+// name, or selfUpdateName. The files are found on disk rather than through the
 // manifests, because a manifest that doesn't parse shouldn't hide an update, and
 // update refuses any binary outside the home's bin directory.
 func holdUpdateLocks(home string) (updating []string, release func(), err error) {
@@ -330,6 +341,26 @@ func holdUpdateLocks(home string) (updating []string, release func(), err error)
 			_ = f.Close() // closing releases the lock, and there's nothing to do if it fails
 		}
 		held = nil
+	}
+	probe := func(path, name string) error {
+		f, err := os.OpenFile(path, os.O_RDWR, 0)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		switch err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); {
+		case err == nil:
+			held = append(held, f)
+		case errors.Is(err, syscall.EWOULDBLOCK):
+			_ = f.Close() // only the lock's state mattered
+			updating = append(updating, name)
+		default:
+			_ = f.Close() // the flock error is the one that matters
+			return fmt.Errorf("check for a running update: %w", err)
+		}
+		return nil
 	}
 	walkErr := filepath.WalkDir(filepath.Join(home, "bin"), func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -342,22 +373,11 @@ func holdUpdateLocks(home string) (updating []string, release func(), err error)
 		if d.IsDir() || !strings.HasPrefix(name, ".") || !strings.HasSuffix(name, ".update-lock") {
 			return nil
 		}
-		f, err := os.OpenFile(path, os.O_RDWR, 0)
-		if err != nil {
-			return err
-		}
-		switch err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); {
-		case err == nil:
-			held = append(held, f)
-		case errors.Is(err, syscall.EWOULDBLOCK):
-			_ = f.Close() // only the lock's state mattered
-			updating = append(updating, strings.TrimSuffix(strings.TrimPrefix(name, "."), ".update-lock"))
-		default:
-			_ = f.Close() // the flock error is the one that matters
-			return fmt.Errorf("check for a running update: %w", err)
-		}
-		return nil
+		return probe(path, strings.TrimSuffix(strings.TrimPrefix(name, "."), ".update-lock"))
 	})
+	if walkErr == nil {
+		walkErr = probe(selfUpdateLock(home), selfUpdateName)
+	}
 	if walkErr != nil {
 		release()
 		return nil, func() {}, walkErr

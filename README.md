@@ -362,6 +362,8 @@ outpost update <service>         install a newer release, rolling back if it fai
                                  its healthcheck (--check, --to TAG, --from REPO)
 outpost update --all             update every service with a newer release, stopping
                                  at the first that fails (--check lists them)
+outpost update --self            update Outpost itself and restart the daemon on it,
+                                 rolling back if it doesn't come up (--check, --to TAG)
 outpost remove <name> [--purge]  undeclare a service, optionally deleting its data
 outpost apply                    validate manifests and reconcile
 outpost list                     table of services and their status
@@ -839,6 +841,58 @@ written to `config.toml`, so it's asked once. `--tailscale` and
 means on, unless the home already has a setting or
 `--no-tailscale` is given. Otherwise, with no terminal, a new install gets
 Tailscale off and an existing one is left as it is.
+
+### Updating Outpost itself
+
+```sh
+outpost update --self --check   # what is installed, what is latest; changes nothing
+outpost update --self           # install the latest release and restart the daemon on it
+outpost update --self --to v0.2.0
+```
+
+`update --self` downloads a release of Outpost from GitHub, checks it against the
+release's `SHA256SUMS`, and replaces the binary the daemon's launchd job or
+systemd unit runs. Before anything stops, it runs the download to make sure it
+is the release asked for and runs on this machine, and copies `auth.db` to
+`~/.outpost/backups/auth-<old release>-<time>.db`, since a new daemon may
+migrate it and nothing else can rebuild your users. Only the two newest of
+those copies are kept, since each holds password hashes and keys as they were,
+including ones you have since changed. Then it restarts the daemon
+through the job, so **every service restarts with it**, just as with
+`outpost daemon restart`.
+
+If the new daemon doesn't come back as the new release within `--wait`, the old
+binary is put back and the daemon restarted on that. `auth.db` isn't put back:
+the copy is there if you need it. Otherwise the old binary is kept as
+`<binary>.previous`.
+
+It needs the job, since nothing else could start the new daemon, so install one
+first. It refuses, changing nothing, when:
+
+- this `outpost` is a development build, from `make build` between tags, with
+  uncommitted changes, or from `go install`. There's no telling which release is
+  newer than that; `--to` a tag, or `--force` for the latest.
+- the job runs a different binary from the `outpost` you ran. It names the one to
+  run instead.
+- the binary belongs to a package manager, such as Homebrew or Nix, or to another
+  user, or its directory isn't writable. Update it the way it was installed.
+- the release publishes no checksum for it. `--allow-unverified` installs it
+  anyway.
+- a service update is running, since the restart would end it with no rollback.
+  Wait for it to finish.
+- a manifest doesn't validate, since the new daemon wouldn't start and every
+  service would stay down. Fix it first.
+- another `update --self` is running, for this home or for another home whose
+  daemon runs the same binary.
+
+`--force` reinstalls the release that is already installed, or installs over a
+development build; it doesn't override any of the above.
+
+While it runs, `outpost daemon restart` refuses unless given `--force`, naming
+the update of Outpost itself.
+
+Going back works as it does for a service: an older release is only installed
+when you name it with `--to`, and then with a warning.
 
 ### Upgrading
 

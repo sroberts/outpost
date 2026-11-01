@@ -40,16 +40,33 @@ func (a *app) cmdUpdate(args []string) error {
 	all := fs.Bool("all", false, "update every service with a newer release, one at a time, stopping at the first that fails")
 	to := fs.String("to", "", "install this release tag instead of the latest (also how to go back)")
 	from := fs.String("from", "", "the GitHub repository a service came from, for one whose manifest does not say")
-	force := fs.Bool("force", false, "reinstall even when the release is the one already installed")
+	force := fs.Bool("force", false, "reinstall even when the release is the one already installed (with --self, also install over a development build)")
 	noBackup := fs.Bool("no-backup", false, "skip the backup of the service's storage taken before updating")
 	wait := fs.Duration("wait", 0, "how long the new release has to pass its healthcheck (default 30s plus start_grace_seconds)")
 	allowUnverified := fs.Bool("allow-unverified", false, "install a release with no checksum to verify it against, even though the installed one was verified")
+	self := fs.Bool("self", false, "update Outpost itself, restarting the daemon and every service with it")
+	label := fs.String("label", "", "with --self: the label of the daemon's autostart job, if `outpost install` was given one")
 	positional, err := parseOptionalService(fs, "update", args)
 	if err != nil {
 		return err
 	}
 	if *wait < 0 {
 		return fmt.Errorf("update: --wait must not be negative")
+	}
+	if *label != "" && !*self {
+		return fmt.Errorf("update: --label names the daemon's job, so it only goes with --self")
+	}
+	if *self {
+		switch {
+		case len(positional) > 0:
+			return fmt.Errorf("update: --self updates Outpost, so it can't be given a service name (%q)", positional[0])
+		case *all || *from != "" || *noBackup:
+			return fmt.Errorf("update: --all, --from and --no-backup are about services, and can't be used with --self")
+		}
+		if *wait == 0 {
+			*wait = defaultRestartWait
+		}
+		return a.updateSelf(*check, *force, *allowUnverified, *to, *label, *wait)
 	}
 	if *all {
 		switch {
@@ -724,8 +741,12 @@ func checkVerified(body []byte, verified bool) error {
 // lockUpdate takes a lock beside a service's binary for the length of an
 // update. The lock is the kernel's, so a crashed update leaves none behind.
 func lockUpdate(binary string) (func(), error) {
-	f, err := os.OpenFile(filepath.Join(filepath.Dir(binary), "."+filepath.Base(binary)+".update-lock"),
-		os.O_CREATE|os.O_RDWR, 0o600)
+	return lockFile(filepath.Join(filepath.Dir(binary), "."+filepath.Base(binary)+".update-lock"))
+}
+
+// lockFile takes the kernel's lock on path, creating it if need be.
+func lockFile(path string) (func(), error) {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, err
 	}
