@@ -149,6 +149,15 @@ func (g *Gateway) describe(rt route) (state, label, reason string) {
 		return stateStarting, "Starting", "Starting up"
 	case rt.Desired == "stopped":
 		return stateDown, "Down", "Stopped on purpose"
+	case rt.Halted && rt.RestartCount == 0:
+		// Halted on its first exit, by a restart policy that doesn't restart
+		// it: there were no repeated crashes to count. After a daemon restart
+		// the status reads stopped either way, so only a failure still on
+		// record is called a crash.
+		if rt.Status == "failed" {
+			return stateDown, "Down", "Crashed, and isn't set to restart"
+		}
+		return stateDown, "Down", "Stopped, and isn't set to restart"
 	case rt.Halted:
 		return stateDown, "Down", fmt.Sprintf("Stopped after %s", crashes(rt.RestartCount))
 	case !rt.NextAttempt.IsZero() && rt.NextAttempt.After(g.now()):
