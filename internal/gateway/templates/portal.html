@@ -36,6 +36,7 @@
 </main>
 {{if .Search}}<script src="{{.JS}}" defer></script>{{end}}
 {{if .Poll}}<script src="{{.PollJS}}" defer></script>{{end}}
+<script src="{{.ReturnJS}}" defer></script>
 {{end}}
 {{define "quick"}}{{$s := .}}{{with .Quick}}<form class="quick" method="post" action="{{.Path}}">
 <input type="hidden" name="action" value="{{.Action}}">

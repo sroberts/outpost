@@ -4,13 +4,15 @@
 // something typed, which a reload would wipe. An open usage panel doesn't hold
 // back an action, which it could leave stuck on screen, but it does hold back
 // an app crash-looping, which is just when someone wants to read its graphs.
+// Nor while the tab is out of view: every load renews the session, and an app
+// that never comes back would keep a forgotten tab signed in.
 // Only loaded while something is under way.
 (function () {
   "use strict";
   var filter = document.getElementById("filter");
   function tick() {
     var acting = document.querySelector(".stop.busy");
-    if (document.querySelector(acting ? "details[open]:not(.stats)" : "details[open]") || (filter && filter.value)) {
+    if (document.hidden || document.querySelector(acting ? "details[open]:not(.stats)" : "details[open]") || (filter && filter.value)) {
       setTimeout(tick, 3000);
       return;
     }

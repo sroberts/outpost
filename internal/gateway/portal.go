@@ -82,6 +82,8 @@ func (g *Gateway) servePortal(w http.ResponseWriter, r *http.Request) {
 		g.serveJS(w, r)
 	case pollPath:
 		g.servePoll(w, r)
+	case returnPath:
+		g.serveAsset(w, r, "static/return.js", "text/javascript; charset=utf-8")
 	case menusPath:
 		g.serveAsset(w, r, "static/menus.js", "text/javascript; charset=utf-8")
 	case selfJSPath:

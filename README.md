@@ -646,6 +646,12 @@ refreshes until it's done (holding off while a menu is open), and the outcome
 stays on the row for five minutes.
 `outpost gateway activity` records who did what.
 
+An open catalog keeps up with apps restarting on their own, and catches up when
+you come back to its tab after 15 seconds or more away. It doesn't refresh on a
+timer otherwise, or at all while its tab is out of view, because each load renews
+the session and a forgotten tab should still sign out. So a crash that happens
+while you're watching a quiet page shows once you reload.
+
 Each app also shows what it's using, to everyone who can see it: a line such
 as `2.0% CPU · 84 MB memory · 1.2 GB stored`, and under **Last 24 hours** a
 small graph of each:

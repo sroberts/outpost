@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-//go:embed templates/*.html static/portal.css static/catalog.js static/poll.js static/selfupdate.js static/menus.js static/lighthouse.webp
+//go:embed templates/*.html static/portal.css static/catalog.js static/poll.js static/return.js static/selfupdate.js static/menus.js static/lighthouse.webp
 var assets embed.FS
 
 const (
@@ -21,6 +21,8 @@ const (
 	// pollPath reloads the catalog while an action runs. A meta refresh
 	// would close a Manage menu or a confirmation under the admin's thumb.
 	pollPath = "/.outpost/static/poll.js"
+	// returnPath reloads the catalog when its tab comes back into view.
+	returnPath = "/.outpost/static/return.js"
 	// selfJSPath waits out Outpost's restart on the update page, asking
 	// until it's back, where a refresh would stop at the browser's error page.
 	selfJSPath = "/.outpost/static/selfupdate.js"
@@ -37,12 +39,13 @@ type pages map[string]*template.Template
 // assetURLs carry a hash of each file, so a browser holding an hour-old copy
 // from before an upgrade asks for the new one instead.
 var (
-	cssURL   = versioned(cssPath, "static/portal.css")
-	jsURL    = versioned(jsPath, "static/catalog.js")
-	pollURL  = versioned(pollPath, "static/poll.js")
-	selfURL  = versioned(selfJSPath, "static/selfupdate.js")
-	menusURL = versioned(menusPath, "static/menus.js")
-	artURL   = versioned(artPath, "static/lighthouse.webp")
+	cssURL    = versioned(cssPath, "static/portal.css")
+	jsURL     = versioned(jsPath, "static/catalog.js")
+	pollURL   = versioned(pollPath, "static/poll.js")
+	returnURL = versioned(returnPath, "static/return.js")
+	selfURL   = versioned(selfJSPath, "static/selfupdate.js")
+	menusURL  = versioned(menusPath, "static/menus.js")
+	artURL    = versioned(artPath, "static/lighthouse.webp")
 )
 
 func versioned(urlPath, file string) string {
@@ -114,7 +117,7 @@ type pageData struct {
 	// Filled in by render for every page.
 	CSS, JS, PollJS, Art string // the assets' versioned URLs
 	SelfJS               string
-	MenusJS              string
+	MenusJS, ReturnJS    string
 	Portal               string // what the portal calls itself
 	Host                 string // the portal's address, for reading
 	Home                 string // the catalog's URL
@@ -122,7 +125,7 @@ type pageData struct {
 
 // render writes a page with the headers every gateway page carries.
 func (g *Gateway) render(w http.ResponseWriter, r *http.Request, status int, name string, d pageData) {
-	d.CSS, d.JS, d.PollJS, d.Art, d.SelfJS, d.MenusJS = cssURL, jsURL, pollURL, artURL, selfURL, menusURL
+	d.CSS, d.JS, d.PollJS, d.Art, d.SelfJS, d.MenusJS, d.ReturnJS = cssURL, jsURL, pollURL, artURL, selfURL, menusURL, returnURL
 	d.Portal = g.cfg.PortalName()
 	d.Host = strings.TrimPrefix(strings.TrimPrefix(g.portalOrigin, "https://"), "http://")
 	d.Home = g.portalLink()
