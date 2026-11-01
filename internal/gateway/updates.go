@@ -71,6 +71,10 @@ type updateState struct {
 	selfChecked  bool
 	selfRefusal  string
 	selfStarting bool // between the button and the update writing its status
+	// The last answer about an update of Outpost, and when it was read.
+	selfMemo   SelfStatus
+	selfMemoOK bool
+	selfMemoAt time.Time
 }
 
 // begin claims a service for an update, and reports false if one is running.

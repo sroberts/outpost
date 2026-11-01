@@ -244,7 +244,7 @@ func (a *app) updateSelfWith(o selfOpts) error {
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), selfUpdateTimeout)
 	defer cancel()
 	client := acquireClient()
 	client.Logf = func(format string, args ...any) {
@@ -450,6 +450,9 @@ func (a *app) updateSelfWith(o selfOpts) error {
 	fmt.Fprintln(a.out, "`outpost list` shows the services coming up.")
 	return nil
 }
+
+// selfUpdateTimeout bounds asking GitHub about a release and downloading it.
+const selfUpdateTimeout = 10 * time.Minute
 
 // selfUpdateName is what holdUpdateLocks calls an update --self in progress.
 const selfUpdateName = "Outpost itself"

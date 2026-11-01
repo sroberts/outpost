@@ -60,11 +60,36 @@ var jobLabel = func() string {
 		if err != nil {
 			return ""
 		}
-		lines := strings.Split(strings.TrimSpace(string(body)), "\n")
-		_, cgroup, _ := strings.Cut(lines[len(lines)-1], "::")
-		if unit := path.Base(cgroup); strings.HasSuffix(unit, ".service") {
-			return strings.TrimSuffix(unit, ".service")
+		return cgroupLabel(string(body))
+	}
+	return ""
+}
+
+// cgroupLabel reads the systemd service a process runs in from its
+// /proc/self/cgroup: the unified hierarchy's "0::" line, or under cgroup v1
+// the name=systemd line, whichever order they come in. A hybrid system has
+// both, and its "0::" line may be only "/", so the v1 line stands in then.
+func cgroupLabel(cgroup string) string {
+	var v1, v2 string
+	for _, line := range strings.Split(cgroup, "\n") {
+		line = strings.TrimSpace(line)
+		if p, ok := strings.CutPrefix(line, "0::"); ok && v2 == "" {
+			v2 = serviceLabel(p)
 		}
+		if _, p, ok := strings.Cut(line, ":name=systemd:"); ok && v1 == "" {
+			v1 = serviceLabel(p)
+		}
+	}
+	if v2 != "" {
+		return v2
+	}
+	return v1
+}
+
+// serviceLabel is the label of the service a cgroup path ends in, or "".
+func serviceLabel(cgroup string) string {
+	if unit := path.Base(cgroup); strings.HasSuffix(unit, ".service") {
+		return strings.TrimSuffix(unit, ".service")
 	}
 	return ""
 }
@@ -239,15 +264,24 @@ func (w *selfWeb) helperArgv(job daemonJob, binary string) ([]string, error) {
 		return helper, nil
 	}
 	// A unit of its own, outside the daemon's cgroup. It starts from the
-	// user manager's environment, not the daemon's, so a token for GitHub's
-	// rate limit is passed on by name; systemd-run copies its own value.
+	// user manager's environment, not the daemon's, so what it needs to
+	// reach GitHub is passed on by name: a token for the rate limit, and any
+	// proxy or certificates. systemd-run copies its own value.
 	run := []string{"systemd-run", "--user", "--collect", "--quiet", "--unit=" + selfUpdateUnit(job.cfg.Label)}
-	for _, name := range []string{"GITHUB_TOKEN", "GH_TOKEN"} {
+	for _, name := range helperPassOn {
 		if os.Getenv(name) != "" {
 			run = append(run, "--setenv="+name)
 		}
 	}
 	return append(append(run, "--"), helper...), nil
+}
+
+// helperPassOn is the daemon's environment a helper under systemd-run is
+// given. Never a Tailscale key: the helper brings up no node.
+var helperPassOn = []string{
+	"GITHUB_TOKEN", "GH_TOKEN",
+	"HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "https_proxy", "http_proxy", "no_proxy",
+	"SSL_CERT_FILE", "SSL_CERT_DIR",
 }
 
 // selfUpdateUnit names the helper's transient unit after the daemon's, with
@@ -294,14 +328,13 @@ func (w *selfWeb) Status() (gateway.SelfStatus, bool) {
 			fmt.Fprintf(w.a.err, "outpost: %v\n", err)
 		}
 	}
-	if st.final() && now.Sub(st.Finished) > selfResultFor {
-		return gateway.SelfStatus{}, false
-	}
 	out := gateway.SelfStatus{
 		Phase: st.Phase, Final: st.final(), Failed: st.Failed,
 		From: st.From, To: st.To, By: st.By, Output: st.Output, Log: st.Log,
 		RolledBack: st.RolledBack, Error: st.Error,
 	}
+	// Announced before an old outcome is hidden, so one first read after a
+	// day still reaches the activity feed, once.
 	if st.final() && !st.Recorded {
 		st.Recorded = true
 		// Announced only once it's marked, or a file that can't be written
@@ -311,6 +344,10 @@ func (w *selfWeb) Status() (gateway.SelfStatus, bool) {
 		} else {
 			out.Announce = true
 		}
+	}
+	if st.final() && now.Sub(st.Finished) > selfResultFor {
+		return gateway.SelfStatus{Announce: out.Announce, Phase: out.Phase, Final: true, Failed: out.Failed,
+			From: out.From, To: out.To, By: out.By}, false
 	}
 	return out, true
 }

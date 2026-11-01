@@ -912,7 +912,8 @@ from there: a development build, a binary a package manager or another user
 owns, a daemon that wasn't started by its launchd job or systemd unit (and so
 wouldn't be started again), or a systemd system service, which has to be
 updated on the host with `sudo outpost update --self`. While it runs, apps'
-Update buttons are turned off. Its progress is kept in
+Update buttons are turned off and the catalog's Manage actions are refused,
+and it won't start while one of those is under way. Its progress is kept in
 `~/.outpost/self-update.json`. Its output goes to
 `~/.outpost/logs/self-update.log` on macOS, and to
 `journalctl --user -u outpost-self-update-<label>` under systemd.

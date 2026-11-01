@@ -434,7 +434,7 @@ func TestSelfStatus_Abandoned(t *testing.T) {
 		st   selfStatus
 		want bool
 	}{
-		{"helper alive", selfStatus{Phase: selfWaiting, HelperPID: os.Getpid(), Started: now.Add(-time.Hour)}, false},
+		{"helper alive", selfStatus{Phase: selfWaiting, HelperPID: os.Getpid(), Started: now.Add(-5 * time.Minute)}, false},
 		{"helper gone", selfStatus{Phase: selfWaiting, HelperPID: 3_999_999, Started: now}, true},
 		{"never started", selfStatus{Phase: selfStarting, Started: now.Add(-2 * time.Minute)}, true},
 		{"just started", selfStatus{Phase: selfStarting, Started: now}, false},

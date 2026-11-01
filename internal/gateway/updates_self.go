@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/sroberts/outpost/internal/version"
 )
@@ -79,6 +80,14 @@ func releaseName(build string) string {
 	return build
 }
 
+// sameRelease reports whether two builds are the same release, by their
+// releaseName and ignoring a leading v, as `outpost update` compares them:
+// "v1.2.0 (abc123)" and "1.2.0" are one release.
+func sameRelease(a, b string) bool {
+	norm := func(s string) string { return strings.TrimPrefix(releaseName(s), "v") }
+	return norm(a) == norm(b)
+}
+
 // selfOutcome is how a finished update of Outpost ended, in one sentence,
 // and whether it needs attention. running is the build serving the page,
 // which is the only first-hand word on what came back.
@@ -88,16 +97,16 @@ func selfOutcome(st SelfStatus, running string) (summary string, alert bool) {
 		to = "the new release"
 	}
 	switch {
-	case !st.Failed && st.To != "" && releaseName(running) == st.To:
+	case !st.Failed && st.To != "" && sameRelease(running, st.To):
 		return "Outpost was updated to " + st.To + ".", false
 	case !st.Failed:
 		return "Outpost wasn't changed: it is running " + releaseName(running) + ".", false
-	case st.RolledBack && running == st.From:
+	case st.RolledBack && sameRelease(running, st.From):
 		return to + " didn't start, so Outpost went back to " + releaseName(st.From) + ", which is running.", false
 	case st.RolledBack:
 		return to + " didn't start, and going back didn't finish cleanly. Outpost is running " +
 			releaseName(running) + "; the log below says what happened.", true
-	case running != st.From:
+	case !sameRelease(running, st.From):
 		return "The update stopped partway. Outpost is running " + releaseName(running) + "; the log below says what happened.", true
 	}
 	why := strings.TrimSuffix(strings.TrimPrefix(st.Error, "outpost: "), ".")
@@ -150,15 +159,46 @@ func (g *Gateway) checkSelf() {
 	c.ReleaseCheck = rc
 }
 
-// selfState reads how an update of Outpost stands, and records a finished
-// one's outcome the first time it's seen. The daemon that started an update
-// is gone by the time it ends, so the record falls to the one after.
+// selfMemoFor is how long selfState's answer is reused. The catalog asks once
+// per app on every render, and each answer reads a file.
+const selfMemoFor = time.Second
+
+// selfState is how an update of Outpost stands, as read within the last
+// second. It's for the places that ask often; what an admin is looking at, or
+// about to act on, uses selfStateNow.
 func (g *Gateway) selfState() (SelfStatus, bool) {
 	if g.selfUpdater == nil {
 		return SelfStatus{}, false
 	}
+	s := &g.updateState
+	s.mu.Lock()
+	// The wall clock, not g.now: the memo is about load, not about time
+	// as the gateway's logic sees it.
+	if !s.selfMemoAt.IsZero() && time.Since(s.selfMemoAt) < selfMemoFor {
+		st, ok := s.selfMemo, s.selfMemoOK
+		s.mu.Unlock()
+		return st, ok
+	}
+	s.mu.Unlock()
+	return g.selfStateNow()
+}
+
+// selfStateNow reads how an update of Outpost stands, and records a finished
+// one's outcome the first time it's seen. The daemon that started an update
+// is gone by the time it ends, so the record falls to the one after. An
+// outcome too old to show is still recorded, then not shown.
+func (g *Gateway) selfStateNow() (SelfStatus, bool) {
+	if g.selfUpdater == nil {
+		return SelfStatus{}, false
+	}
 	st, ok := g.selfUpdater.Status()
-	if ok && st.Announce {
+	defer func() {
+		s := &g.updateState
+		s.mu.Lock()
+		s.selfMemo, s.selfMemoOK, s.selfMemoAt = st, ok, time.Now()
+		s.mu.Unlock()
+	}()
+	if st.Announce {
 		to := st.To
 		if to == "" {
 			to = "the latest release"
@@ -174,13 +214,20 @@ func (g *Gateway) selfState() (SelfStatus, bool) {
 			g.logf("gateway: the update of Outpost to %s finished", to)
 			g.activity.record(EventUpdate, "update of Outpost to %s%s finished", to, by)
 		}
+		st.Announce = false // recorded; a remembered copy mustn't record it again
 	}
 	return st, ok
 }
 
 // selfBusy reports whether an update of Outpost is under way, or being
-// started. Apps aren't updated meanwhile: the restart would cut theirs short.
-func (g *Gateway) selfBusy() bool {
+// started. Apps aren't updated or managed meanwhile: the restart would cut
+// what they're doing short.
+func (g *Gateway) selfBusy() bool { return g.selfBusyFrom(g.selfState) }
+
+// selfBusyNow is selfBusy without the memo, for deciding whether to start one.
+func (g *Gateway) selfBusyNow() bool { return g.selfBusyFrom(g.selfStateNow) }
+
+func (g *Gateway) selfBusyFrom(state func() (SelfStatus, bool)) bool {
 	if g.selfUpdater == nil {
 		return false
 	}
@@ -190,7 +237,7 @@ func (g *Gateway) selfBusy() bool {
 	if starting {
 		return true
 	}
-	st, ok := g.selfState()
+	st, ok := state()
 	return ok && !st.Final
 }
 
@@ -205,7 +252,7 @@ func (g *Gateway) selfUpdateRow() *selfRow {
 	if g.selfUpdater == nil {
 		return nil
 	}
-	st, ok := g.selfState()
+	st, ok := g.selfStateNow()
 	s := &g.updateState
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -255,7 +302,14 @@ func (g *Gateway) startSelfUpdate(w http.ResponseWriter, r *http.Request, userna
 			"An app is being updated, and restarting Outpost would cut that short. Try again once it's done.", "/updates", "Back to updates")
 		return
 	}
-	if g.selfBusy() {
+	if name, doing := g.ops.anyBusy(); doing != "" {
+		g.claim.Unlock()
+		g.message(w, r, http.StatusConflict, "Busy",
+			g.titleOf(name)+" is being "+verbs[doing].did+", and restarting Outpost would cut that short. Try again once it's done.",
+			"/updates", "Back to updates")
+		return
+	}
+	if g.selfBusyNow() {
 		// A second press of the button, or one in another tab: the first
 		// is what's running, and the page shows it.
 		g.claim.Unlock()
@@ -270,6 +324,7 @@ func (g *Gateway) startSelfUpdate(w http.ResponseWriter, r *http.Request, userna
 	err := g.selfUpdater.Start(username)
 	s.mu.Lock()
 	s.selfStarting = false
+	s.selfMemoAt = time.Time{} // Start wrote a status the memo hasn't seen
 	s.mu.Unlock()
 	if err != nil {
 		g.logf("gateway: %s asked to update Outpost: %v", username, err)
@@ -314,7 +369,7 @@ func (g *Gateway) selfStatusJSON(w http.ResponseWriter, r *http.Request) {
 		Final bool   `json:"final"`
 		Words string `json:"words,omitempty"` // the phase, as the page says it
 	}{Final: true}
-	if st, ok := g.selfState(); ok {
+	if st, ok := g.selfStateNow(); ok {
 		resp.Phase, resp.Final = st.Phase, st.Final
 		if !st.Final {
 			resp.Words = selfPhaseText(st)

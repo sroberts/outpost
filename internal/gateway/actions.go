@@ -102,6 +102,17 @@ func (o *appOps) finish(service string, r opResult) {
 	o.results[service] = r
 }
 
+// anyBusy names an app with an action under way, and the action, or "" for
+// none.
+func (o *appOps) anyBusy() (service, action string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	for s, a := range o.busy {
+		return s, a
+	}
+	return "", ""
+}
+
 func (o *appOps) state(service string) (busy string, res opResult, done bool) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -267,6 +278,12 @@ func (g *Gateway) appsSubmit(w http.ResponseWriter, r *http.Request) {
 		g.claim.Unlock()
 		g.message(w, r, http.StatusConflict, "Being updated",
 			title+" is being updated. Try again once the update is done.", "/#app-"+name, "Back to apps")
+		return
+	}
+	if g.selfBusy() {
+		g.claim.Unlock()
+		g.message(w, r, http.StatusConflict, "Outpost is updating",
+			"Outpost is being updated, and its restart would cut this short. Try again once it's back.", "/#app-"+name, "Back to apps")
 		return
 	}
 	began := g.ops.begin(name, action)

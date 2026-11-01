@@ -66,11 +66,20 @@ func (s selfStatus) final() bool { return s.Phase == selfDone || s.Phase == self
 // to write its own before it's taken never to have started.
 const selfAbandonAfter = time.Minute
 
+// selfLongest is longer than any helper runs: the download, then a wait for
+// the new daemon and another for a rollback, and a margin.
+func selfLongest() time.Duration { return selfUpdateTimeout + 2*selfWebWait + 5*time.Minute }
+
 // abandoned reports whether a status that isn't final will never be: its
-// helper has died, or never started.
+// helper has died, or never started. One older than any helper runs is
+// abandoned whatever its PID says, since after a reboot that number may be
+// another process's, which would keep the update looking busy for good.
 func (s selfStatus) abandoned(now time.Time) bool {
 	if s.final() {
 		return false
+	}
+	if now.Sub(s.Started) > selfLongest() {
+		return true
 	}
 	if s.HelperPID != 0 {
 		return !processAlive(s.HelperPID)
@@ -233,7 +242,12 @@ func (a *app) cmdSelfUpdate(args []string) error {
 func (a *app) signalRestart(job daemonJob) error {
 	id, err := a.client().Identity()
 	if err != nil {
-		fmt.Fprintf(a.out, "  No daemon is answering; %s starts one on the binary now in place.\n", job.mgr.Name())
+		// Not answering isn't the same as not there: a daemon that is up but
+		// stuck would carry on as it is, and nothing would start the new one.
+		if pid, running := a.supervisorPID(); running {
+			return fmt.Errorf("the daemon (pid %d) isn't answering, so it wasn't restarted (%v)", pid, err)
+		}
+		fmt.Fprintf(a.out, "  No daemon is answering, and none is running; %s starts one on the binary now in place.\n", job.mgr.Name())
 		return nil
 	}
 	if id.PID == 0 {
