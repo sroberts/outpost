@@ -332,7 +332,7 @@
       "kind": "nav",
       "refersTo": "pill",
       "description": "Host in dim mono left; account pill and quiet sign-out pill right; one rule beneath.",
-      "html": "<div class=\"ds-ground\"><div class=\"ds-rail\"><a class=\"ds-home\" href=\"#\">outpost.example:18443</a><a class=\"ds-pill\" href=\"#\">Scott</a><button class=\"ds-pill ds-quiet\">Sign out</button></div></div>",
+      "html": "<div class=\"ds-ground\"><div class=\"ds-rail\"><a class=\"ds-home\" href=\"#\">outpost.example:18443</a><a class=\"ds-pill\" href=\"#\">Alice</a><button class=\"ds-pill ds-quiet\">Sign out</button></div></div>",
       "css": ":host{--night:#141a21;--enamel-hi:#222c36;--rule:#26313b;--porcelain:#f3f1e9;--dim:#a3abb1;--beam:#79a59d;--lamp:#f1c191;--down:#d9583b;--down-ink:#f29a85;--field-edge:#6f7c87;--line-w:6px;--stop:26px;} .ds-ground{background:var(--night);} .ds-rail{display:flex;align-items:center;gap:0.5rem;padding:0.6rem 20px;border-bottom:1px solid var(--rule);} .ds-home{margin-right:auto;min-width:0;padding:0.75rem 0;color:var(--dim);font-size:13px;text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:ui-monospace,'SF Mono',SFMono-Regular,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums;} .ds-home:hover{color:var(--porcelain);} .ds-pill{display:inline-flex;align-items:center;min-height:44px;padding:0 0.95rem;border:1px solid var(--rule);border-radius:999px;background:none;color:var(--porcelain);font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:14px;text-decoration:none;cursor:pointer;white-space:nowrap;} .ds-pill:hover{border-color:var(--beam);} .ds-quiet{color:var(--dim);} .ds-quiet:hover{color:var(--porcelain);} .ds-pill:focus-visible,.ds-home:focus-visible{outline:2px solid var(--lamp);outline-offset:3px;border-radius:4px;}"
     },
     {
@@ -340,7 +340,7 @@
       "kind": "custom",
       "refersTo": "lamp",
       "description": "The lamp beside the portal name, tally beneath in beam mono.",
-      "html": "<div class=\"ds-ground\"><div class=\"ds-hub\"><span class=\"ds-lamp\"></span><h1 class=\"ds-h1\">Scott's Outpost</h1><p class=\"ds-tally\">3 running · 2 not running</p></div></div>",
+      "html": "<div class=\"ds-ground\"><div class=\"ds-hub\"><span class=\"ds-lamp\"></span><h1 class=\"ds-h1\">Alice's Outpost</h1><p class=\"ds-tally\">3 running · 2 not running</p></div></div>",
       "css": ":host{--night:#141a21;--enamel-hi:#222c36;--rule:#26313b;--porcelain:#f3f1e9;--dim:#a3abb1;--beam:#79a59d;--lamp:#f1c191;--down:#d9583b;--down-ink:#f29a85;--field-edge:#6f7c87;--line-w:6px;--stop:26px;} .ds-ground{background:var(--night);padding:28px 20px;} .ds-hub{display:grid;grid-template-columns:44px 1fr;column-gap:14px;align-items:center;} .ds-hub>:not(.ds-lamp){grid-column:2;} .ds-lamp{grid-row:1/span 2;width:44px;height:44px;border-radius:50%;background:radial-gradient(circle at 50% 45%,#fff3df 0 22%,var(--lamp) 60%);box-shadow:0 0 0 6px rgba(241,193,145,0.16),0 0 30px 2px rgba(241,193,145,0.4);} .ds-h1{margin:0;color:var(--porcelain);font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:28px;font-weight:750;line-height:1.1;letter-spacing:-0.015em;} .ds-tally{margin:0.3rem 0 0;font-size:12px;color:var(--beam);font-family:ui-monospace,'SF Mono',SFMono-Regular,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums;}"
     },
     {

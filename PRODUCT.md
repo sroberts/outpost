@@ -9,7 +9,7 @@ web
 ## Users
 
 - **The operator, almost always.** The person who runs the Outpost daemon on
-  their own machine (a Mac Mini now, a Linux box later). Comfortable with TOML
+  their own machine (a Mac or a Linux box). Comfortable with TOML
   manifests, a CLI and a terminal dashboard. Manages services and users from
   the CLI, and uses the portal, mostly from a phone, as their own front door
   to their apps.
