@@ -46,7 +46,7 @@ func TestStoppedAppShowsNoLiveFigures(t *testing.T) {
 	h, _ := actionHarness(t)
 	h.g.stats = fakeStats{"notes": busyUsage(h.g.now())}
 	row := rowOf(t, body(t, h.login(h.client(true), "root", "", "/")), "notes")
-	if strings.Contains(row, "% CPU ·") || strings.Contains(row, "memory ·") {
+	if strings.Contains(row, `title="CPU"`) || strings.Contains(row, `title="memory"`) {
 		t.Errorf("a stopped app shows live figures:\n%s", row)
 	}
 	if !strings.Contains(row, "stored") {
@@ -166,7 +166,7 @@ func TestRestartingAppShowsNoLiveFigures(t *testing.T) {
 	h.g.stats = fakeStats{"yarr": busyUsage(h.g.now())}
 	h.withServices(supervisor.ServiceStatus{Name: "yarr", Status: "failed", Desired: "running", NextAttempt: time.Now().Add(time.Minute)})
 	row := rowOf(t, body(t, h.login(h.client(true), "root", "", "/")), "yarr")
-	if !strings.Contains(row, "Restarting") || strings.Contains(row, "% CPU ·") || strings.Contains(row, "memory ·") {
+	if !strings.Contains(row, "Restarting") || strings.Contains(row, `title="CPU"`) || strings.Contains(row, `title="memory"`) {
 		t.Errorf("a restarting app shows live figures:\n%s", row)
 	}
 }

@@ -40,10 +40,13 @@ type usageView struct {
 	When  string      // what the graphs span: the whole day, or since when
 }
 
-// usagePart is one figure in the summary line. Pending is a CPU reading not
-// taken yet, shown as a dash with words for a screen reader.
+// usagePart is one figure in the summary line: an icon and the number, with
+// the word kept for a screen reader and as a tooltip. Pending is a CPU reading
+// not taken yet, shown as a dash.
 type usagePart struct {
+	Icon    string
 	Text    string
+	Word    string
 	Pending bool
 	Live    bool // only true of a running process
 }
@@ -53,6 +56,7 @@ type usagePart struct {
 // instead, naming each line in words beside a swatch of it.
 type usageTile struct {
 	Name   string
+	Icon   string
 	Base   string      // the baseline, from the first sample to now
 	Gap    string      // the part of the day not measured yet, drawn broken
 	Paths  []sparkLine // the lines themselves
@@ -90,14 +94,14 @@ func (g *Gateway) usageOf(name, title string) *usageView {
 	// stopped app still has its storage.
 	if u.Measured {
 		if finite(u.CPU) {
-			v.Line = append(v.Line, usagePart{Text: cpuPercent(u.CPU) + " CPU", Live: true})
+			v.Line = append(v.Line, usagePart{Icon: "cpu", Text: cpuPercent(u.CPU), Word: "CPU", Live: true})
 		} else {
-			v.Line = append(v.Line, usagePart{Pending: true, Live: true})
+			v.Line = append(v.Line, usagePart{Icon: "cpu", Word: "CPU", Pending: true, Live: true})
 		}
-		v.Line = append(v.Line, usagePart{Text: humanBytes(u.RSS) + " memory", Live: true})
+		v.Line = append(v.Line, usagePart{Icon: "memory", Text: humanBytes(u.RSS), Word: "memory", Live: true})
 	}
 	if !u.StorageAt.IsZero() {
-		v.Line = append(v.Line, usagePart{Text: storageText(u) + " stored"})
+		v.Line = append(v.Line, usagePart{Icon: "storage", Text: storageText(u), Word: "stored"})
 	}
 
 	// Every graph's unmeasured stretch ends where the first of them starts,
@@ -116,7 +120,7 @@ func (g *Gateway) usageOf(name, title string) *usageView {
 		case u.Measured && finite(u.CPU):
 			values = append(values, "now "+cpuPercent(u.CPU))
 		} // a reading not taken yet is left out: a dash read aloud says nothing
-		v.Tiles = append(v.Tiles, graph(start, usageTile{Name: "CPU", Values: values},
+		v.Tiles = append(v.Tiles, graph(start, usageTile{Name: "CPU", Icon: "cpu", Values: values},
 			line("", u.CPUSeries, cpuFloor)))
 	}
 	if peak, ok := highest(u.RSSSeries); ok {
@@ -127,7 +131,7 @@ func (g *Gateway) usageOf(name, title string) *usageView {
 		case u.Measured:
 			values = append(values, "now "+humanBytes(u.RSS))
 		}
-		v.Tiles = append(v.Tiles, graph(start, usageTile{Name: "Memory", Values: values},
+		v.Tiles = append(v.Tiles, graph(start, usageTile{Name: "Memory", Icon: "memory", Values: values},
 			line("", u.RSSSeries, 0)))
 	}
 	inPeak, inOK := highest(u.InSeries)
@@ -137,6 +141,7 @@ func (g *Gateway) usageOf(name, title string) *usageView {
 		top := max(inPeak, outPeak, networkFloor)
 		v.Tiles = append(v.Tiles, graph(start, usageTile{
 			Name: "Network",
+			Icon: "network",
 			Note: "Only traffic through Outpost",
 			Keys: []sparkLine{
 				{Class: "key in", Text: humanBytes(u.In24) + " in"},
@@ -145,7 +150,7 @@ func (g *Gateway) usageOf(name, title string) *usageView {
 		}, line("in", u.InSeries, top), line("out", u.OutSeries, top)))
 	}
 	if _, ok := highest(u.StorageSeries); ok && !u.StorageAt.IsZero() {
-		v.Tiles = append(v.Tiles, graph(start, usageTile{Name: "Storage", Values: []string{"now " + storageText(u)}},
+		v.Tiles = append(v.Tiles, graph(start, usageTile{Name: "Storage", Icon: "storage", Values: []string{"now " + storageText(u)}},
 			line("", storage, 0)))
 	}
 
