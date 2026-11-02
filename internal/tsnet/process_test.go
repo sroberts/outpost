@@ -167,7 +167,10 @@ func TestProcessNode_IgnoringStopIsKilled(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- r.Detach(context.Background(), "stubborn") }()
 	select {
-	case <-done:
+	case err := <-done:
+		if err != nil {
+			t.Errorf("Detach: %v", err)
+		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Detach waited on a node that ignored the request to stop")
 	}
