@@ -114,7 +114,6 @@ func (g *Gateway) home(w http.ResponseWriter, r *http.Request) {
 		Stations: sts,
 		Counts:   counts,
 		Search:   len(sts) >= searchFrom,
-		Icons:    slices.ContainsFunc(sts, func(s station) bool { return s.Usage != nil }),
 	}
 	if u.Admin && g.updater != nil {
 		g.checkIfStale()
@@ -127,6 +126,9 @@ func (g *Gateway) home(w http.ResponseWriter, r *http.Request) {
 	// A crashed app comes back on its own, with nobody's action to refresh the
 	// row, and whoever is looking wants to see it happen.
 	d.Poll = d.Poll || slices.ContainsFunc(d.Stations, func(s station) bool { return s.State == stateStarting })
+	d.Icons = slices.ContainsFunc(d.Stations, func(s station) bool {
+		return s.Usage != nil || s.Quick != nil || len(s.Acts) > 0
+	})
 	g.render(w, r, http.StatusOK, "portal", d)
 }
 

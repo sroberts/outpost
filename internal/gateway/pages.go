@@ -98,7 +98,7 @@ type pageData struct {
 	ByHand      string // apps not from a release, in words
 	Checked     string // when releases were last checked, in words
 	Refresh     bool   // reload while something on the page is in progress
-	// Icons draws the sprite the usage figures use, when any are shown.
+	// Icons draws the sprite the usage figures and actions use, when any show.
 	Icons bool
 	// Poll reloads the catalog while an action runs, by script so an open
 	// menu stays open, with a meta refresh only where there's no script.

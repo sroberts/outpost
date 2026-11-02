@@ -148,7 +148,7 @@ func TestAdminSeesManageWithWhatEachStateAllows(t *testing.T) {
 	// Stop, Restart and Back up ask first; Start doesn't.
 	yarrRow := rowOf(t, b, "yarr")
 	for _, want := range []string{
-		`<details class="confirm" name="confirm-yarr"><summary class="pill danger"><span>Stop<span class="sr"> Yarr</span>…</span></summary>`,
+		`<details class="confirm" name="confirm-yarr"><summary class="pill danger"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-stop"/></svg><span>Stop<span class="sr"> Yarr</span>…</span></summary>`,
 		"Stop Yarr? It stays stopped until someone starts it.",
 		"Restart Yarr? It&#39;s briefly unavailable",
 		"Back up Yarr now? Yarr is unavailable while its storage is archived",
@@ -159,7 +159,7 @@ func TestAdminSeesManageWithWhatEachStateAllows(t *testing.T) {
 		}
 	}
 	notesRow := rowOf(t, b, "notes")
-	if strings.Contains(notesRow, `<summary class="pill"><span>Start`) || !strings.Contains(notesRow, `><span>Start<span class="sr"> notes</span></span></button>`) {
+	if strings.Contains(notesRow, `<summary class="pill"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-start"/></svg><span>Start`) || !strings.Contains(notesRow, `<button class="plain" type="submit"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-start"/></svg><span>Start<span class="sr"> notes</span></span></button>`) {
 		t.Errorf("Start should be one step:\n%s", notesRow)
 	}
 	if !strings.Contains(notesRow, "notes stays stopped while its storage is archived") {
@@ -375,7 +375,7 @@ func TestUpdateIsOfferedOnlyWhenOneIsWaiting(t *testing.T) {
 	b := body(t, h.get(c, portal+"/"))
 	row := rowOf(t, b, "yarr")
 	for _, want := range []string{
-		`<summary class="pill"><span>Update<span class="sr"> Yarr</span> to v2.0.0…</span></summary>`,
+		`<summary class="pill"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-update"/></svg><span>Update<span class="sr"> Yarr</span> to v2.0.0…</span></summary>`,
 		"Update Yarr to v2.0.0? Outpost backs it up, installs v2.0.0 and restarts it",
 		`action="/updates"`,
 		`name="action" value="update"`,
