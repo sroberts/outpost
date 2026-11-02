@@ -324,7 +324,7 @@ mcp_path = "/mcp"
 With the gateway on, an MCP client holding an access token then has two ways
 in, both behind the gateway:
 
-- `https://<tailscale_name>.<tailnet>.ts.net/<mcp_path>`, your own address, as
+- `https://<tailscale_name>.<tailnet>.ts.net<mcp_path>`, your own address, as
   for any other request.
 - `https://<portal>/mcp/<name>`, one address on the portal for every service's
   MCP. The gateway sends it to your `mcp_path`, keeping the query string.

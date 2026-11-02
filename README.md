@@ -765,12 +765,12 @@ mcp_path = "/mcp"
 ```
 
 An MCP client with an access token can then reach it at one address on the
-portal, `https://<portal>/mcp/<service>`, as well as at the service's own
-`https://<service>.<tailnet>.ts.net/mcp`. With the portal
-[on the tailnet](#the-portal-on-the-tailnet), from Claude Code:
+portal, `https://<portal>/mcp/<service>`, as well as at its `mcp_path` on the
+service's own address, `https://<tailscale_name>.<tailnet>.ts.net`. With the
+portal [on the tailnet](#the-portal-on-the-tailnet), from Claude Code:
 
 ```sh
-TOKEN=$(outpost token create alice --name claude-code --app sous --expires 90d)
+export OUTPOST_TOKEN=$(outpost token create alice --name claude-code --app sous --expires 90d)
 claude mcp add --transport http sous https://outpost.<tailnet>.ts.net/mcp/sous \
   --header 'Authorization: Bearer ${OUTPOST_TOKEN}'
 ```
