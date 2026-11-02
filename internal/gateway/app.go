@@ -318,6 +318,14 @@ func (g *Gateway) newProxy() *httputil.ReverseProxy {
 			// earlier could be taken back by naming it there. Stripped
 			// again first, since a look-alike name survives the clone.
 			stripIdentity(pr.Out.Header)
+			// A look-alike of Outpost-Token, such as Outpost_Token, isn't
+			// read as a token, but many app servers fold '_' into '-' and
+			// would hand it to the app as if it were one.
+			for k := range pr.Out.Header {
+				if isAccessTokenName(k) {
+					delete(pr.Out.Header, k)
+				}
+			}
 			if t.user != nil {
 				setIdentity(pr.Out.Header, *t.user, t.token)
 			}
@@ -330,6 +338,9 @@ func (g *Gateway) newProxy() *httputil.ReverseProxy {
 			pr.Out.Header.Set("X-Real-IP", t.client)
 			pr.Out.Header.Del("True-Client-IP")
 			pr.Out.Header.Del("X-Client-IP")
+			// RFC 7239's form carries for= and host= too, and the proxy
+			// leaves it as the client sent it.
+			pr.Out.Header.Del("Forwarded")
 		},
 		ModifyResponse: func(resp *http.Response) error {
 			if t, _ := resp.Request.Context().Value(targetKey{}).(target); t.mcp {
@@ -337,6 +348,7 @@ func (g *Gateway) newProxy() *httputil.ReverseProxy {
 				// and the portal itself, so no app gets to set a cookie on
 				// it. MCP keeps its session in Mcp-Session-Id instead.
 				resp.Header.Del("Set-Cookie")
+				onPortalOrigin(resp.Header)
 				return nil
 			}
 			removeSetCookies(resp.Header, sessionCookieNames)
