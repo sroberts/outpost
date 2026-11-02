@@ -42,11 +42,11 @@
 {{define "quick"}}{{$s := .}}{{with .Quick}}<form class="quick" method="post" action="{{.Path}}">
 <input type="hidden" name="action" value="{{.Action}}">
 <input type="hidden" name="service" value="{{$s.Name}}">
-<button class="plain" type="submit"><span>{{.Verb}}<span class="sr"> {{$s.Title}}</span></span></button>
+<button class="plain" type="submit">{{template "icon" .Action}}<span>{{.Verb}}<span class="sr"> {{$s.Title}}</span></span></button>
 </form>{{end}}{{end}}
 {{define "acts"}}{{if .Acts}}{{$s := .}}<details class="acts" name="manage"><summary class="pill"><span>Manage<span class="sr"> {{.Title}}</span></span></summary>
 <div class="act-list">
-{{range .Acts}}{{if .Confirm}}<details class="confirm" name="confirm-{{$s.Name}}"><summary class="pill{{if .Danger}} danger{{end}}"><span>{{.Verb}}<span class="sr"> {{$s.Title}}</span>{{.Suffix}}…</span></summary>
+{{range .Acts}}{{if .Confirm}}<details class="confirm" name="confirm-{{$s.Name}}"><summary class="pill{{if .Danger}} danger{{end}}">{{template "icon" .Action}}<span>{{.Verb}}<span class="sr"> {{$s.Title}}</span>{{.Suffix}}…</span></summary>
 <p>{{.Confirm}}</p>
 <form method="post" action="{{.Path}}">
 <input type="hidden" name="action" value="{{.Action}}">
@@ -58,7 +58,7 @@
 {{else}}<form method="post" action="{{.Path}}">
 <input type="hidden" name="action" value="{{.Action}}">
 <input type="hidden" name="service" value="{{$s.Name}}">
-<button class="plain" type="submit"><span>{{.Verb}}<span class="sr"> {{$s.Title}}</span>{{.Suffix}}</span></button>
+<button class="plain" type="submit">{{template "icon" .Action}}<span>{{.Verb}}<span class="sr"> {{$s.Title}}</span>{{.Suffix}}</span></button>
 </form>
 {{end}}{{end}}</div>
 </details>{{end}}{{end}}
@@ -80,5 +80,10 @@
 <symbol id="i-cpu" viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" rx="1"/><path d="M6.5 1.5V4M9.5 1.5V4M6.5 12v2.5M9.5 12v2.5M1.5 6.5H4M1.5 9.5H4M12 6.5h2.5M12 9.5h2.5"/></symbol>
 <symbol id="i-memory" viewBox="0 0 16 16"><rect x="1.5" y="3.5" width="13" height="7" rx="1"/><path d="M5 6v2M8 6v2M11 6v2M4 10.5v2M8 10.5v2M12 10.5v2"/></symbol>
 <symbol id="i-network" viewBox="0 0 16 16"><path d="M5 13V3M2.5 5.5 5 3l2.5 2.5M11 3v10M8.5 10.5 11 13l2.5-2.5"/></symbol>
+<symbol id="i-start" viewBox="0 0 16 16"><path d="M5 3.5v9l7.5-4.5z"/></symbol>
+<symbol id="i-stop" viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" rx="1"/></symbol>
+<symbol id="i-restart" viewBox="0 0 16 16"><path d="M13 8a5 5 0 1 1-1.5-3.5L13 6M13 2.5V6H9.5"/></symbol>
+<symbol id="i-backup" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="3" rx="1"/><path d="M3 6v6.5a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V6M6.5 9h3"/></symbol>
+<symbol id="i-update" viewBox="0 0 16 16"><path d="M8 11V2.5M4.5 6 8 2.5 11.5 6M3 14h10"/></symbol>
 <symbol id="i-storage" viewBox="0 0 16 16"><ellipse cx="8" cy="3.5" rx="5.5" ry="2"/><path d="M2.5 3.5v9c0 1.1 2.5 2 5.5 2s5.5-.9 5.5-2v-9M2.5 8c0 1.1 2.5 2 5.5 2s5.5-.9 5.5-2"/></symbol>
 </svg>{{end}}

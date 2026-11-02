@@ -324,6 +324,7 @@ button.plain:hover { background: none; border-color: var(--beam); }
 .act-list .pill { border-color: var(--field-edge); }
 .act-list .pill:hover { border-color: var(--beam); }
 .act-list form { margin: 0; }
+.act-list .icon, .quick .icon { margin-right: 0.4rem; }
 .act-list button { min-height: 44px; font-size: 14px; }
 .confirm[open] { flex-basis: 100%; }
 .confirm[open] > summary { border-color: var(--beam); }
