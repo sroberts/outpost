@@ -21,3 +21,6 @@ coverage.*
 .impeccable/questions/
 .impeccable/review/
 .impeccable/live/
+
+# Claude Code scratch worktrees
+.claude/worktrees/
