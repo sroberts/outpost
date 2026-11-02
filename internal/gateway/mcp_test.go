@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sroberts/outpost/internal/auth"
+	"github.com/sroberts/outpost/internal/config"
 	"github.com/sroberts/outpost/internal/supervisor"
 )
 
@@ -364,5 +365,25 @@ func TestMCP_OAuthDiscoveryIsAPlain404(t *testing.T) {
 	// The keys are still where apps fetch them.
 	if resp := h.send(http.MethodGet, portal+"/.well-known/jwks.json", nil); resp.StatusCode != http.StatusOK {
 		t.Errorf("jwks.json got %d", resp.StatusCode)
+	}
+}
+
+// On a portal with its own port, an app off the tailnet is served on that
+// port too, so the host the app is told about carries it, exactly as a
+// browser's request to the app's own address would.
+func TestMCP_HostCarriesThePortalsPort(t *testing.T) {
+	h := newHarness(t, func(c *config.Gateway) { c.PublicURL = "http://outpost.test:8080" })
+	h.withServices(supervisor.ServiceStatus{Name: "yarr", Status: "running", MCPPath: "/mcp"})
+	h.addUser(auth.User{Username: "alice"})
+	tok := h.pat("alice")
+
+	direct := backendSaw(t, h.send(http.MethodGet, "http://yarr.outpost.test:8080/mcp", bearer(tok)))
+	s := backendSaw(t, h.send(http.MethodGet, "http://outpost.test:8080/mcp/yarr", bearer(tok)))
+	if s.Host != direct.Host || s.Header.Get("X-Forwarded-Host") != direct.Header.Get("X-Forwarded-Host") {
+		t.Errorf("Host = %q, X-Forwarded-Host = %q; want %q, %q as on the app's own address",
+			s.Host, s.Header.Get("X-Forwarded-Host"), direct.Host, direct.Header.Get("X-Forwarded-Host"))
+	}
+	if c := identityClaimsOf(t, s.Header.Get("X-Outpost-Identity")); c.Aud != "yarr.outpost.test" {
+		t.Errorf("identity token aud = %q; want the app's host name, without the port", c.Aud)
 	}
 }

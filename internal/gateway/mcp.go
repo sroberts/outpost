@@ -3,7 +3,6 @@ package gateway
 import (
 	"fmt"
 	"net/http"
-	"path"
 	"strings"
 
 	"github.com/sroberts/outpost/internal/config"
@@ -16,19 +15,17 @@ const mcpPrefix = "/mcp/"
 
 // mcpService is the app a request to /mcp/<name> names. Only that exact
 // shape matches, in its simplest form: the name is the whole of the last
-// segment and a valid DNS label, and nothing is escaped or tucked behind a
-// ";". Streamable HTTP has a single endpoint, so /mcp/<name>/anything isn't
-// routed, and nor is the old SSE transport's second path.
+// segment and a valid DNS label, and nothing is escaped. Streamable HTTP has a
+// single endpoint, so /mcp/<name>/anything isn't routed, and nor is the old
+// SSE transport's second path.
+//
+// A DNS label has no "/", ".", "\", ";" or "%", so it alone rules out every
+// trick with segments, and a path sent with nothing escaped is its own
+// escaped form, so comparing the two rules out escaping, %2f and %25 included.
 func mcpService(r *http.Request) (string, bool) {
 	p := r.URL.Path
-	raw := strings.ToLower(r.URL.EscapedPath())
-	if path.Clean(p) != p || raw != strings.ToLower(p) ||
-		strings.Contains(raw, "%2f") || strings.Contains(raw, "%5c") || strings.Contains(raw, "%25") ||
-		strings.ContainsAny(p, "\\;") {
-		return "", false
-	}
 	name, ok := strings.CutPrefix(p, mcpPrefix)
-	if !ok || !config.ValidLabel(name) {
+	if !ok || !config.ValidLabel(name) || r.URL.EscapedPath() != p {
 		return "", false
 	}
 	return name, true
@@ -77,8 +74,12 @@ func (g *Gateway) serveMCP(w http.ResponseWriter, r *http.Request) {
 	g.touchAccessToken(pt.token)
 
 	// The app sees the request it would get on its own address: its own
-	// host, which the identity token's audience is too, at its own path.
-	g.proxyAsTo(w, r, rt, u, target{host: g.appHost(rt.Name), path: rt.MCPPath, mcp: true})
+	// host, which the identity token's audience is too, at its own path. The
+	// host is taken from its origin rather than appHost, so an app off the
+	// tailnet gets the portal's port with it, as a browser's request would
+	// carry, and builds absolute URLs that reach it.
+	_, host, _ := strings.Cut(g.appOrigin(rt.Name), "://")
+	g.proxyAsTo(w, r, rt, u, target{host: host, path: rt.MCPPath, mcp: true})
 }
 
 // oauthDiscovery reports whether p is one of the addresses an MCP client
