@@ -36,7 +36,9 @@ func mcpService(r *http.Request) (string, bool) {
 // cookie, no public path, no sign-in page, since an MCP client can follow
 // none of them. Every way a token fails to reach an app, including an app
 // that doesn't exist or doesn't serve MCP, is the same 401, counted against
-// the address, so a token can't be used to map what is there.
+// the address, so a token can't be used to map what is there. The one
+// exception is a good token whose user the app's allow list refuses, which
+// gets the 403 it would on the app's own host.
 func (g *Gateway) serveMCP(w http.ResponseWriter, r *http.Request) {
 	presented := presentedAccessTokens(r.Header)
 	// Whatever happens next, the token goes no further than here.
@@ -89,13 +91,18 @@ func (g *Gateway) serveMCP(w http.ResponseWriter, r *http.Request) {
 // portal, with the signed-in user's session behind it. So the response is
 // never stored, never sniffed, and never a document with an origin, and the
 // headers that would let an app set the portal origin's policy are dropped.
+//
+// Location goes too. Every app's MCP endpoint shares this origin, so a client
+// that follows a redirect from one app to /mcp/<another> sends its token
+// along, and the other app gets a request meant for the first as that user.
+// Streamable HTTP never redirects, so nothing legitimate is lost.
 func onPortalOrigin(h http.Header) {
 	for k := range h {
 		if strings.HasPrefix(k, "Access-Control-") {
 			delete(h, k)
 		}
 	}
-	for _, k := range []string{"Clear-Site-Data", "Strict-Transport-Security", "Refresh", "Link"} {
+	for _, k := range []string{"Clear-Site-Data", "Strict-Transport-Security", "Refresh", "Link", "Location", "Content-Location"} {
 		h.Del(k)
 	}
 	h.Set("Cache-Control", "no-store")
