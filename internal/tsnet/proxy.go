@@ -10,22 +10,37 @@ import (
 	"time"
 )
 
+// serviceHeaderTimeout bounds how long a node that proxies straight to a
+// service waits for its response headers. A variable so a test can shorten it.
+var serviceHeaderTimeout = 60 * time.Second
+
 // newProxy builds the reverse proxy that carries tailnet requests to the
 // service on loopback.
 //
 // This is deliberately separate from the tsnet node so it can be tested
 // against an ordinary local server, without a tailnet (§13).
 func newProxy(port int) *httputil.ReverseProxy {
-	return newProxyTo(&url.URL{Scheme: "http", Host: fmt.Sprintf("127.0.0.1:%d", port)}, "")
+	return newProxyWith(&url.URL{Scheme: "http", Host: fmt.Sprintf("127.0.0.1:%d", port)}, "", serviceHeaderTimeout)
 }
 
-// newProxyTo builds the same proxy for any upstream: the service itself, or
-// the login gateway in front of it. serverName is the name to verify an https
-// upstream's certificate against, since it is dialled by address.
+// newProxyTo builds the proxy a node serves in front of the login gateway.
+// serverName is the name to verify an https upstream's certificate against,
+// since it is dialled by address.
+//
+// It sets no header timeout: the hop is loopback, and the gateway already
+// decides how long to wait for the app behind it. A second, shorter limit
+// here cut off anything the app took over a minute to answer, such as a long
+// MCP tool call, with a 502 the gateway never chose.
 func newProxyTo(target *url.URL, serverName string) *httputil.ReverseProxy {
+	return newProxyWith(target, serverName, 0)
+}
+
+// newProxyWith is the proxy both build. headerTimeout of 0 waits for response
+// headers for as long as the request lasts.
+func newProxyWith(target *url.URL, serverName string, headerTimeout time.Duration) *httputil.ReverseProxy {
 	transport := &http.Transport{
 		DialContext:           (&net.Dialer{Timeout: dialTimeout}).DialContext,
-		ResponseHeaderTimeout: 60 * time.Second,
+		ResponseHeaderTimeout: headerTimeout,
 		IdleConnTimeout:       90 * time.Second,
 		MaxIdleConnsPerHost:   8,
 	}
