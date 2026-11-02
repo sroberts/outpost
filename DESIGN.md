@@ -326,4 +326,5 @@ Once the line is long, a "Filter apps" search field appears above it; it is pres
 - **Don't** add shadows other than the lamp's glow.
 - **Don't** write inline `style` attributes or inline `<script>`; the CSP forbids them.
 - **Don't** fetch fonts, icons or images from anywhere; everything is embedded.
+- **Do** draw icons from the one sprite in the page: 16-unit grid, 1.5 stroke, round caps, in the colour of the text beside them, always with the word for a screen reader. Never a Unicode glyph or emoji.
 - **Don't** add a light theme.

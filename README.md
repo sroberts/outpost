@@ -653,8 +653,8 @@ the session and a forgotten tab should still sign out. So a crash that happens
 while you're watching a quiet page shows once you reload.
 
 Each app also shows what it's using, to everyone who can see it: a line such
-as `2.0% CPU · 84 MB memory · 1.2 GB stored`, and under **Last 24 hours** a
-small graph of each:
+as `2.0%  84 MB  1.2 GB`, with an icon for CPU, memory and storage, and under
+**Last 24 hours** a small graph of each:
 
 - **CPU** is a percent of one core, as `top` shows it, so a busy app on
   several cores can pass 100%. Each point is the busiest half minute in its

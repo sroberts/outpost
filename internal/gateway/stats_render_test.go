@@ -57,7 +57,7 @@ func TestCatalogShowsUsageLineAndGraphs(t *testing.T) {
 	row := rowOf(t, b, "yarr")
 
 	for _, want := range []string{
-		`<summary class="usage"><span class="figs">2.0% CPU · 84 MB memory · 1.2 GB stored</span><span class="sr"> for yarr</span></summary>`,
+		`<summary class="usage"><span class="figs">` + fig("cpu", "2.0%", "CPU") + " " + fig("memory", "84 MB", "memory") + " " + fig("storage", "1.2 GB", "stored") + `</span><span class="sr"> for yarr</span></summary>`,
 		`<div class="stats-panel">
 <p class="when">Since `,
 		"<dt>CPU</dt>", "<dt>Memory</dt>", "<dt>Network</dt>", "<dt>Storage</dt>",
@@ -158,8 +158,8 @@ func TestUnmeasuredAndPartialUsage(t *testing.T) {
 	}
 	yarr := rowOf(t, b, "yarr")
 	for _, want := range []string{
-		`<span aria-hidden="true">– CPU</span><span class="sr">CPU not measured yet</span>`,
-		"5.0 MB memory", "at least 3.0 GB stored", "now at least 3.0 GB",
+		`<use href="#i-cpu"/></svg><span aria-hidden="true">–</span><span class="sr">CPU not measured yet</span>`,
+		fig("memory", "5.0 MB", "memory"), fig("storage", "at least 3.0 GB", "stored"), "now at least 3.0 GB",
 	} {
 		if !strings.Contains(yarr, want) {
 			t.Errorf("yarr's row lacks %q:\n%s", want, yarr)
@@ -170,7 +170,7 @@ func TestUnmeasuredAndPartialUsage(t *testing.T) {
 	}
 
 	notes := rowOf(t, b, "notes")
-	if !strings.Contains(notes, `<summary class="usage"><span class="figs">4.0 MB stored</span>`) {
+	if !strings.Contains(notes, `<summary class="usage"><span class="figs">`+fig("storage", "4.0 MB", "stored")+`</span>`) {
 		t.Errorf("a stopped app doesn't show just its storage:\n%s", notes)
 	}
 	if strings.Contains(notes, "CPU") || strings.Contains(notes, "memory") {
@@ -335,4 +335,11 @@ func TestUnmeasuredStretchEndsAtTheFirstReadingOfAny(t *testing.T) {
 	if want := "M0," + coord(baseY) + "H" + coord(float64(sparkW)*48/float64(stats.Buckets-1)); tile.Gap != want {
 		t.Errorf("gap = %q; want %q, ending at the earliest reading", tile.Gap, want)
 	}
+}
+
+// fig is one figure in the usage line as a row renders it: the icon and the
+// number, with the word for a screen reader.
+func fig(icon, text, word string) string {
+	return `<span class="fig" title="` + word + `"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-` + icon + `"/></svg>` +
+		text + `<span class="sr"> ` + word + `</span></span>`
 }

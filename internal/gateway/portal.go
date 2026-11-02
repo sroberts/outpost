@@ -114,6 +114,7 @@ func (g *Gateway) home(w http.ResponseWriter, r *http.Request) {
 		Stations: sts,
 		Counts:   counts,
 		Search:   len(sts) >= searchFrom,
+		Icons:    slices.ContainsFunc(sts, func(s station) bool { return s.Usage != nil }),
 	}
 	if u.Admin && g.updater != nil {
 		g.checkIfStale()
