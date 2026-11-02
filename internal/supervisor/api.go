@@ -51,6 +51,7 @@ type ServiceStatus struct {
 	Allow       []string `json:"allow,omitempty"`
 	Hidden      bool     `json:"hidden,omitempty"`
 	PublicPaths []string `json:"public_paths,omitempty"`
+	MCPPath     string   `json:"mcp_path,omitempty"`
 
 	// Where the binary came from, for the gateway's update page.
 	Source  string `json:"source,omitempty"`
@@ -311,6 +312,7 @@ func (s *Supervisor) statusOf(name string) ServiceStatus {
 		st.Source = svc.Source
 		st.Release = svc.Release
 		st.PublicPaths = svc.PublicPaths
+		st.MCPPath = svc.MCPPath
 		s.addRelease(&st, svc)
 	}
 	if rec, found, err := s.store.GetService(name); err == nil && found {

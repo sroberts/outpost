@@ -187,10 +187,14 @@ This is how an operator gets one login for all their services, so:
   `outpost` on a plain-http gateway) and is removed before the request reaches
   you. Don't name a cookie of your own either of those.
 
-Non-browser clients get no further than the login: an unauthenticated `GET`
-is redirected to the sign-in page and anything else is refused with `401`. A
-feed reader, an API token, or an MCP client on the tailnet cannot sign in
-through the gateway yet, so features that depend on one don't work through it.
+Non-browser clients sign in with a personal access token instead
+(`outpost token create`), sent as `Authorization: Bearer opat_...` or in
+`Outpost-Token`. A request carrying one reaches you exactly as a signed-in
+browser's does, with the same identity headers and identity token, and the
+token itself is removed first. A bearer token without the `opat_` prefix is
+left alone, so your own API keys still reach you in `Authorization`. With no
+credential at all, an unauthenticated `GET` is redirected to the sign-in page
+and anything else is refused with `401`.
 
 ### Secrets
 
@@ -310,9 +314,33 @@ zero, that it stopped deliberately.
 None of this is required to be supervised. It matters for how a service is
 *presented* once the remaining Outpost features land.
 
-**MCP endpoint.** If you serve MCP, do it at `/mcp` and have the operator set
-`mcp = true`. That flag is informational today — Outpost records it and does
-nothing else with it.
+**MCP endpoint.** If you serve MCP, use the Streamable HTTP transport at a
+single path, `/mcp` by convention, and say where in the manifest:
+
+```toml
+mcp_path = "/mcp"
+```
+
+With the gateway on, an MCP client holding an access token then has two ways
+in, both behind the gateway:
+
+- `https://<tailscale_name>.<tailnet>.ts.net/<mcp_path>`, your own address, as
+  for any other request.
+- `https://<portal>/mcp/<name>`, one address on the portal for every service's
+  MCP. The gateway sends it to your `mcp_path`, keeping the query string.
+
+Requests that come in through the portal arrive as if they had come to your own
+address: `Host` and `X-Forwarded-Host` are your own host, not the portal's, and
+the identity token's `aud` is your host too, so verifying it needs nothing
+extra. They only ever carry an access token's identity. `Set-Cookie` is dropped
+from your responses to them, because they are on the portal's origin; keep MCP
+session state in `Mcp-Session-Id`, which passes through both ways. A response
+can stream (`text/event-stream`), and there is no time limit on how long you
+take to answer. Only the one path is routed, so the old SSE transport, which
+hands the client a second path, does not work through the portal.
+
+`mcp = true` stays informational: Outpost records it and does nothing else with
+it.
 
 **Machine-readable API description.** Serving your OpenAPI document at
 `GET /v1/openapi.json` is what Outpost's Hermes `SKILL.md` generator will

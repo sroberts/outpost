@@ -65,7 +65,34 @@ func (s *Service) validateCatalog() []error {
 			errs = append(errs, err)
 		}
 	}
+	if s.MCPPath != "" {
+		if err := validMCPPath(s.MCPPath); err != nil {
+			errs = append(errs, err)
+		}
+	}
 	return errs
+}
+
+// validMCPPath checks mcp_path: one absolute path in its simplest form, which
+// the gateway sets on the request as is. Nothing it would have to escape, and
+// nothing under the gateway's own /.outpost/.
+func validMCPPath(p string) error {
+	if !strings.HasPrefix(p, "/") {
+		return fmt.Errorf("mcp_path %q must start with \"/\"", p)
+	}
+	if strings.ContainsAny(p, "?#") {
+		return fmt.Errorf("mcp_path %q is a path, without a query or fragment", p)
+	}
+	if strings.ContainsAny(p, "%\\;") || strings.IndexFunc(p, func(r rune) bool { return unicode.IsSpace(r) || !unicode.IsPrint(r) }) >= 0 {
+		return fmt.Errorf("mcp_path %q has characters that would need escaping; use a plain path like \"/mcp\"", p)
+	}
+	if path.Clean(p) != p {
+		return fmt.Errorf("mcp_path %q isn't in its simplest form; write %q", p, path.Clean(p))
+	}
+	if p == "/.outpost" || strings.HasPrefix(p, "/.outpost/") {
+		return fmt.Errorf("mcp_path %q is under /.outpost/, which belongs to the gateway", p)
+	}
+	return nil
 }
 
 // oneLine checks a catalog string: printable, no line breaks, not too long.

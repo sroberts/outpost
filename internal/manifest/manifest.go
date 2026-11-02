@@ -48,6 +48,10 @@ type Service struct {
 	Allow       []string `toml:"allow"`
 	Hidden      bool     `toml:"hidden"`
 	PublicPaths []string `toml:"public_paths"`
+	// MCPPath is where the service serves MCP (Streamable HTTP), such as
+	// "/mcp". With it set, the gateway also routes https://<portal>/mcp/<name>
+	// there, for clients holding an access token.
+	MCPPath string `toml:"mcp_path"`
 
 	// root is the Outpost home that a relative storage path resolves against.
 	// Unexported so TOML cannot set it: it comes from where the manifest was

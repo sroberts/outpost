@@ -244,7 +244,14 @@ func (g *Gateway) proxyApp(w http.ResponseWriter, r *http.Request, rt route) {
 // through the allow check. Every way of being signed in comes through here, so
 // an app can't tell them apart.
 func (g *Gateway) proxyAs(w http.ResponseWriter, r *http.Request, rt route, u auth.User) {
-	idTok, err := g.identityToken(u, g.hostOf(r))
+	g.proxyAsTo(w, r, rt, u, target{host: g.rawHost(r)})
+}
+
+// proxyAsTo is proxyAs, with where the request goes given by to: its host,
+// and for MCP its path and how errors are answered. The rest of to is filled
+// in here.
+func (g *Gateway) proxyAsTo(w http.ResponseWriter, r *http.Request, rt route, u auth.User, to target) {
+	idTok, err := g.identityToken(u, hostname(to.host))
 	if err != nil {
 		g.logf("gateway: %s: identity token: %v", rt.Name, err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -254,15 +261,9 @@ func (g *Gateway) proxyAs(w http.ResponseWriter, r *http.Request, rt route, u au
 	removeCookie(r.Header, g.cookieName)
 	removeCookie(r.Header, g.stateCookieName())
 
-	ctx := context.WithValue(r.Context(), targetKey{}, target{
-		name:   rt.Name,
-		port:   rt.Port,
-		host:   g.rawHost(r),
-		client: g.clientIP(r),
-		admin:  u.Admin,
-		user:   &u,
-		token:  idTok,
-	})
+	to.name, to.port, to.client = rt.Name, rt.Port, g.clientIP(r)
+	to.admin, to.user, to.token = u.Admin, &u, idTok
+	ctx := context.WithValue(r.Context(), targetKey{}, to)
 	g.proxy.ServeHTTP(w, r.WithContext(ctx))
 }
 
@@ -291,6 +292,13 @@ type target struct {
 	// nil for a public path, which carries none.
 	user  *auth.User
 	token string
+	// path, when set, replaces the request's path, keeping its query: the
+	// app's mcp_path, for a request that came to /mcp/<name>.
+	path string
+	// mcp marks a request from an MCP client rather than a browser: an error
+	// is a line of plain text, not a page, and the app may set no cookies,
+	// since the response is on the portal's origin.
+	mcp bool
 }
 
 func (g *Gateway) newProxy() *httputil.ReverseProxy {
@@ -298,6 +306,9 @@ func (g *Gateway) newProxy() *httputil.ReverseProxy {
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			t := pr.In.Context().Value(targetKey{}).(target)
 			pr.SetURL(&url.URL{Scheme: "http", Host: net.JoinHostPort("127.0.0.1", strconv.Itoa(t.port))})
+			if t.path != "" {
+				pr.Out.URL.Path, pr.Out.URL.RawPath = t.path, ""
+			}
 			// The host the browser used, so an app that builds absolute URLs
 			// builds reachable ones.
 			pr.Out.Host = t.host
@@ -321,6 +332,13 @@ func (g *Gateway) newProxy() *httputil.ReverseProxy {
 			pr.Out.Header.Del("X-Client-IP")
 		},
 		ModifyResponse: func(resp *http.Response) error {
+			if t, _ := resp.Request.Context().Value(targetKey{}).(target); t.mcp {
+				// The portal's origin is shared by every app's MCP endpoint
+				// and the portal itself, so no app gets to set a cookie on
+				// it. MCP keeps its session in Mcp-Session-Id instead.
+				resp.Header.Del("Set-Cookie")
+				return nil
+			}
 			removeSetCookies(resp.Header, sessionCookieNames)
 			return nil
 		},
@@ -337,6 +355,10 @@ func (g *Gateway) newProxy() *httputil.ReverseProxy {
 				return // the client went away; nobody to tell
 			}
 			g.logf("gateway: %s: %v", t.name, err)
+			if t.mcp {
+				http.Error(w, "outpost: "+t.name+" is not answering", http.StatusBadGateway)
+				return
+			}
 			g.unavailable(w, r, t.name, t.admin)
 		},
 	}
