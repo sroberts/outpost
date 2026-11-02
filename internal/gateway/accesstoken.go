@@ -62,6 +62,18 @@ func removeAccessTokens(h http.Header) {
 	}
 }
 
+// isAccessTokenName reports whether a header name is Outpost-Token once case
+// and everything but letters and digits are ignored.
+func isAccessTokenName(name string) bool {
+	var b strings.Builder
+	for _, c := range strings.ToLower(name) {
+		if c >= 'a' && c <= 'z' || c >= '0' && c <= '9' {
+			b.WriteRune(c)
+		}
+	}
+	return b.String() == "outposttoken"
+}
+
 // serveWithAccessToken handles a request that presented a token, whose headers
 // no longer carry it. Whatever else the request has, such as a good session
 // cookie or a public path, nothing here falls back on it: a client that sent a
@@ -74,6 +86,49 @@ func (g *Gateway) serveWithAccessToken(w http.ResponseWriter, r *http.Request, r
 		return
 	}
 
+	pt, ok := g.lookupAccessToken(w, r, presented, rt.Name)
+	if !ok {
+		return
+	}
+	t, u := pt.token, pt.user
+	// The same answer as a bad token, so a token can't be used to map what
+	// else exists beyond what it was given.
+	if !t.Reaches(rt.Name) {
+		pt.reject(fmt.Sprintf("for %s to %s from %s", u.Username, rt.Name, pt.ip))
+		return
+	}
+	if !allowed(u, rt) {
+		g.activity.failed(EventDenied, fmt.Sprintf("for %s to %s", u.Username, rt.Name), false)
+		http.Error(w, "this account can't open this app", http.StatusForbidden)
+		return
+	}
+	g.touchAccessToken(t)
+	// A public path works the way it does for a signed-in browser, with no
+	// identity, so an app can go on assuming nothing there has one.
+	if g.isPublic(r, rt) {
+		g.proxyPublic(w, r, rt)
+		return
+	}
+	g.proxyAs(w, r, rt, u)
+}
+
+// presentedToken is a token the gateway has looked up and found, before
+// anything has checked it against the app it was presented for.
+type presentedToken struct {
+	token auth.AccessToken
+	user  auth.User
+	ip    string
+	// reject turns the request away as if the token were bad, and counts it
+	// against the address. Every check after the lookup that fails has to
+	// answer this way, so nothing tells a token's holder more than "no".
+	reject func(subject string)
+}
+
+// lookupAccessToken does what every request presenting a token goes through
+// before its route's own checks: the address's throttle, exactly one token,
+// and the lookup. It reports false once it has answered the request itself.
+// what names the request's target in a logged error.
+func (g *Gateway) lookupAccessToken(w http.ResponseWriter, r *http.Request, presented []string, what string) (presentedToken, bool) {
 	ip := g.clientIP(r)
 	key := "ip:" + ip
 	now := g.now()
@@ -83,10 +138,11 @@ func (g *Gateway) serveWithAccessToken(w http.ResponseWriter, r *http.Request, r
 		g.activity.failed(EventTokenFail, "from "+ip, true)
 		w.Header().Set("Retry-After", strconv.Itoa(int(d.Seconds()+0.999)))
 		http.Error(w, "too many rejected access tokens; try again later", http.StatusTooManyRequests)
-		return
+		return presentedToken{}, false
 	}
 
-	reject := func(subject string) {
+	pt := presentedToken{ip: ip}
+	pt.reject = func(subject string) {
 		g.tokenThrottle.fail(now, key)
 		g.activity.failed(EventTokenFail, subject, false)
 		g.unauthorizedToken(w)
@@ -94,44 +150,32 @@ func (g *Gateway) serveWithAccessToken(w http.ResponseWriter, r *http.Request, r
 	// Two tokens could only be a mistake or an attempt to confuse something,
 	// and there is no right one to pick.
 	if len(presented) != 1 {
-		reject("from " + ip)
-		return
+		pt.reject("from " + ip)
+		return presentedToken{}, false
 	}
 	t, u, err := g.auth.LookupAccessToken(presented[0])
 	if errors.Is(err, auth.ErrNoSuchAccessToken) {
-		reject("from " + ip)
-		return
+		pt.reject("from " + ip)
+		return presentedToken{}, false
 	}
 	if err != nil {
-		g.logf("gateway: %s: access token lookup: %v", rt.Name, err)
+		g.logf("gateway: %s: access token lookup: %v", what, err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
+		return presentedToken{}, false
 	}
-	// The same answer as a bad token, so a token can't be used to map what
-	// else exists beyond what it was given.
-	if !t.Reaches(rt.Name) {
-		reject(fmt.Sprintf("for %s to %s from %s", u.Username, rt.Name, ip))
-		return
-	}
-	if !allowed(u, rt) {
-		g.activity.failed(EventDenied, fmt.Sprintf("for %s to %s", u.Username, rt.Name), false)
-		http.Error(w, "this account can't open this app", http.StatusForbidden)
-		return
-	}
+	pt.token, pt.user = t, u
+	return pt, true
+}
 
-	// A good token doesn't clear the address's failures: if it did, anyone
-	// holding one could wipe the record between guesses and never be slowed.
-	// The record ages out on its own.
+// touchAccessToken records a token's use, once it has passed every check.
+//
+// A good token doesn't clear the address's failures: if it did, anyone
+// holding one could wipe the record between guesses and never be slowed.
+// The record ages out on its own.
+func (g *Gateway) touchAccessToken(t auth.AccessToken) {
 	if err := g.auth.TouchAccessToken(t); err != nil {
 		g.logf("gateway: %v", err)
 	}
-	// A public path works the way it does for a signed-in browser, with no
-	// identity, so an app can go on assuming nothing there has one.
-	if g.isPublic(r, rt) {
-		g.proxyPublic(w, r, rt)
-		return
-	}
-	g.proxyAs(w, r, rt, u)
 }
 
 // unauthorizedToken answers a token that doesn't work here. It is a plain

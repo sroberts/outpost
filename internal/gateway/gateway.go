@@ -261,9 +261,21 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	host := g.hostOf(r)
 	switch {
 	case host == g.portalHost:
+		// The one place a token works on the portal: an app's MCP
+		// endpoint, which takes nothing else.
+		if strings.HasPrefix(r.URL.Path, mcpPrefix) {
+			g.serveMCP(w, r)
+			return
+		}
 		// Tokens reach apps, not the place accounts are managed from.
 		if len(presentedAccessTokens(r.Header)) > 0 {
 			g.refuseAccessToken(w, r)
+			return
+		}
+		// A plain answer, so an MCP client whose token has stopped working
+		// reports that rather than following a page it can't use.
+		if oauthDiscovery(r.URL.Path) {
+			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
 		g.servePortal(w, r)

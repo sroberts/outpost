@@ -300,6 +300,7 @@ tailscale_name = "plumbline"                   # required, unique on the tailnet
 funnel         = false                         # rejected if true
 healthcheck    = "/up"
 mcp            = true                          # informational only
+mcp_path       = "/mcp"                        # where you serve MCP; see Access tokens
 hermes_skill   = true                          # informational until §11 is built
 restart_policy = "on-failure"                  # "on-failure" | "always" | "never"
 backoff_seconds     = 5
@@ -320,6 +321,7 @@ start_grace_seconds = 30
 | `funnel` | `false` | `true` is rejected — deferred, not designed out |
 | `source` | — | GitHub `owner/repo` the binary came from; what `outpost update` fetches |
 | `release` | — | Release tag installed. Neither field changes what runs, so editing them restarts nothing |
+| `mcp_path` | — | Where the service serves MCP (Streamable HTTP). Lets MCP clients with an access token reach it at `https://<portal>/mcp/<name>`; see [MCP clients](#mcp-clients) |
 
 `outpost apply` validates the whole set and fails loudly rather than
 half-applying. It checks for duplicate names, ports and Tailscale names,
@@ -775,9 +777,10 @@ tell it from a browser. The app never sees the token itself.
   with `--app` (repeatable, by service name). Naming an app grants nothing the
   `allow` list doesn't. `--expires` takes days (`90d`), weeks (`12w`) or hours
   (`24h`); without it a token doesn't expire.
-- **Apps only.** A token is refused on the portal and under `/.outpost/` on app
-  hosts, so it can't reach the account page, updates or sign-in, and it never
-  creates a session or sets a cookie. Tokens are managed from the CLI.
+- **Apps only.** A token is refused on the portal, apart from its
+  [MCP endpoints](#mcp-clients), and under `/.outpost/` on app hosts, so it
+  can't reach the account page, updates or sign-in, and it never creates a
+  session or sets a cookie. Tokens are managed from the CLI.
 - **A failed token is an answer, not a fallback.** A token that is wrong, expired,
   revoked or out of scope gets a plain `401` with `WWW-Authenticate: Bearer`, and
   one whose user the `allow` list refuses gets a plain `403`; neither is
@@ -791,6 +794,46 @@ tell it from a browser. The app never sees the token itself.
   out everywhere from the account page, and changing or resetting a password all
   revoke the user's tokens, and enabling the user again doesn't bring them back.
   Ending one browser session on the account page leaves tokens alone.
+
+#### MCP clients
+
+A service that serves MCP over Streamable HTTP says where in its manifest:
+
+```toml
+mcp_path = "/mcp"
+```
+
+An MCP client with an access token can then reach it at one address on the
+portal, `https://<portal>/mcp/<service>`, as well as at its `mcp_path` on the
+service's own address, `https://<tailscale_name>.<tailnet>.ts.net`. With the
+portal [on the tailnet](#the-portal-on-the-tailnet), from Claude Code:
+
+```sh
+export OUTPOST_TOKEN=$(outpost token create alice --name claude-code --app sous --expires 90d)
+claude mcp add --transport http sous https://outpost.<tailnet>.ts.net/mcp/sous \
+  --header 'Authorization: Bearer ${OUTPOST_TOKEN}'
+```
+
+Claude Desktop reaches it the same way through a local `mcp-remote` bridge.
+
+A request to `/mcp/<service>` goes through everything any token request does:
+the throttle, the token, its scope and the app's `allow` list. It then goes to
+the service at its `mcp_path`, with the query string kept, with `Host` set to
+the service's own host, and with the same identity headers and identity token
+(`aud` the service's host) as anywhere else. It takes tokens only. With no
+token it gets `401` with `WWW-Authenticate: Bearer`, never a sign-in page, and
+a browser's session doesn't count. A bad, expired or out-of-scope token, a
+service that doesn't exist and one with no `mcp_path` all get the same `401`,
+so a token can't be used to find out which services there are. Only the exact
+path is routed: `/mcp/<service>/anything` isn't, and the old SSE transport,
+which needs a second path, isn't supported. Responses stream, any `Set-Cookie`
+the service sends is dropped (the portal's origin isn't the service's to set
+cookies on), `Mcp-Session-Id` passes through, and a service that is down gets
+a plain-text `502`. The portal answers OAuth discovery
+(`/.well-known/oauth-protected-resource` and the like) with a plain `404`, so
+a client whose token has stopped working reports that rather than looking for
+a sign-in. There is no OAuth server, so connectors that run in Anthropic's
+cloud, rather than on a machine on your tailnet, can't use this.
 
 ## What Outpost trusts
 
