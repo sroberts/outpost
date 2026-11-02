@@ -335,6 +335,7 @@ func (a *app) manifestOptions(useTailnet bool) manifest.Options {
 	opts := manifest.Options{RequireTailscale: useTailnet, RequireDNSName: a.config.Gateway.Enabled}
 	if a.config.Gateway.Enabled {
 		opts.PortalTailscaleName = a.config.Gateway.TailscaleName
+		opts.Gateway = true
 	}
 	return opts
 }

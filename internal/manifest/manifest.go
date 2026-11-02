@@ -199,6 +199,9 @@ type Options struct {
 	// PortalTailscaleName is [gateway] tailscale_name: the portal's own node
 	// on the tailnet, which no service may take. "" when it has none.
 	PortalTailscaleName string
+	// Gateway is whether the gateway is on. Validation doesn't read it;
+	// Warnings does, as mcp_path only matters to the gateway.
+	Gateway bool
 }
 
 // DefaultOptions is the strictest set: Tailscale in use.
