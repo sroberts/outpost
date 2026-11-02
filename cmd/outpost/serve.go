@@ -99,6 +99,7 @@ func (a *app) cmdServe(args []string) error {
 	watch.at("starting the tailnet router")
 	var router supervisor.TailnetRouter
 	var tailnetHosts func() map[string]string
+	var tsRouter *outposttsnet.Router
 	if useTailnet {
 		authKey := a.config.ResolveAuthKey()
 		opts := outposttsnet.Options{
@@ -119,6 +120,7 @@ func (a *app) cmdServe(args []string) error {
 		defer r.Close()
 		router = reportingRouter{r}
 		tailnetHosts = r.Hosts
+		tsRouter = r
 
 		if authKey == "" {
 			fmt.Fprintln(a.out, "outpost: no Tailscale auth key; a service's node that needs a login shows the URL in `outpost status <service>`")
@@ -139,7 +141,7 @@ func (a *app) cmdServe(args []string) error {
 		ServicesDir:     a.servicesDir(),
 		BackupDir:       a.backupsDir(),
 		Tailnet:         router,
-		ManifestOptions: manifest.Options{RequireTailscale: useTailnet, RequireDNSName: a.config.Gateway.Enabled},
+		ManifestOptions: a.manifestOptions(useTailnet),
 		Store:           store,
 		ProcessRuntime:  procs,
 		Interval:        *interval,
@@ -196,6 +198,7 @@ func (a *app) cmdServe(args []string) error {
 			Logf:     func(format string, v ...any) { fmt.Fprintf(a.out, format+"\n", v...) },
 
 			TailnetHosts: tailnetHosts,
+			PortalNode:   portalNodeStatus(tsRouter),
 			Updates:      supervisedUpdates{daemonUpdates{a}, sup},
 			SelfUpdates:  &selfWeb{a: a},
 			Control:      sup,
@@ -208,6 +211,16 @@ func (a *app) cmdServe(args []string) error {
 			return err
 		}
 		srv.UseGateway(gw)
+
+		// The portal isn't a service, so its node is attached here once,
+		// not by the reconcile loop. Non-blocking, like a service's.
+		if name := a.config.Gateway.TailscaleName; name != "" {
+			if tsRouter == nil {
+				fmt.Fprintf(a.out, "outpost: [gateway] tailscale_name = %q, but this daemon runs without Tailscale, so the portal stays off the tailnet\n", name)
+			} else if err := tsRouter.AttachPortal(context.Background(), name, gw.PortalHost()); err != nil {
+				fmt.Fprintf(a.err, "outpost: portal: %v\n", err)
+			}
+		}
 	}
 
 	if users, err := authStore.ListUsers(); err != nil {
@@ -314,6 +327,28 @@ func (a *app) supervisorPID() (int, bool) {
 		return pid, false
 	}
 	return pid, true
+}
+
+// manifestOptions are the manifest rules this configuration implies.
+// useTailnet is whether this run puts services on the tailnet.
+func (a *app) manifestOptions(useTailnet bool) manifest.Options {
+	opts := manifest.Options{RequireTailscale: useTailnet, RequireDNSName: a.config.Gateway.Enabled}
+	if a.config.Gateway.Enabled {
+		opts.PortalTailscaleName = a.config.Gateway.TailscaleName
+	}
+	return opts
+}
+
+// portalNodeStatus reports the portal's node to the gateway, or nil without
+// a router, in which case the portal has no node.
+func portalNodeStatus(r *outposttsnet.Router) func() (gateway.PortalNode, bool) {
+	if r == nil {
+		return nil
+	}
+	return func() (gateway.PortalNode, bool) {
+		ns, ok := r.NodeStatus(outposttsnet.PortalNode)
+		return gateway.PortalNode{State: ns.State, Host: ns.Host, LoginURL: ns.LoginURL, Error: ns.Error}, ok
+	}
 }
 
 // reportingRouter lets the supervisor ask the router how each node is doing,

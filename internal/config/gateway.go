@@ -39,6 +39,10 @@ type Gateway struct {
 	// AllowInsecure permits a plain-http public_url on a non-loopback
 	// listen address, which sends passwords across the network in clear.
 	AllowInsecure bool `toml:"allow_insecure"`
+	// TailscaleName gives the portal a tailnet node of its own, by that name,
+	// so public_url answers on the tailnet. public_url's host must then be
+	// <tailscale_name>.<tailnet>. Needs Tailscale on.
+	TailscaleName string `toml:"tailscale_name"`
 }
 
 // ListenAddr is Listen, or the default.
@@ -145,6 +149,17 @@ func (g Gateway) validate() error {
 			return fmt.Errorf("trusted_proxies: %q is not an address or CIDR", p)
 		}
 	}
+	if g.TailscaleName != "" {
+		if !ValidLabel(g.TailscaleName) {
+			return fmt.Errorf("tailscale_name %q must be one DNS label: lowercase a-z, 0-9 and '-'", g.TailscaleName)
+		}
+		// The portal's address is fixed when the daemon starts, so the node
+		// has to be the host public_url already names.
+		if first, rest, _ := strings.Cut(u.Hostname(), "."); first != g.TailscaleName || rest == "" {
+			return fmt.Errorf("tailscale_name = %q, so public_url's host must be %s.<your tailnet>.ts.net, not %q",
+				g.TailscaleName, g.TailscaleName, u.Hostname())
+		}
+	}
 	if u.Scheme == "http" && !isLoopbackHost(host) && !g.AllowInsecure {
 		return fmt.Errorf("public_url is plain http and listen %q is reachable from the network, so passwords "+
 			"would cross it in clear; use https, listen on loopback behind something that terminates TLS, "+
@@ -233,4 +248,7 @@ func (g Gateway) render(b *strings.Builder) {
 	if g.AllowInsecure {
 		b.WriteString("allow_insecure = true\n")
 	}
+	b.WriteString("# Give the portal its own tailnet node by this name, so public_url\n")
+	b.WriteString("# (https://<name>.<tailnet>.ts.net) answers on the tailnet. Needs Tailscale on.\n")
+	optional("tailscale_name", g.TailscaleName, "outpost")
 }

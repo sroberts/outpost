@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -92,6 +93,10 @@ func HasTailscaleSetting(path string) (bool, error) {
 func (c Config) Validate() error {
 	if err := c.Gateway.validate(); err != nil {
 		return fmt.Errorf("gateway: %w", err)
+	}
+	if c.Gateway.TailscaleName != "" && (!c.Gateway.Enabled || !c.TailscaleEnabled()) {
+		return errors.New("gateway: tailscale_name puts the portal on the tailnet, so it needs both the gateway " +
+			"([gateway] enabled = true) and Tailscale ([tailscale] enabled = true); turn them on or remove tailscale_name")
 	}
 	return nil
 }

@@ -226,7 +226,7 @@ func (a *app) validateAgainstExisting(svc *manifest.Service, name string) error 
 		set = append(set, other)
 	}
 
-	opts := manifest.Options{RequireTailscale: a.config.TailscaleEnabled(), RequireDNSName: a.config.Gateway.Enabled}
+	opts := a.manifestOptions(a.config.TailscaleEnabled())
 	if errs := manifest.ValidateWith(set, opts); len(errs) > 0 {
 		var b strings.Builder
 		fmt.Fprintf(&b, "the resulting manifest set would be invalid:")

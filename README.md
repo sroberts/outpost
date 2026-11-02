@@ -567,13 +567,13 @@ public_url = "https://outpost.example"   # the portal, as browsers see it
 # tls_key         = "/path/to/privkey.pem"     # when something in front terminates it
 # trusted_proxies = ["127.0.0.1/32", "::1/128"] # may set X-Forwarded-*
 # allow_insecure  = false                # see below
+# tailscale_name  = "outpost"            # the portal's own tailnet node; see below
 ```
 
 With Tailscale on, that is all the setup it needs: each app is served at its
-own node's tailnet address (below), with that node's certificate, and the
-portal can go on the tailnet too, with
-`tailscale serve --bg http://127.0.0.1:8443` and a `public_url` of
-`https://<machine>.<tailnet>.ts.net`. Without Tailscale, it needs a wildcard:
+own node's tailnet address (below), with that node's certificate, and
+`tailscale_name` puts the portal on the tailnet as a node of its own
+([The portal on the tailnet](#the-portal-on-the-tailnet)). Without Tailscale, it needs a wildcard:
 `*.outpost.example` resolving to the machine, and a certificate that covers
 it, whether the gateway serves TLS itself or something in front of it does. A plain-http `public_url` is fine on loopback, behind a
 proxy that terminates TLS, but with a network-facing `listen` Outpost rejects
@@ -611,6 +611,45 @@ Tailscale gives the node a different name because the one asked for is taken
 (`yarr-1`), the gateway uses the name the node actually got. Turning the
 gateway on in an existing tailnet setup changes nodes from plain http on port
 80 to this; `outpost daemon restart` picks it up.
+
+### The portal on the tailnet
+
+The gateway listens on loopback, so with nothing in front of it the portal
+can't be reached from anywhere else, even when `public_url` names the
+machine's tailnet address. `tailscale_name` gives the portal a tailnet node of
+its own, run like a service's (`outpost __tsnet-node`, state in
+`~/.outpost/tsnet/_portal/`), which serves HTTPS with the tailnet's
+certificate and hands everything to the gateway:
+
+```toml
+[gateway]
+enabled        = true
+public_url     = "https://outpost.<tailnet>.ts.net"
+tailscale_name = "outpost"
+```
+
+The node can't take the machine's own name, which the machine already has, so
+it needs one of its own. It needs Tailscale on, and `public_url`'s host has to
+be `<tailscale_name>.<something>`; Outpost refuses the config otherwise. No
+service's `tailscale_name` may be the portal's. Like any node, it answers only
+requests for its own name, so a peer can't name an app's host through it.
+
+The portal's address is fixed when the daemon starts: its host, cookie names,
+`OUTPOST_ISSUER` and the login links all come from `public_url`. So if
+Tailscale gives the node another name because `outpost` is taken
+(`outpost-1`), Outpost doesn't follow it. The daemon log says so in one line
+naming both, and `outpost gateway status` shows a warning. Free the name in the
+Tailscale admin console, or change `public_url` and `tailscale_name` to match,
+and restart the daemon. `outpost gateway status` also shows the node's state
+and, while it waits to be authorised, its login URL.
+
+**Moving an existing setup over** is a one-time change by hand: set
+`public_url = "https://outpost.<tailnet>.ts.net"` and
+`tailscale_name = "outpost"` under `[gateway]`, then run
+`outpost daemon restart`. Every service restarts with the daemon and picks up
+the new `OUTPOST_ISSUER`. Browser sessions belong to the old host, so everyone
+signs in again. If `tailscale serve` was forwarding the machine's name to the
+gateway, it can be turned off with `tailscale serve reset`.
 
 What the gateway decides goes in the activity feed, and `outpost gateway
 activity` shows it: who signed in or out and from which address, failed and
@@ -1119,8 +1158,9 @@ time the node starts; a daemon restart gives a new one. `outpost status
 asks for only if no other device on the tailnet has it, otherwise Tailscale
 appends `-1`. To take a name over from an old device, delete that device in
 the Tailscale admin console *before* logging the new node in.
-Each service costs one device on your tailnet — check your plan's limit before
-this scales past a handful. `funnel = true` is rejected.
+Each service costs one device on your tailnet, and so does the portal with
+`tailscale_name` set; check your plan's limit before this scales past a
+handful. `funnel = true` is rejected.
 
 The `TAILSCALE` column of `outpost list` is what the node is doing, not only
 what the manifest asks for:

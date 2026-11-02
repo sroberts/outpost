@@ -29,8 +29,13 @@ func runTsnetNode(args []string, stdout, stderr io.Writer) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if cfg.Service == "" || cfg.Hostname == "" || cfg.Dir == "" || cfg.Port == 0 {
+	if cfg.Service == "" || cfg.Hostname == "" || cfg.Dir == "" {
 		return fmt.Errorf("%s: --service, --hostname, --dir and --port are required", outposttsnet.NodeCommand)
+	}
+	// In front of the gateway the node never dials the service, and the
+	// portal's node has no service at all.
+	if cfg.Port == 0 && cfg.Upstream == "" {
+		return fmt.Errorf("%s: --port is required without --upstream", outposttsnet.NodeCommand)
 	}
 	cfg.AuthKey = os.Getenv(outposttsnet.AuthKeyEnv)
 

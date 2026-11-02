@@ -113,8 +113,11 @@ func LoadDir(dir string) ([]*Service, error) {
 func (s *Service) validateWith(opts Options) []error {
 	var errs []error
 
-	if s.Name == "" {
+	switch s.Name {
+	case "":
 		errs = append(errs, fmt.Errorf("name is required"))
+	case PortalNodeName:
+		errs = append(errs, fmt.Errorf("name %q is reserved for the portal's tailnet node; rename the service", s.Name))
 	}
 	if s.Runtime == "" {
 		errs = append(errs, fmt.Errorf("runtime is required"))
@@ -176,6 +179,10 @@ func (s *Service) validateWith(opts Options) []error {
 	return errs
 }
 
+// PortalNodeName is reserved for the portal's own tailnet node, whose state
+// lives beside the services' nodes, in a directory named after it.
+const PortalNodeName = "_portal"
+
 // Options controls the validation rules that depend on global configuration.
 type Options struct {
 	// RequireTailscale makes tailscale_name mandatory. False when the
@@ -185,6 +192,9 @@ type Options struct {
 	// error, unless subdomain or hostname gives the app its address. Set when
 	// the gateway is on, which serves apps at <name>.<domain>.
 	RequireDNSName bool
+	// PortalTailscaleName is [gateway] tailscale_name: the portal's own node
+	// on the tailnet, which no service may take. "" when it has none.
+	PortalTailscaleName string
 }
 
 // DefaultOptions is the strictest set: Tailscale in use.
@@ -227,6 +237,12 @@ func ValidateWith(services []*Service, opts Options) []error {
 				errs = append(errs, fmt.Errorf("%s: duplicate tailscale_name %q", svc.Name, svc.TailscaleName))
 			}
 			tsNames[svc.TailscaleName] = true
+			// The portal's node would be the second to ask for the name, and
+			// Tailscale would rename one of them out from under its address.
+			if svc.TailscaleName == opts.PortalTailscaleName {
+				errs = append(errs, fmt.Errorf("%s: tailscale_name %q is the portal's ([gateway] tailscale_name in config.toml)",
+					svc.Name, svc.TailscaleName))
+			}
 		}
 
 		// Two services at one gateway address would leave the second
