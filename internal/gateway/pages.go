@@ -8,6 +8,8 @@ import (
 	"html/template"
 	"net/http"
 	"strings"
+
+	"github.com/sroberts/outpost/internal/version"
 )
 
 //go:embed templates/*.html static/portal.css static/catalog.js static/poll.js static/return.js static/selfupdate.js static/menus.js static/lighthouse.webp
@@ -123,6 +125,7 @@ type pageData struct {
 	Portal               string // what the portal calls itself
 	Host                 string // the portal's address, for reading
 	Home                 string // the catalog's URL
+	Version              string // the build running, shown to anyone signed in
 }
 
 // render writes a page with the headers every gateway page carries.
@@ -131,6 +134,7 @@ func (g *Gateway) render(w http.ResponseWriter, r *http.Request, status int, nam
 	d.Portal = g.cfg.PortalName()
 	d.Host = strings.TrimPrefix(strings.TrimPrefix(g.portalOrigin, "https://"), "http://")
 	d.Home = g.portalLink()
+	d.Version = version.Get().Version
 	var buf bytes.Buffer
 	if err := g.pages[name].ExecuteTemplate(&buf, "layout", d); err != nil {
 		g.logf("gateway: render %s: %v", name, err)

@@ -234,7 +234,7 @@ A cold enamel night lit by exactly two warm things: the amber lamp and, when som
 - **Mono** (13px for the rail host; 12px for addresses, the tally, and commands): tabular figures.
 
 ### Named Rules
-**The Machine Strings Rule.** Monospace is for the host, app addresses, the hub tally, and `outpost` commands or usernames in `code`. Names, descriptions and prose are never mono.
+**The Machine Strings Rule.** Monospace is for the host, app addresses, the hub tally, the footer's build, and `outpost` commands or usernames in `code`. Names, descriptions and prose are never mono.
 
 **The Status Label Rule.** Uppercase tracked text is reserved for the state label and the hidden tag sitting beside a station name. It is never used as a heading or a label above a heading.
 
