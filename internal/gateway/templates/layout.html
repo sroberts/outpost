@@ -14,7 +14,8 @@
 </head>
 <body>
 {{template "body" .}}
-</body>
+{{if .Who}}<footer class="foot">Outpost {{.Version}}</footer>
+{{end}}</body>
 </html>
 {{end}}
 {{define "rail"}}<header class="rail">
