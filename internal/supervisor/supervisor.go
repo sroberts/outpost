@@ -217,6 +217,11 @@ func (s *Supervisor) applyLocked(ctx context.Context) error {
 	if errs := manifest.ValidateWith(services, s.manifestOpts); len(errs) > 0 {
 		return fmt.Errorf("invalid manifests:\n%s", indentErrors(errs))
 	}
+	// Here rather than only in `outpost apply`, so a manifest edited and
+	// picked up by Reload, or read at startup, is pointed out too.
+	for _, w := range manifest.Warnings(services, s.manifestOpts) {
+		s.logf("warning: %v", w)
+	}
 
 	next := make(map[string]*manifest.Service, len(services))
 	for _, svc := range services {

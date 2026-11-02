@@ -46,6 +46,9 @@ func (a *app) cmdApply(args []string) error {
 	for _, svc := range services {
 		fmt.Fprintf(a.out, "  %-20s %-9s port %d\n", svc.Name, svc.Runtime, svc.Port)
 	}
+	for _, w := range manifest.Warnings(services, a.manifestOptions(a.config.TailscaleEnabled())) {
+		fmt.Fprintf(a.err, "warning: %v\n", w)
+	}
 
 	c := a.client()
 	if !c.Available() {
