@@ -294,9 +294,10 @@ button.plain:hover { background: none; border-color: var(--beam); }
 /* An admin's Manage menu. Its pill is pinned to the row's top right, so
    opening it moves nothing above; the actions open as a strip at the foot
    of the row, under a rule like everything else on the line. */
-/* Only the name line makes room for it; the pill sits level with the name
-   and clears the line beneath, so descriptions keep the full width. */
-.managed .top { padding-right: 6.75rem; }
+/* The name line makes room for it, across and down: the pill sits level with
+   the name, and what's beneath starts below the pill's whole target, so a tap
+   on the address can't land on Manage and descriptions keep the full width. */
+.managed .top { padding-right: 6.75rem; min-height: 34px; }
 .acts:not([open]) { margin-top: -3px; } /* the pill is out of flow; no gap for it */
 .acts > summary, .confirm > summary { list-style: none; }
 .acts > summary::-webkit-details-marker, .confirm > summary::-webkit-details-marker { display: none; }
