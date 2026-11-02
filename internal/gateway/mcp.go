@@ -81,6 +81,27 @@ func (g *Gateway) serveMCP(w http.ResponseWriter, r *http.Request) {
 	g.proxyAsTo(w, r, rt, u, target{host: g.appHost(rt.Name), path: rt.MCPPath, mcp: true})
 }
 
+// onPortalOrigin makes an app's MCP response safe to serve on the portal's
+// origin. A browser can't send a token without a preflight, which never gets
+// past the gateway, but a cache in front of the gateway could hand a stored
+// response to one: an app answering with HTML would then run script as the
+// portal, with the signed-in user's session behind it. So the response is
+// never stored, never sniffed, and never a document with an origin, and the
+// headers that would let an app set the portal origin's policy are dropped.
+func onPortalOrigin(h http.Header) {
+	for k := range h {
+		if strings.HasPrefix(k, "Access-Control-") {
+			delete(h, k)
+		}
+	}
+	for _, k := range []string{"Clear-Site-Data", "Strict-Transport-Security", "Refresh", "Link"} {
+		h.Del(k)
+	}
+	h.Set("Cache-Control", "no-store")
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Content-Security-Policy", "sandbox; default-src 'none'; frame-ancestors 'none'")
+}
+
 // oauthDiscovery reports whether p is one of the addresses an MCP client
 // tries, to find out how to sign in, once a token stops working. The portal
 // has no OAuth server, and its usual answer for an unknown path is a page,

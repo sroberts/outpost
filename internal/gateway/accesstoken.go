@@ -62,6 +62,18 @@ func removeAccessTokens(h http.Header) {
 	}
 }
 
+// isAccessTokenName reports whether a header name is Outpost-Token once case
+// and everything but letters and digits are ignored.
+func isAccessTokenName(name string) bool {
+	var b strings.Builder
+	for _, c := range strings.ToLower(name) {
+		if c >= 'a' && c <= 'z' || c >= '0' && c <= '9' {
+			b.WriteRune(c)
+		}
+	}
+	return b.String() == "outposttoken"
+}
+
 // serveWithAccessToken handles a request that presented a token, whose headers
 // no longer carry it. Whatever else the request has, such as a good session
 // cookie or a public path, nothing here falls back on it: a client that sent a
