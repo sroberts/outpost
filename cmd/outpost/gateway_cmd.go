@@ -34,6 +34,9 @@ func (a *app) cmdGateway(args []string) error {
 	}
 	fmt.Fprintf(a.out, "Portal:  %s\n", st.PublicURL)
 	fmt.Fprintf(a.out, "Listen:  %s (TLS %s)\n", st.Listen, tls)
+	if n := st.Node; n != nil {
+		a.printPortalNode(*n, st.PublicURL)
+	}
 	if st.Tailnet {
 		fmt.Fprintf(a.out, "Apps:    their own tailnet address, else <name>.%s\n", st.Domain)
 	} else {
@@ -50,6 +53,30 @@ func (a *app) cmdGateway(args []string) error {
 		fmt.Fprintf(tw, "%s\t%s\t%d\t%s\n", r.Name, r.URL, r.Port, r.Status)
 	}
 	return tw.Flush()
+}
+
+// printPortalNode reports the portal's own tailnet node.
+func (a *app) printPortalNode(n gateway.PortalNode, publicURL string) {
+	switch n.State {
+	case "on":
+		fmt.Fprintf(a.out, "Tailnet: on, as %s\n", n.Host)
+	case "needs-login":
+		fmt.Fprintln(a.out, "Tailnet: needs a login")
+	default:
+		fmt.Fprintf(a.out, "Tailnet: %s\n", n.State)
+	}
+	if n.LoginURL != "" {
+		fmt.Fprintf(a.out, "Login:   %s\n", n.LoginURL)
+		fmt.Fprintln(a.out, "         open it to add the portal's node to your tailnet, or set an auth key with `outpost config --authkey`")
+	}
+	if n.Error != "" {
+		fmt.Fprintf(a.out, "Error:   %s\n", n.Error)
+	}
+	if n.Renamed {
+		fmt.Fprintf(a.out, "Warning: Tailscale named the portal's node %s, so nothing answers at %s.\n", n.Host, publicURL)
+		fmt.Fprintln(a.out, "         Free the name in the Tailscale admin console, or point public_url and tailscale_name")
+		fmt.Fprintln(a.out, "         under [gateway] in config.toml at the new name; then run `outpost daemon restart`.")
+	}
 }
 
 // gatewayActivity shows what the gateway has recorded: sign-ins, failures,

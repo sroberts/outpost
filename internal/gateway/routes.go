@@ -193,6 +193,8 @@ type Status struct {
 	TLS       bool          `json:"tls"`
 	Routes    []RouteStatus `json:"routes"`
 	Tailnet   bool          `json:"tailnet,omitempty"`
+	// Node is the portal's own tailnet node, when it has one.
+	Node *PortalNode `json:"node,omitempty"`
 }
 
 // RouteStatus is one routed service.
@@ -212,6 +214,7 @@ func (g *Gateway) Status() Status {
 		TLS:       g.cfg.TLSCert != "",
 		Tailnet:   g.tailnetHosts != nil,
 		Routes:    []RouteStatus{},
+		Node:      g.portalNode(),
 	}
 	for _, rt := range g.routes.all() {
 		st.Routes = append(st.Routes, RouteStatus{

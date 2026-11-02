@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -126,12 +127,20 @@ type Router struct {
 	nodes map[string]*node
 }
 
+// PortalNode is the router's name for the portal's own node, which keeps its
+// state in <StateDir>/_portal. Manifest validation reserves it, so no service
+// can share the node or its directory.
+const PortalNode = manifest.PortalNodeName
+
 // node tracks one service's Tailscale presence, including one that is still
 // being brought up.
 type node struct {
 	name     string
 	hostname string
 	port     int
+	// wantHost, set only on the portal's node, is the DNS name public_url
+	// expects it to be given.
+	wantHost string
 
 	// cancel stops the attach goroutine; done closes when it has exited.
 	cancel context.CancelFunc
@@ -217,6 +226,9 @@ func (r *Router) Attached() []string {
 
 	out := make([]string, 0, len(r.nodes))
 	for name, n := range r.nodes {
+		if name == PortalNode {
+			continue // a node, but not a service's
+		}
 		n.mu.Lock()
 		live := n.attached
 		n.mu.Unlock()
@@ -236,6 +248,9 @@ func (r *Router) Hosts() map[string]string {
 
 	out := map[string]string{}
 	for name, n := range r.nodes {
+		if name == PortalNode {
+			continue // the gateway knows its own address
+		}
 		n.mu.Lock()
 		if n.attached && n.dnsName != "" {
 			out[name] = n.dnsName
@@ -319,6 +334,53 @@ func (r *Router) Attach(ctx context.Context, svc *manifest.Service) error {
 		done:     make(chan struct{}),
 	}
 	r.nodes[svc.Name] = n
+	r.mu.Unlock()
+
+	go r.bringUp(nodeCtx, n)
+	return nil
+}
+
+// AttachPortal puts the portal on the tailnet as its own node, named
+// hostname, which serves HTTPS and forwards everything to the gateway, like a
+// service's node. wantHost is public_url's host: the name the node should be
+// given. If Tailscale gives it another, because the name is taken, that is
+// logged rather than followed, since the portal's address was fixed when the
+// gateway started.
+//
+// Like Attach it only records intent and returns; Close takes the node down
+// with the rest. Calling it again with the same names is a no-op.
+func (r *Router) AttachPortal(ctx context.Context, hostname, wantHost string) error {
+	if r.upstream == "" {
+		return errors.New("portal: its tailnet node forwards to the gateway, and the router has no gateway upstream")
+	}
+	if hostname == "" {
+		return errors.New("portal: a tailnet name is required")
+	}
+	if _, err := url.Parse(r.upstream); err != nil {
+		return fmt.Errorf("portal: gateway upstream: %w", err)
+	}
+	wantHost = strings.TrimSuffix(strings.ToLower(wantHost), ".")
+
+	r.mu.Lock()
+	if existing, ok := r.nodes[PortalNode]; ok {
+		if existing.hostname == hostname && existing.wantHost == wantHost {
+			r.mu.Unlock()
+			return nil
+		}
+		delete(r.nodes, PortalNode)
+		r.mu.Unlock()
+		_ = r.shutdownNode(existing)
+		r.mu.Lock()
+	}
+	nodeCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	n := &node{
+		name:     PortalNode,
+		hostname: hostname,
+		wantHost: wantHost,
+		cancel:   cancel,
+		done:     make(chan struct{}),
+	}
+	r.nodes[PortalNode] = n
 	r.mu.Unlock()
 
 	go r.bringUp(nodeCtx, n)
@@ -427,8 +489,17 @@ func (r *Router) serve(ctx context.Context, n *node, live tailnetNode) bool {
 	ln := live.Listener()
 	var srv *http.Server
 	if ln != nil {
+		var handler http.Handler = newProxy(n.port)
+		if n.name == PortalNode {
+			// The portal has no port of its own; it is the gateway.
+			target, err := url.Parse(r.upstream)
+			if err != nil {
+				return false
+			}
+			handler = newProxyTo(target, r.upstreamServerName)
+		}
 		srv = &http.Server{
-			Handler:           newProxy(n.port),
+			Handler:           handler,
 			ReadHeaderTimeout: 30 * time.Second,
 		}
 	}
@@ -448,9 +519,19 @@ func (r *Router) serve(ctx context.Context, n *node, live tailnetNode) bool {
 	if h, ok := live.(hostedNode); ok && h.Host() != "" {
 		shown = h.Host()
 	}
-	if r.upstream != "" {
+	switch {
+	case n.name == PortalNode:
+		r.logf("portal: on the tailnet as https://%s -> gateway", shown)
+		if got := n.reportedHost(); got != "" && n.wantHost != "" && got != n.wantHost {
+			r.logf("portal: WARNING: Tailscale named the portal's node %s, but public_url is https://%s, "+
+				"which nothing on the tailnet answers. The name %q is probably taken by another node: "+
+				"free it in the Tailscale admin console, or set public_url = \"https://%s\" and "+
+				"tailscale_name to match under [gateway] in config.toml, then run `outpost daemon restart`",
+				got, n.wantHost, n.hostname, got)
+		}
+	case r.upstream != "":
 		r.logf("%s: on the tailnet as https://%s -> gateway -> 127.0.0.1:%d", n.name, shown, n.port)
-	} else {
+	default:
 		r.logf("%s: on the tailnet as %s -> 127.0.0.1:%d", n.name, shown, n.port)
 	}
 
@@ -466,6 +547,13 @@ func (r *Router) serve(ctx context.Context, n *node, live tailnetNode) bool {
 		}
 	}()
 	return true
+}
+
+// reportedHost is the DNS name the node reported, lower case.
+func (n *node) reportedHost() string {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return strings.ToLower(n.dnsName)
 }
 
 // unserve forgets a node that stopped on its own, so the service is no longer

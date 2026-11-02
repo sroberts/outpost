@@ -53,6 +53,9 @@ type Options struct {
 	Control Control
 	// Stats, when set, is where each app's usage is read from.
 	Stats Stats
+	// PortalNode, when set, reports the portal's own tailnet node, for the
+	// gateway's status. It reports false while there is none.
+	PortalNode func() (PortalNode, bool)
 }
 
 // Gateway is the HTTP front door. It is an http.Handler, so tests can serve
@@ -106,6 +109,9 @@ type Gateway struct {
 
 	ln  net.Listener
 	srv *http.Server
+
+	// nodeStatus is Options.PortalNode.
+	nodeStatus func() (PortalNode, bool)
 }
 
 // New builds a gateway from validated settings.
@@ -151,6 +157,7 @@ func New(opts Options) (*Gateway, error) {
 	if g.logf == nil {
 		g.logf = func(string, ...any) {}
 	}
+	g.nodeStatus = opts.PortalNode
 	g.activity = newActivity(opts.Events, g.logf, func() time.Time { return g.now() })
 	// A __Host- cookie must be Secure, and a browser drops a Secure cookie
 	// set over plain http, so http setups use a plain name.
