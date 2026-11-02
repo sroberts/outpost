@@ -3,7 +3,6 @@ package gateway
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -119,7 +118,7 @@ func (g *Gateway) callback(w http.ResponseWriter, r *http.Request, rt route) {
 	key := g.clientIP(r)
 	if d := g.codeThrottle.wait(g.now(), key); d > 0 {
 		g.message(w, r, http.StatusTooManyRequests, "Slow down",
-			fmt.Sprintf("Too many sign-in attempts from here. Try again in %d seconds.", int(d.Seconds()+0.999)),
+			"Too many sign-in attempts from here. Try again in "+waitWords(d)+".",
 			again, onward)
 		return
 	}
@@ -358,7 +357,13 @@ func (g *Gateway) unavailable(w http.ResponseWriter, r *http.Request, name strin
 		if state, label, reason := g.describe(rt); state != stateUp {
 			d.Message = ""
 			st := station{Name: rt.Name, Title: title, State: state, Label: label, Reason: reason}
-			if admin {
+			switch {
+			case admin && state == stateStopped:
+				// Start is on its row in the catalog, and a command helps nobody on
+				// a phone. The app's host can't start it itself: the portal only
+				// takes a post from its own origin.
+				d.Link, d.LinkText = g.portalLink()+"#app-"+rt.Name, "Back to apps"
+			case admin:
 				st.Command = "outpost status " + rt.Name
 			}
 			d.Station = &st

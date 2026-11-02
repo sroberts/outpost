@@ -251,6 +251,18 @@ func (a *app) cmdUpdate(args []string) error {
 		return fmt.Errorf("%s: %w", name, err)
 	}
 	defer unlock()
+	// update --self holds the locks it finds, but a service never updated has
+	// none to find, so its restart would cut this update short with no
+	// rollback. It takes its own lock before looking for this one, and this
+	// looks for its lock after taking this one, so whichever is second sees
+	// the first.
+	switch held, err := selfUpdateHeld(a.home); {
+	case err != nil:
+		return fmt.Errorf("%s: %w", name, err)
+	case held:
+		return fmt.Errorf("%s: Outpost itself is being updated, and its restart would cut this update short; "+
+			"nothing was changed. Try again once it's done", name)
+	}
 	// Everything above was read before the lock, so an update that finished
 	// in between would leave this one rolling back to a manifest that no
 	// longer matches the binary on disk.
@@ -758,6 +770,28 @@ func lockFile(path string) (func(), error) {
 		return nil, fmt.Errorf("lock for update: %w", err)
 	}
 	return func() { _ = f.Close() }, nil // closing releases the lock
+}
+
+// selfUpdateHeld reports whether an update --self of this home is running. The
+// lock is only tried shared, so two services' updates asking at the same moment
+// don't read each other as one.
+func selfUpdateHeld(home string) (bool, error) {
+	f, err := os.OpenFile(selfUpdateLock(home), os.O_RDWR, 0)
+	if os.IsNotExist(err) {
+		return false, nil // no update --self has ever run here
+	}
+	if err != nil {
+		return false, fmt.Errorf("check for an update of Outpost: %w", err)
+	}
+	defer func() { _ = f.Close() }() // closing releases the lock; nothing was written
+	switch err := syscall.Flock(int(f.Fd()), syscall.LOCK_SH|syscall.LOCK_NB); {
+	case err == nil:
+		return false, nil
+	case errors.Is(err, syscall.EWOULDBLOCK):
+		return true, nil
+	default:
+		return false, fmt.Errorf("check for an update of Outpost: %w", err)
+	}
 }
 
 // replaceFile writes body to path by way of a rename, so a crash cannot leave

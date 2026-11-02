@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -37,7 +38,6 @@ type usageView struct {
 	Line  []usagePart // the figures, which are also the disclosure's label
 	Tiles []usageTile // the day's graphs
 	When  string      // what the graphs span: the whole day, or since when
-	Net   bool        // a network graph is drawn, which needs its footnote
 }
 
 // usagePart is one figure in the summary line. Pending is a CPU reading not
@@ -45,6 +45,7 @@ type usageView struct {
 type usagePart struct {
 	Text    string
 	Pending bool
+	Live    bool // only true of a running process
 }
 
 // usageTile is one graph. Values are its text equivalent, a line each so a
@@ -58,6 +59,7 @@ type usageTile struct {
 	Dots   []sparkLine // a dot on each line's latest point, so one sample shows
 	Values []string
 	Keys   []sparkLine
+	Note   string // what the figures don't count
 }
 
 // sparkLine is one path in a graph, and for network, its key.
@@ -65,6 +67,11 @@ type sparkLine struct {
 	Class string
 	D     string
 	Text  string
+}
+
+// dropLive leaves out the figures that only mean something while it runs.
+func (v *usageView) dropLive() {
+	v.Line = slices.DeleteFunc(v.Line, func(p usagePart) bool { return p.Live })
 }
 
 // usageOf builds the view of a service's usage, or nil when there's nothing
@@ -83,11 +90,11 @@ func (g *Gateway) usageOf(name, title string) *usageView {
 	// stopped app still has its storage.
 	if u.Measured {
 		if finite(u.CPU) {
-			v.Line = append(v.Line, usagePart{Text: cpuPercent(u.CPU) + " CPU"})
+			v.Line = append(v.Line, usagePart{Text: cpuPercent(u.CPU) + " CPU", Live: true})
 		} else {
-			v.Line = append(v.Line, usagePart{Pending: true})
+			v.Line = append(v.Line, usagePart{Pending: true, Live: true})
 		}
-		v.Line = append(v.Line, usagePart{Text: humanBytes(u.RSS) + " memory"})
+		v.Line = append(v.Line, usagePart{Text: humanBytes(u.RSS) + " memory", Live: true})
 	}
 	if !u.StorageAt.IsZero() {
 		v.Line = append(v.Line, usagePart{Text: storageText(u) + " stored"})
@@ -130,12 +137,12 @@ func (g *Gateway) usageOf(name, title string) *usageView {
 		top := max(inPeak, outPeak, networkFloor)
 		v.Tiles = append(v.Tiles, graph(start, usageTile{
 			Name: "Network",
+			Note: "Only traffic through Outpost",
 			Keys: []sparkLine{
 				{Class: "key in", Text: humanBytes(u.In24) + " in"},
 				{Class: "key out", Text: humanBytes(u.Out24) + " out"},
 			},
 		}, line("in", u.InSeries, top), line("out", u.OutSeries, top)))
-		v.Net = true
 	}
 	if _, ok := highest(u.StorageSeries); ok && !u.StorageAt.IsZero() {
 		v.Tiles = append(v.Tiles, graph(start, usageTile{Name: "Storage", Values: []string{"now " + storageText(u)}},

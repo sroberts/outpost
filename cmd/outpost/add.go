@@ -282,10 +282,14 @@ func (a *app) cmdRemove(args []string) error {
 
 	if !*purge {
 		fmt.Fprintf(a.out, "\nIts data is still at %s\n", svc.ExpandStorage())
-		fmt.Fprintln(a.out, "Delete it too with `outpost remove "+name+" --purge`.")
+		// Not "run remove --purge": the manifest that says where the data is
+		// has just gone, so that command can no longer find it.
+		fmt.Fprintln(a.out, "With its manifest gone, --purge can't find it now; delete it by hand if you want it gone.")
 		return nil
 	}
-	return a.purge(name, []string{svc.ExpandStorage(), filepath.Join(a.backupsDir(), name)}, *yes)
+	// Backups are kept under the name the manifest declares, which can differ
+	// from the filename this command was given.
+	return a.purge(name, []string{svc.ExpandStorage(), filepath.Join(a.backupsDir(), svc.Name)}, *yes)
 }
 
 // removeUndeclared clears a service whose manifest is already gone, which the

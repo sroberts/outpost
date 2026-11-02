@@ -120,8 +120,8 @@ h2 { font-size: 19px; font-weight: 680; }
 .stop:first-child::before { top: -1.25rem; }
 /* The line stops at the last station that's up; below a down one it runs
    on, broken, to the end of its row. */
-.stop:not(.down):last-child::before { bottom: auto; height: calc(13px + var(--stop) / 2); border-radius: 0 0 3px 3px; }
-.stop:not(.down):first-child:last-child::before { height: calc(1.25rem + 13px + var(--stop) / 2); }
+.stop:not(.down, .stopped):last-child::before { bottom: auto; height: calc(13px + var(--stop) / 2); border-radius: 0 0 3px 3px; }
+.stop:not(.down, .stopped):first-child:last-child::before { height: calc(1.25rem + 13px + var(--stop) / 2); }
 .solo { margin-top: 1rem; }
 .solo .stop::before { top: 0; }
 .stop + .stop .row { border-top: 1px solid var(--rule); }
@@ -171,6 +171,26 @@ h2 { font-size: 19px; font-weight: 680; }
 .down::before { background: repeating-linear-gradient(transparent 0 7px, var(--beam) 7px 14px); }
 .down .state { color: var(--porcelain); background: var(--down-plate); }
 .why { font-size: 14px; color: var(--down-ink); }
+
+/* Stopped on purpose: the line breaks as it does for a down station, since
+   nothing is running there, but with no red: nothing is wrong. */
+.stopped .mark { background: var(--night); border-color: var(--field-edge); }
+.stopped::before { background: repeating-linear-gradient(transparent 0 7px, var(--beam) 7px 14px); }
+.stopped .state { color: var(--dim); border: 1px solid var(--rule); }
+.stopped .why { color: var(--dim); }
+.quick { margin-top: 0.4rem; position: relative; z-index: 2; justify-items: start; }
+.quick button { min-height: 44px; font-size: 14px; }
+.anyway { color: var(--dim); }
+/* Mid-action the label says what's happening, whatever state it left. */
+.busy .state { color: var(--beam); background: none; border: 1px solid var(--beam); }
+/* Under the name, so it doesn't read as the Manage pill's caption. */
+.managed .meta .addr, .busy .meta .addr { margin-left: 0; text-align: left; }
+.confirm .cancel { margin-top: 0.5rem; min-height: 44px; font-size: 14px; }
+.stop:target .why { color: var(--porcelain); }
+.stop:target .name { text-decoration: underline; text-decoration-color: var(--beam); text-decoration-thickness: 2px; text-underline-offset: 4px; }
+.panel > .confirm > .pill.danger { border-color: var(--down-ink); }
+.back { margin: 0 0 0.75rem; font-size: 14px; }
+.back a { display: inline-block; padding: 0.7rem 0; color: var(--beam); }
 .cmd {
   justify-self: start; margin-top: 4px; font-size: 12px; color: var(--porcelain);
   background: var(--enamel-hi); border: 1px solid var(--rule); border-radius: 4px; padding: 3px 7px;
@@ -266,7 +286,10 @@ button.small { padding: 0 0.95rem; font-size: 14px; }
 button.plain { background: none; color: var(--porcelain); border: 1px solid var(--field-edge); }
 button.plain:hover { background: none; border-color: var(--beam); }
 .byhand { margin: 1.25rem 0 0; }
-.tally a { display: inline-block; padding: 0.35rem 0; color: var(--lamp); }
+/* On the tally's line, so the service line still leaves the lamp; it looks
+   small, but its target reaches past the 44px floor. */
+.tally a { position: relative; color: var(--beam); }
+.tally a::before { content: ""; position: absolute; inset: -16px -8px; }
 
 /* An admin's Manage menu. Its pill is pinned to the row's top right, so
    opening it moves nothing above; the actions open as a strip at the foot
@@ -304,6 +327,8 @@ button.plain:hover { background: none; border-color: var(--beam); }
 .act-list button { min-height: 44px; font-size: 14px; }
 .confirm[open] { flex-basis: 100%; }
 .confirm[open] > summary { border-color: var(--beam); }
+.confirm > summary { cursor: pointer; }
+.panel > .confirm { margin-top: 0.75rem; }
 .confirm p { margin: 0.6rem 0 0; font-size: 14px; color: var(--dim); }
 .confirm form { margin-top: 0.6rem; justify-items: start; }
 .confirm .hint { margin-top: 0.5rem; font-size: 13px; }
@@ -351,7 +376,8 @@ button.plain:hover { background: none; border-color: var(--beam); }
   border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
   transform: rotate(45deg); transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
-.when { font-size: 13px; }
+.when { margin: 0 0 0.6rem; font-size: 13px; color: var(--dim); }
+.tile-note { display: block; margin-top: 0.15rem; font-size: 12px; color: var(--dim); }
 .stats > summary:hover, .stats[open] > summary { color: var(--porcelain); }
 .stats[open] > summary::after { transform: translateY(3px) rotate(-135deg); }
 .stats-panel {
@@ -388,7 +414,6 @@ button.plain:hover { background: none; border-color: var(--beam); }
   vertical-align: middle; border-radius: 1px; background: var(--beam);
 }
 .key.out::before { background: var(--porcelain); }
-.net-note { margin: 1rem 0 0 58px; }
 @media (min-width: 42rem) {
   .tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }

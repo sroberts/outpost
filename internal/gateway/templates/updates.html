@@ -1,6 +1,7 @@
 {{define "body"}}
 {{template "rail" .}}
 <main class="page">
+<p class="back"><a href="{{.Home}}">Back to apps</a></p>
 <h1>Updates</h1>
 <p class="lede">Updating an app backs up its data, installs the latest release and restarts it, so it's briefly unavailable. If the new release doesn't come up healthy, the previous one goes back.{{if .Self}} Updating Outpost itself restarts every app.{{end}}</p>
 {{with .Self}}<ul class="updates self">
@@ -14,10 +15,14 @@
 <p class="hint" id="self-slow" hidden>Still not back after ten minutes. Reload, or check the log{{if .Log}}: <code>{{.Log}}</code>{{end}}.</p>
 <script src="{{$.SelfJS}}" defer></script>
 {{else if eq .State "available"}}<p class="notice">{{.Latest}} is available.</p>
+<details class="confirm"><summary class="pill"><span>Update Outpost to {{.Latest}}…</span></summary>
+<p>Every app stops and starts again with Outpost. If {{.Latest}} doesn't come up, the previous release goes back.</p>
 <form method="post" action="/updates">
 <input type="hidden" name="action" value="self">
 <button type="submit"><span>Update Outpost to {{.Latest}}</span></button>
 </form>
+<noscript><p class="hint">Tap Update Outpost… again to cancel.</p></noscript>
+</details>
 {{else if eq .State "refused"}}<p class="hint">{{.Latest}} is available, but can't be installed from here: {{.Detail}}</p>
 {{else if eq .State "current"}}<p class="hint">{{if .Detail}}{{.Detail}}{{else}}Up to date.{{end}}</p>
 {{else if eq .State "checking"}}<p class="hint">Checking.</p>
@@ -31,25 +36,32 @@
 <span class="addr">{{.Installed}} from {{.Source}}</span>
 {{if eq .State "running"}}<p class="notice" role="status">Updating. This page refreshes until it's done.</p>
 {{else if eq .State "available"}}<p class="notice">{{.Latest}} is available.</p>
+{{if $.SelfBusy}}<button type="button" disabled><span>Update<span class="sr"> {{.Title}}</span> to {{.Latest}}</span></button>
+<p class="hint">Once Outpost is back.</p>
+{{else}}<details class="confirm"><summary class="pill"><span>Update<span class="sr"> {{.Title}}</span> to {{.Latest}}…</span></summary>
+<p>{{.Title}} is backed up, then restarted on {{.Latest}}. If it isn't healthy, the old release goes back.</p>
 <form method="post" action="/updates">
 <input type="hidden" name="action" value="update">
 <input type="hidden" name="service" value="{{.Name}}">
-<button type="submit"{{if $.SelfBusy}} disabled{{end}}><span>Update<span class="sr"> {{.Title}}</span> to {{.Latest}}</span></button>
-</form>{{if $.SelfBusy}}<p class="hint">Once Outpost is back.</p>{{end}}
-{{else if eq .State "current"}}<p class="hint">{{if .Detail}}{{.Detail}}{{else}}Up to date.{{end}}</p>
+<button type="submit"><span>Update<span class="sr"> {{.Title}}</span> to {{.Latest}}</span></button>
+</form>
+<noscript><p class="hint">Tap Update… again to cancel.</p></noscript>
+</details>
+{{end}}{{else if eq .State "current"}}<p class="hint">{{if .Detail}}{{.Detail}}{{else}}Up to date.{{end}}</p>
 {{else if eq .State "checking"}}<p class="hint">Checking.</p>
 {{else if .Detail}}<p class="error">{{.Detail}}</p>
 {{else}}<p class="hint">Not checked yet.</p>
 {{end}}{{if .Result}}<p class="{{if .Failed}}error{{else}}notice{{end}} output"{{if .Failed}} role="alert"{{end}}>{{.Result}}</p>{{end}}
 </li>
 {{end}}</ul>
-{{else if .Self}}<p class="empty">No apps were installed from a release.</p>
+{{else if and .Self (not .ByHand)}}<p class="empty">No apps were installed from a release.</p>
+{{else if .Self}}
 {{else}}<p class="empty">No apps were installed from a release, so there's nothing to update from here.</p>{{end}}
 {{if or .UpdateRows .Self}}<form class="recheck" method="post" action="/updates">
 <input type="hidden" name="action" value="check">
 <button class="plain" type="submit">Check now</button>
 {{if .Checked}}<span class="hint">{{.Checked}}</span>{{end}}
 </form>{{end}}
-{{if .ByHand}}<p class="hint byhand">Not installed from a release: {{.ByHand}}. <code>outpost update &lt;name&gt; --from owner/repo</code> says where one came from.</p>{{end}}
+{{if .ByHand}}<p class="hint byhand">Not installed from a release: {{.ByHand}}. <code>outpost update &lt;name&gt; --from owner/repo</code> links one to its release.</p>{{end}}
 </main>
 {{end}}

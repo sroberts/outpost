@@ -57,8 +57,9 @@ func TestCatalogShowsUsageLineAndGraphs(t *testing.T) {
 	row := rowOf(t, b, "yarr")
 
 	for _, want := range []string{
-		`<summary class="usage"><span class="figs">2.0% CPU · 84 MB memory · 1.2 GB stored</span><span class="when"><span class="sr">, </span>Since `,
-		`<span class="sr"> for yarr</span></summary>`,
+		`<summary class="usage"><span class="figs">2.0% CPU · 84 MB memory · 1.2 GB stored</span><span class="sr"> for yarr</span></summary>`,
+		`<div class="stats-panel">
+<p class="when">Since `,
 		"<dt>CPU</dt>", "<dt>Memory</dt>", "<dt>Network</dt>", "<dt>Storage</dt>",
 		`<span class="tile-val">peak 40%</span><span class="tile-val">now 2.0%</span>`,
 		`<span class="tile-val">peak 84 MB</span><span class="tile-val">now 84 MB</span>`,
@@ -229,7 +230,7 @@ func TestGraphsHaveBaselineGapAndEndDots(t *testing.T) {
 	if !strings.Contains(wiki, `<path class="base" d="M0,35.5H96"`) {
 		t.Errorf("a full day's graph has no full-width baseline:\n%s", wiki)
 	}
-	if !strings.Contains(wiki, `<span class="when"><span class="sr">, </span>Last 24 hours</span><span class="sr"> for Family Wiki</span>`) {
+	if !strings.Contains(wiki, `<p class="when">Last 24 hours</p>`) {
 		t.Errorf("a full day isn't labelled as the last 24 hours, for its app:\n%s", wiki)
 	}
 }
@@ -255,8 +256,8 @@ func TestStorageGraphReachesNow(t *testing.T) {
 	}
 }
 
-// The network footnote is said once for the page, not once for every app.
-func TestNetworkNoteOncePerPage(t *testing.T) {
+// The network footnote sits with the figures it qualifies.
+func TestNetworkNoteInItsTile(t *testing.T) {
 	h := newHarness(t)
 	now := time.Now()
 	h.g.stats = fakeStats{"yarr": busyUsage(now), "wiki": busyUsage(now)}
@@ -266,11 +267,11 @@ func TestNetworkNoteOncePerPage(t *testing.T) {
 	)
 	h.addUser(auth.User{Username: "alice"})
 	b := body(t, h.login(h.client(true), "alice", "", "/"))
-	if n := strings.Count(b, "Network counts only traffic through Outpost."); n != 1 {
-		t.Errorf("want the network note once, got %d", n)
-	}
-	if strings.Contains(rowOf(t, b, "yarr"), "Network counts") {
-		t.Error("the network note is inside an app's row")
+	for _, name := range []string{"yarr", "wiki"} {
+		row := rowOf(t, b, name)
+		if !before(row, "<dt>Network</dt>", "Only traffic through Outpost") || !before(row, "Only traffic through Outpost", "<dt>Storage</dt>") {
+			t.Errorf("the network note isn't in %s's network tile:\n%s", name, row)
+		}
 	}
 
 	// With no network graph anywhere there's nothing for it to qualify.
@@ -278,7 +279,7 @@ func TestNetworkNoteOncePerPage(t *testing.T) {
 	quiet.InSeries, quiet.OutSeries = daySeries(), daySeries()
 	h.g.stats = fakeStats{"yarr": quiet, "wiki": quiet}
 	b = body(t, h.login(h.client(true), "alice", "", "/"))
-	if strings.Contains(b, "Network counts") {
+	if strings.Contains(b, "Only traffic through Outpost") {
 		t.Error("the network note shows with no network graph")
 	}
 }

@@ -5,39 +5,44 @@
 <div class="hub">
 <span class="lamp" aria-hidden="true"></span>
 <h1>{{.Portal}}</h1>
-<p class="tally">{{.Up}} running{{if .Down}} · {{.Down}} not running{{end}}</p>
-{{if .Waiting}}<p class="tally"><a href="/updates">{{.Waiting}} {{if eq .Waiting 1}}update{{else}}updates{{end}} available</a></p>{{end}}
+<p class="tally">{{with .Counts}}{{.Up}} running{{if .Starting}} · {{.Starting}} starting{{end}}{{if .Down}} · {{.Down}} down{{end}}{{if .Stopped}} · {{.Stopped}} stopped{{end}}{{end}}{{if .Waiting}} · <a href="/updates">{{.Waiting}} {{if eq .Waiting 1}}update{{else}}updates{{end}} available</a>{{else if .UpdatesLink}} · <a href="/updates">Updates</a>{{end}}</p>
 </div>
 {{if .Search}}<label class="filter" hidden>Filter apps
 <input id="filter" type="search" autocomplete="off" spellcheck="false" hidden>
 </label>{{end}}
-{{if .Stations}}{{$net := false}}
+{{if .Stations}}
 <ol class="line" id="line">
-{{range .Stations}}{{with .Usage}}{{if .Net}}{{$net = true}}{{end}}{{end}}<li class="stop {{.State}}{{if .Busy}} busy{{end}}{{if .Acts}} managed{{end}}" id="app-{{.Name}}" data-find="{{lower .Title}} {{lower .Name}} {{lower .Description}}">
+{{range .Stations}}<li class="stop {{.State}}{{if .Busy}} busy{{end}}{{if .Acts}} managed{{end}}" id="app-{{.Name}}" data-find="{{lower .Title}} {{lower .Name}} {{lower .Description}}">
 <div class="row">
 <span class="mark" aria-hidden="true"></span>
 <div class="body">
-{{if eq .State "up"}}<div class="top"><a class="name go" href="{{.URL}}">{{.Title}}</a>{{if .Hidden}}<span class="tag">Hidden</span>{{end}}<span class="sr">, {{.Label}}</span></div>
+{{if eq .State "up"}}<div class="top"><a class="name go" href="{{.URL}}">{{.Title}}</a>{{if .Hidden}}<span class="tag">Hidden</span>{{end}}{{if .Busy}}<span class="state">{{.Label}}</span>{{else}}<span class="sr">, {{.Label}}</span>{{end}}</div>
 <span class="meta">{{if .Description}}<span class="desc">{{.Description}}</span>{{end}}<span class="addr">{{.Addr}}</span></span>
 {{else}}<div class="top"><span class="name">{{.Title}}</span>{{if .Hidden}}<span class="tag">Hidden</span>{{end}}<span class="state">{{.Label}}</span></div>
-<span class="why">{{.Reason}}</span>
-{{if .Command}}<code class="cmd">{{.Command}}</code>{{end}}
-<a class="addr" href="{{.URL}}">{{.Addr}}<span class="sr"> (open anyway)</span></a>
+{{if not .Busy}}<span class="why">{{.Reason}}</span>
+{{template "quick" .}}
+{{if .Command}}<code class="cmd">{{.Command}}</code>{{end}}{{end}}
+{{if eq .State "stopped"}}<span class="addr">{{.Addr}}</span>{{else}}<a class="addr" href="{{.URL}}">{{.Addr}}<span class="anyway"> (open anyway)</span></a>{{end}}
 {{end}}{{if .Busy}}<p class="act-note" id="note-{{.Name}}" tabindex="-1" role="status">{{.Busy}}</p>
 {{else if .Done}}<p class="act-note{{if .Failed}} failed{{end}}" id="note-{{.Name}}" tabindex="-1" {{if .Alert}}role="alert"{{else if not .Failed}}role="status"{{end}}>{{.Done}}</p>
 {{end}}{{template "acts" .}}{{with .Usage}}{{template "usage" .}}{{end}}</div>
 </div>
 </li>
 {{end}}</ol>
-<p id="nomatch" class="empty" hidden>No apps match that.</p>
-{{if $net}}<p class="hint net-note">Network counts only traffic through Outpost.</p>{{end}}
+<p id="nomatch" class="empty" role="status" hidden>No apps match that.</p>
 {{else}}
 <p class="empty">{{if .Admin}}No apps yet. Add one with <code>outpost add</code>.{{else}}You don't have access to any apps yet.{{end}}</p>
 {{end}}
 </main>
 {{if .Search}}<script src="{{.JS}}" defer></script>{{end}}
 {{if .Poll}}<script src="{{.PollJS}}" defer></script>{{end}}
+<script src="{{.ReturnJS}}" defer></script>
 {{end}}
+{{define "quick"}}{{$s := .}}{{with .Quick}}<form class="quick" method="post" action="{{.Path}}">
+<input type="hidden" name="action" value="{{.Action}}">
+<input type="hidden" name="service" value="{{$s.Name}}">
+<button class="plain" type="submit"><span>{{.Verb}}<span class="sr"> {{$s.Title}}</span></span></button>
+</form>{{end}}{{end}}
 {{define "acts"}}{{if .Acts}}{{$s := .}}<details class="acts" name="manage"><summary class="pill"><span>Manage<span class="sr"> {{.Title}}</span></span></summary>
 <div class="act-list">
 {{range .Acts}}{{if .Confirm}}<details class="confirm" name="confirm-{{$s.Name}}"><summary class="pill{{if .Danger}} danger{{end}}"><span>{{.Verb}}<span class="sr"> {{$s.Title}}</span>{{.Suffix}}…</span></summary>
@@ -47,7 +52,7 @@
 <input type="hidden" name="service" value="{{$s.Name}}">
 <button class="{{if .Danger}}ghost{{else}}plain{{end}}" type="submit"><span>{{.Verb}} {{$s.Title}}{{.Suffix}}</span></button>
 </form>
-<p class="hint">Tap {{.Verb}}… again to cancel.</p>
+<noscript><p class="hint">Tap {{.Verb}}… again to cancel.</p></noscript>
 </details>
 {{else}}<form method="post" action="{{.Path}}">
 <input type="hidden" name="action" value="{{.Action}}">
@@ -56,12 +61,13 @@
 </form>
 {{end}}{{end}}</div>
 </details>{{end}}{{end}}
-{{define "usage"}}{{if .Tiles}}<details class="stats"><summary class="usage">{{template "figures" .}}<span class="when">{{if .Line}}<span class="sr">, </span>{{end}}{{.When}}</span><span class="sr"> for {{.Title}}</span></summary>
+{{define "usage"}}{{if .Tiles}}<details class="stats"><summary class="usage">{{template "figures" .}}{{if not .Line}}Usage{{end}}<span class="sr"> for {{.Title}}</span></summary>
 <div class="stats-panel">
+<p class="when">{{.When}}</p>
 <dl class="tiles">
 {{range .Tiles}}<div class="tile"><dt>{{.Name}}</dt>
 <dd><svg viewBox="0 0 96 36" preserveAspectRatio="none" aria-hidden="true" focusable="false">{{if .Gap}}<path class="unmeasured" d="{{.Gap}}" vector-effect="non-scaling-stroke"/>{{end}}<path class="base" d="{{.Base}}" vector-effect="non-scaling-stroke"/>{{range .Paths}}<path class="{{.Class}}" d="{{.D}}" vector-effect="non-scaling-stroke"/>{{end}}{{range .Dots}}<path class="{{.Class}}" d="{{.D}}" vector-effect="non-scaling-stroke"/>{{end}}</svg>
-{{range .Keys}}<span class="tile-val {{.Class}}">{{.Text}}</span>{{end}}{{range .Values}}<span class="tile-val">{{.}}</span>{{end}}</dd></div>
+{{range .Keys}}<span class="tile-val {{.Class}}">{{.Text}}</span>{{end}}{{range .Values}}<span class="tile-val">{{.}}</span>{{end}}{{with .Note}}<span class="tile-note">{{.}}</span>{{end}}</dd></div>
 {{end}}</dl>
 </div>
 </details>

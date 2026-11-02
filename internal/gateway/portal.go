@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/sroberts/outpost/internal/auth"
@@ -81,6 +82,10 @@ func (g *Gateway) servePortal(w http.ResponseWriter, r *http.Request) {
 		g.serveJS(w, r)
 	case pollPath:
 		g.servePoll(w, r)
+	case returnPath:
+		g.serveAsset(w, r, "static/return.js", "text/javascript; charset=utf-8")
+	case menusPath:
+		g.serveAsset(w, r, "static/menus.js", "text/javascript; charset=utf-8")
 	case selfJSPath:
 		g.serveAsset(w, r, "static/selfupdate.js", "text/javascript; charset=utf-8")
 	case artPath:
@@ -101,23 +106,26 @@ func (g *Gateway) home(w http.ResponseWriter, r *http.Request) {
 	g.touch(tok, s)
 
 	sts := g.stations(u)
-	up, down := tally(sts)
+	counts := tally(sts)
 	d := pageData{
 		Title:    "Apps",
 		Who:      displayName(u),
 		Admin:    u.Admin,
 		Stations: sts,
-		Up:       up,
-		Down:     down,
+		Counts:   counts,
 		Search:   len(sts) >= searchFrom,
 	}
 	if u.Admin && g.updater != nil {
 		g.checkIfStale()
 		d.Waiting = g.waiting()
+		d.UpdatesLink = true
 	}
 	if u.Admin && g.control != nil {
 		d.Poll = g.manage(d.Stations)
 	}
+	// A crashed app comes back on its own, with nobody's action to refresh the
+	// row, and whoever is looking wants to see it happen.
+	d.Poll = d.Poll || slices.ContainsFunc(d.Stations, func(s station) bool { return s.State == stateStarting })
 	g.render(w, r, http.StatusOK, "portal", d)
 }
 
@@ -180,7 +188,7 @@ func (g *Gateway) loginSubmit(w http.ResponseWriter, r *http.Request) {
 		// Counted by address alone: a throttled client changing the name
 		// it tries each time is still one line.
 		g.activity.failed(EventSignInFail, "from "+ip, true)
-		form.Error = fmt.Sprintf("Too many attempts. Try again in %d seconds.", int(d.Seconds()+0.999))
+		form.Error = "Too many attempts. Try again in " + waitWords(d) + "."
 		g.render(w, r, http.StatusTooManyRequests, "login", form)
 		return
 	}

@@ -49,7 +49,7 @@ func TestCatalogListsRunningFirstAndSaysWhy(t *testing.T) {
 	if !before(b, ">Yarr<", ">atlas<") || !before(b, ">Yarr<", ">notes<") {
 		t.Errorf("running apps aren't listed first:\n%s", b)
 	}
-	for _, want := range []string{"RSS reader", "Stopped after 3 crashes", "Stopped on purpose", "1 running · 2 not running"} {
+	for _, want := range []string{"RSS reader", "Stopped after 3 crashes", "Stopped on purpose", "1 running · 1 down · 1 stopped"} {
 		if !strings.Contains(b, want) {
 			t.Errorf("catalog lacks %q", want)
 		}

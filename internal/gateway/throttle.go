@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"fmt"
 	"sync"
 	"time"
 )
@@ -108,6 +109,13 @@ func (t *throttle) fail(now time.Time, keys ...string) {
 			continue
 		}
 		b.pending = max(b.pending-1, 0)
+		// forget only runs when the table is full, and a success no longer
+		// clears an address, so without this an address's failures would add
+		// up for as long as the daemon runs: enough typos over months, and one
+		// more locks everyone behind it out for a minute.
+		if now.Sub(b.last) > throttleForget {
+			b.fails = 0
+		}
 		b.fails++
 		b.last = now
 		over := b.fails - t.free
@@ -155,4 +163,12 @@ func (t *throttle) forget(now time.Time) {
 			delete(t.m, k)
 		}
 	}
+}
+
+// waitWords says how long a throttled client has to wait, rounded up.
+func waitWords(d time.Duration) string {
+	if n := int(d.Seconds() + 0.999); n != 1 {
+		return fmt.Sprintf("%d seconds", n)
+	}
+	return "1 second"
 }

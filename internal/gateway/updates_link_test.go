@@ -6,18 +6,17 @@ import (
 	"testing"
 )
 
-// With nothing to install, the catalog has no link to the update page: it's
-// only worth the room when there's something to do there. The page itself
-// stays reachable by its address.
-func TestCatalogLinksUpdatesOnlyWhenOneIsWaiting(t *testing.T) {
+// The update page is always a tap away for an admin, since a check can be asked
+// for there, and the link says so when there's something to install.
+func TestCatalogLinksUpdatesAndSaysWhenOneIsWaiting(t *testing.T) {
 	h, f := updateHarness(t)
 	f.latest["yarr"] = ReleaseCheck{Latest: "v1.0.0"} // what's installed
 	c := h.client(true)
 	h.login(c, "root", "", "/")
 	h.settled()
 
-	if b := body(t, h.get(c, portal+"/")); strings.Contains(b, `href="/updates"`) {
-		t.Errorf("the catalog links to updates with none waiting:\n%s", b)
+	if b := body(t, h.get(c, portal+"/")); !strings.Contains(b, `href="/updates">Updates</a>`) || strings.Contains(b, "available</a>") {
+		t.Errorf("with none waiting, the catalog should link to updates plainly:\n%s", b)
 	}
 	if resp := h.get(c, portal+"/updates"); resp.StatusCode != http.StatusOK {
 		t.Errorf("GET /updates = %d; the page should still be there", resp.StatusCode)
