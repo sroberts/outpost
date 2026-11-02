@@ -44,3 +44,11 @@ real home, and never with `outpost install`. Check each at 1280px and 390px.
 ## 8. Not found and wrong method
 1. Open an unknown path. Expected: the portal's "Nothing here" page with a link back.
 2. GET `/apps`. Expected: 405 with "Use the buttons".
+
+## 9. MCP through the portal (access tokens)
+Needs a service with `mcp_path` that answers MCP: a small stub that echoes what it received, and sets a cookie, is enough. Drive it with curl; there's no page.
+1. `outpost token create <user> --app <svc>`, then POST an `initialize` to `/mcp/<svc>` with `Authorization: Bearer`. Expected: 200 from the app, which saw its `mcp_path`, its own host (port included), the token's user, `aud` its own host, and no token, Outpost cookie, `Forwarded` or `X_Outpost_*` header.
+2. Check the response headers. Expected: no `Set-Cookie` or `Location`; `Cache-Control: no-store`, `nosniff` and a sandbox CSP; `Mcp-Session-Id` passed through.
+3. No token, a token scoped to another app, an unknown app and an app without `mcp_path`. Expected: the first a 401 with `WWW-Authenticate: Bearer` and no redirect; the other three the identical plain 401.
+4. A user the app's `allow` refuses. Expected: 403. `/mcp/<svc>/x`: 404. A token on `/`: 401. `/.well-known/oauth-protected-resource`: plain 404.
+5. GET `/mcp/<svc>` with `Accept: text/event-stream`. Expected: events arrive as the app sends them, not all at the end.
