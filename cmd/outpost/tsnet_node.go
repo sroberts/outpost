@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/sroberts/outpost/internal/manifest"
 	outposttsnet "github.com/sroberts/outpost/internal/tsnet"
 	"github.com/sroberts/outpost/internal/tsnet/node"
 )
@@ -26,6 +27,14 @@ func runTsnetNode(args []string, stdout, stderr io.Writer) error {
 	fs.BoolVar(&cfg.Verbose, "verbose", false, "pass tsnet's own logging through")
 	fs.StringVar(&cfg.Upstream, "upstream", "", "send traffic here, the login gateway, instead of the service")
 	fs.StringVar(&cfg.UpstreamServerName, "upstream-server-name", "", "verify an https upstream's certificate for this name")
+	fs.Func("tcp", "forward a tailnet port to the service, as <tailnet port>=<local port>; repeatable", func(v string) error {
+		f, err := manifest.ParseTCPForward(v)
+		if err != nil {
+			return err
+		}
+		cfg.TCP = append(cfg.TCP, f)
+		return nil
+	})
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -38,6 +47,7 @@ func runTsnetNode(args []string, stdout, stderr io.Writer) error {
 		return fmt.Errorf("%s: --port is required without --upstream", outposttsnet.NodeCommand)
 	}
 	cfg.AuthKey = os.Getenv(outposttsnet.AuthKeyEnv)
+	cfg.AccessSecret = os.Getenv(outposttsnet.AccessSecretEnv)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

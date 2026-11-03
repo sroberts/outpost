@@ -310,6 +310,7 @@ funnel         = false                         # rejected if true
 healthcheck    = "/up"
 mcp            = true                          # informational only
 mcp_path       = "/mcp"                        # where you serve MCP; see Access tokens
+tcp            = { 22 = 23231 }                # raw TCP on the node; see Raw TCP forwards
 hermes_skill   = true                          # informational until §11 is built
 restart_policy = "on-failure"                  # "on-failure" | "always" | "never"
 backoff_seconds     = 5
@@ -331,6 +332,7 @@ start_grace_seconds = 30
 | `source` | — | GitHub `owner/repo` the binary came from; what `outpost update` fetches |
 | `release` | — | Release tag installed. Neither field changes what runs, so editing them restarts nothing |
 | `mcp_path` | — | Where the service serves MCP (Streamable HTTP). Lets MCP clients with an access token reach it at `https://<portal>/mcp/<name>`; see [MCP clients](#mcp-clients) |
+| `tcp` | — | Tailnet port to loopback port, for protocols that aren't HTTP, such as SSH. Needs a `tailscale_name`; not 80 or 443, and never the service's own `port`; see [Raw TCP forwards](#raw-tcp-forwards) |
 
 `outpost apply` validates the whole set and fails loudly rather than
 half-applying. It checks for duplicate names, ports and Tailscale names,
@@ -415,6 +417,8 @@ outpost user groups <name> +g -g add to and remove from groups
 outpost user disable|enable <name>
 outpost user sessions <name>     where the user is signed in
 outpost user logout <name>       end every session and access token the user has
+outpost user tailnet <name> <login>|off
+                                 link a Tailscale login to the user, for tcp forwards
 outpost token create <user> [--name N] [--app A]... [--expires 90d]
                                  make an access token; prints the secret once
 outpost token list [<user>]      access tokens: scope, expiry and last use
@@ -738,7 +742,8 @@ public_paths = ["/webhook/*", "/feed.xml"] # served without a login
 - **`allow`** is checked on every request and before a sign-in link is
   issued; someone not on it gets a plain "No access" page. Admins reach every
   app and see every one, hidden ones marked. A name that matches no user or
-  group yet is logged, not refused, so a manifest can come first.
+  group yet is logged, not refused, so a manifest can come first. It also
+  decides who may open the app's [raw TCP forwards](#raw-tcp-forwards).
 - **`public_paths`** are for webhooks and feeds that carry their own
   credentials. A pattern is an exact path or a prefix ending in `/*`.
   Requests there still have every `X-Outpost-*` header and Outpost's cookie
@@ -889,6 +894,13 @@ the service contract asks for one. On the tailnet each app has its own
 `outpost` cookie in place of `__Host-outpost`, apps can also set cookies for
 each other; use https anywhere that matters.
 
+**A tcp forward is only as narrow as the service behind it.** The gateway
+decides which Outpost users' devices may open a [raw TCP
+forward](#raw-tcp-forwards), but it can't tell the service who they are, and
+anyone allowed in talks to the service directly. Treat the forwarded port as
+you would one open to those users on the internet: the service's own
+authentication is what stands between them and it.
+
 **Tailscale sees its own logs.** Each node is a `tsnet` program, and by
 default tsnet sends its logs to Tailscale's log service, as the Tailscale
 client does. Nothing of Outpost's goes in them, but it is traffic you didn't
@@ -907,7 +919,8 @@ Everything lives under `~/.outpost` (or `$OUTPOST_HOME`, or `--home`):
   backups/<name>/<ts>.tar.gz
   tsnet/<name>/            per-service Tailscale node identity
   state.db                 SQLite observed state and event log
-  auth.db                  users, password hashes, sessions, signing keys (0600)
+  auth.db                  users, password hashes, sessions, signing keys,
+                           linked tailnet logins (0600)
   config.toml              global settings, mode 0600 (optional)
   outpost.sock             control socket, mode 0600
   outpost.pid              running daemon's PID
@@ -1236,6 +1249,51 @@ with backoff (2s, doubling to 60s) until it succeeds or the service is detached,
 and the reconcile loop re-asserts membership for every running service, so a
 service cannot end up silently off the tailnet.
 
+### Raw TCP forwards
+
+A node proxies HTTP. For anything else — SSH into a git server, say — a
+manifest can ask the node to carry raw TCP as well:
+
+```toml
+port = 23232                       # HTTP, as ever
+tcp  = { 22 = 23231, 9418 = 9418 } # tailnet port = port on 127.0.0.1
+```
+
+`ssh soft.<tailnet>.ts.net` then reaches whatever listens on
+`127.0.0.1:23231`. The service binds loopback for these ports too.
+
+The gateway's login can't stand in front of a byte stream, so **with the
+gateway on**, the node asks it about every connection instead. Tailscale
+says which login the calling device is signed in to; the gateway turns that
+into an Outpost user and applies the same rules an app request meets after
+sign-in: the user must exist and be enabled, and be on the app's `allow`
+list if it has one. Anything else — an unknown login, a device that belongs
+to tags rather than a person, a gateway that doesn't answer — and the
+connection is closed before the service sees a byte. Each connection, let in
+or not, is a line in the daemon log; refusals also reach the activity feed.
+
+A login belongs to a user when it is linked to them, or, failing that, when
+it is the email of the one user with no link of their own:
+
+```sh
+outpost user tailnet scott scott@github   # a login that isn't an email
+outpost user tailnet scott off            # back to matching by email
+```
+
+The service gets the connection as it came, from `127.0.0.1`, with no idea
+who is calling: there is no header to put an identity in. It still has to
+authenticate the caller itself — SSH keys, for a git server. The gate decides
+who may reach it at all. A connection that is open when its user is disabled
+stays open until it ends.
+
+**With the gateway off**, as for HTTP, the tailnet is the boundary: any
+device on it can connect.
+
+Forwards are validated with the rest of the manifest: each port once, no
+tailnet port 80 or 443, which the node uses, and never a forward to the
+service's own HTTP `port`, which would reach the app without passing the
+gateway. Changing them replaces the node without restarting the service.
+
 ## Development
 
 ```sh
@@ -1288,6 +1346,12 @@ stays in the CLI and the TUI.
 `backup --schedule`, `--tailnet`. `restore` takes the timestamp as optional,
 defaulting to the newest archive. Not built: `outpost hermes publish`, which
 spec §12 lists.
+
+**A service may expose more than HTTP.** Spec §2 has a service listen on one
+TCP port, and that port is HTTP. The manifest's `tcp` table adds raw TCP
+forwards on the service's node, for protocols such as SSH, gated by tailnet
+identity when the gateway is on; see [Raw TCP forwards](#raw-tcp-forwards).
+The HTTP port is still the one Outpost probes and the gateway fronts.
 
 **Manifest reloading polls instead of using fsnotify.** Spec §6 calls for
 fsnotify. The daemon hashes the manifest directory each tick and re-applies on

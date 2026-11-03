@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/sroberts/outpost/internal/auth"
 )
@@ -123,7 +125,7 @@ func (g *Gateway) stations(u auth.User) []station {
 			Hidden:      rt.Hidden,
 		}
 		if st.Title == "" {
-			st.Title = rt.Name
+			st.Title = titleCase(rt.Name)
 		}
 		st.State, st.Label, st.Reason = g.describe(rt)
 		// Stopped on purpose, there's nothing to look closer at.
@@ -236,4 +238,21 @@ func (g *Gateway) portalLink() string { return g.portalOrigin + "/" }
 // signedOutURL is where a logout lands: the sign-in page, saying so.
 func (g *Gateway) signedOutURL() string {
 	return g.portalOrigin + "/login?" + url.Values{"out": {"1"}}.Encode()
+}
+
+// titleCase is the catalog's name for an app whose manifest gives no title:
+// its service name with each word capitalised and the separators read as
+// spaces, so "tasking" shows as "Tasking" and "home-assistant" as "Home
+// Assistant". Only the first letter of each word changes, so "yarr2" or
+// "iOS" stay as written apart from that.
+func titleCase(name string) string {
+	words := strings.FieldsFunc(name, func(r rune) bool { return r == '-' || r == '_' || r == '.' })
+	if len(words) == 0 {
+		return name
+	}
+	for i, w := range words {
+		r, size := utf8.DecodeRuneInString(w)
+		words[i] = string(unicode.ToUpper(r)) + w[size:]
+	}
+	return strings.Join(words, " ")
 }

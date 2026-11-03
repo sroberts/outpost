@@ -67,7 +67,9 @@ without a rewrite.
   and an Ed25519-signed identity token; the app catalog (design PR 3), with
   per-app `allow` rules, `public_paths`, `subdomain`/`hostname`, `hidden`, an
   account page and an access-denied page; an update page and a per-app Manage
-  menu for admins.
+  menu for admins; raw TCP forwards (`tcp`) on a service's tailnet node, for
+  protocols such as SSH, admitted by the caller's tailnet login under the
+  same `allow` rules.
 - **Not built:** app icons; the station marks each app.
 - **Ships in the binary.** Portal pages are Go `html/template` files and CSS
   embedded in the single static binary: no JavaScript build step, no CDN, no

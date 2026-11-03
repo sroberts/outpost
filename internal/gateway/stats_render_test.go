@@ -57,7 +57,7 @@ func TestCatalogShowsUsageLineAndGraphs(t *testing.T) {
 	row := rowOf(t, b, "yarr")
 
 	for _, want := range []string{
-		`<summary class="usage"><span class="figs">` + fig("cpu", "2.0%", "CPU") + " " + fig("memory", "84 MB", "memory") + " " + fig("storage", "1.2 GB", "stored") + `</span><span class="sr"> for yarr</span></summary>`,
+		`<summary class="usage"><span class="figs">` + fig("cpu", "2.0%", "CPU") + " " + fig("memory", "84 MB", "memory") + " " + fig("storage", "1.2 GB", "stored") + `</span><span class="sr"> for Yarr</span></summary>`,
 		`<div class="stats-panel">
 <p class="when">Since `,
 		"<dt>CPU</dt>", "<dt>Memory</dt>", "<dt>Network</dt>", "<dt>Storage</dt>",

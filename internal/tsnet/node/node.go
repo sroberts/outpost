@@ -21,6 +21,7 @@ import (
 	"tailscale.com/ipn"
 	"tailscale.com/tsnet"
 
+	"github.com/sroberts/outpost/internal/manifest"
 	outposttsnet "github.com/sroberts/outpost/internal/tsnet"
 )
 
@@ -37,6 +38,11 @@ type Config struct {
 	// tailnet address is behind the same login as the portal.
 	Upstream           string
 	UpstreamServerName string
+	// TCP is the service's tcp forwards, served on this node.
+	TCP []manifest.TCPForward
+	// AccessSecret lets the node ask the gateway about each forwarded
+	// connection. Required for forwards when Upstream is set.
+	AccessSecret string
 }
 
 // Run brings the node up, prints outposttsnet.ReadyLine to ready once it is
@@ -97,7 +103,7 @@ func Run(ctx context.Context, cfg Config, ready, logs io.Writer) error {
 	}
 
 	var servers []*http.Server
-	served := make(chan error, 2)
+	served := make(chan error, 2+len(cfg.TCP))
 	serve := func(ln net.Listener, h http.Handler) {
 		srv := &http.Server{Handler: h, ReadHeaderTimeout: 30 * time.Second}
 		servers = append(servers, srv)
@@ -128,6 +134,10 @@ func Run(ctx context.Context, cfg Config, ready, logs io.Writer) error {
 		}
 		serve(tlsLn, onlyHost(ownName, outposttsnet.NewUpstreamProxy(target, cfg.UpstreamServerName)))
 		serve(ln, onlyHost(ownName, http.HandlerFunc(toHTTPS)))
+	}
+
+	if err := forwardTCP(ctx, server, cfg, logf, served); err != nil {
+		return err
 	}
 
 	if _, err := fmt.Fprintln(ready, outposttsnet.ReadyLine); err != nil {
@@ -241,4 +251,63 @@ func onceEach(logf func(string, ...any)) func(string, ...any) {
 		mu.Unlock()
 		logf("%s", line)
 	}
+}
+
+// forwardTCP listens on each of the service's tcp ports and carries what
+// arrives to the service. With the gateway on, each connection is first put
+// to it, by the caller's tailnet login: the gateway's login can't reach a raw
+// stream, and without this a forward would be a way round it.
+func forwardTCP(ctx context.Context, server *tsnet.Server, cfg Config, logf func(string, ...any), served chan<- error) error {
+	if len(cfg.TCP) == 0 {
+		return nil
+	}
+	var check func(context.Context, string, string) (string, error)
+	var identify func(context.Context, string) (outposttsnet.Caller, error)
+	if cfg.Upstream != "" {
+		checker, err := outposttsnet.NewAccessChecker(cfg.Upstream, cfg.UpstreamServerName, cfg.AccessSecret)
+		if err != nil {
+			// Refusing to start beats forwarding unchecked.
+			return fmt.Errorf("tcp forwards: %w", err)
+		}
+		check = checker.Check
+		lc, err := server.LocalClient()
+		if err != nil {
+			return fmt.Errorf("tcp forwards: %w", err)
+		}
+		identify = func(ctx context.Context, remote string) (outposttsnet.Caller, error) {
+			who, err := lc.WhoIs(ctx, remote)
+			if err != nil {
+				return outposttsnet.Caller{}, err
+			}
+			var c outposttsnet.Caller
+			if who.Node != nil {
+				c.Tagged = who.Node.IsTagged()
+				c.Device = strings.TrimSuffix(who.Node.Name, ".")
+			}
+			if who.UserProfile != nil {
+				c.Login = who.UserProfile.LoginName
+			}
+			return c, nil
+		}
+	}
+	for _, f := range cfg.TCP {
+		ln, err := server.Listen("tcp", fmt.Sprintf(":%d", f.Tailnet))
+		if err != nil {
+			return fmt.Errorf("listen on tailnet port %d: %w", f.Tailnet, err)
+		}
+		fw := &outposttsnet.Forwarder{
+			Service:  cfg.Service,
+			Port:     f.Tailnet,
+			Target:   fmt.Sprintf("127.0.0.1:%d", f.Local),
+			Identify: identify,
+			Check:    check,
+			Logf:     logf,
+		}
+		go func() {
+			if err := fw.Serve(ctx, ln); err != nil {
+				served <- fmt.Errorf("tcp %d: %w", fw.Port, err)
+			}
+		}()
+	}
+	return nil
 }

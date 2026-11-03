@@ -38,7 +38,8 @@ const userUsage = `usage:
   outpost user enable <name>
   outpost user sessions <name>
   outpost user logout <name>
-  outpost user admin <name> on|off`
+  outpost user admin <name> on|off
+  outpost user tailnet <name> <login>|off`
 
 // cmdUser manages the people who can log in. Every subcommand goes through
 // the daemon: it owns auth.db, and ending a session has to reach it.
@@ -68,6 +69,8 @@ func (a *app) cmdUser(args []string) error {
 		return a.userSimple(rest, "logout", (*ipc.Client).UserLogout)
 	case "admin":
 		return a.cmdUserAdmin(rest)
+	case "tailnet":
+		return a.cmdUserTailnet(rest)
 	case "help", "-h", "--help":
 		fmt.Fprintln(a.out, userUsage)
 		return nil
@@ -378,4 +381,28 @@ func parseNamed(fs *flag.FlagSet, verb string, args []string) (string, error) {
 		return "", fmt.Errorf("%s: a username is required", verb)
 	}
 	return name, err
+}
+
+// cmdUserTailnet links a Tailscale login to a user, so their devices may use
+// a service's tcp forwards. Without a link, a login equal to the user's email
+// counts; the link is for logins that aren't, like alice@github.
+func (a *app) cmdUserTailnet(args []string) error {
+	const use = "usage: outpost user tailnet <name> <login>|off"
+	if len(args) != 2 {
+		return errors.New(use)
+	}
+	login := args[1]
+	if login == "off" {
+		login = ""
+	}
+	c, err := a.daemon()
+	if err != nil {
+		return err
+	}
+	msg, err := c.UserTailnet(args[0], login)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(a.out, msg)
+	return nil
 }

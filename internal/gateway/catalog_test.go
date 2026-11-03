@@ -46,7 +46,7 @@ func TestCatalogListsRunningFirstAndSaysWhy(t *testing.T) {
 	)
 	h.addUser(auth.User{Username: "alice"})
 	b := body(t, h.login(h.client(true), "alice", "", "/"))
-	if !before(b, ">Yarr<", ">atlas<") || !before(b, ">Yarr<", ">notes<") {
+	if !before(b, ">Yarr<", ">Atlas<") || !before(b, ">Yarr<", ">Notes<") {
 		t.Errorf("running apps aren't listed first:\n%s", b)
 	}
 	for _, want := range []string{"RSS reader", "Stopped after 3 crashes", "Stopped on purpose", "1 running · 1 down · 1 stopped"} {

@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"os"
@@ -96,6 +98,18 @@ func (a *app) cmdServe(args []string) error {
 		useTailnet = *tailnet
 	}
 
+	// Shown by the tailnet nodes when they ask the gateway about a tcp
+	// forward's caller. New each run: both ends are this process's own, so
+	// nothing needs it to last.
+	var nodeSecret string
+	if a.config.Gateway.Enabled {
+		b := make([]byte, 32)
+		if _, err := rand.Read(b); err != nil {
+			return fmt.Errorf("node secret: %w", err)
+		}
+		nodeSecret = hex.EncodeToString(b)
+	}
+
 	watch.at("starting the tailnet router")
 	var router supervisor.TailnetRouter
 	var tailnetHosts func() map[string]string
@@ -112,6 +126,7 @@ func (a *app) cmdServe(args []string) error {
 		// login like every other way in, rather than straight to the service.
 		if a.config.Gateway.Enabled {
 			opts.Upstream, opts.UpstreamServerName = gateway.LocalUpstream(a.config.Gateway)
+			opts.AccessSecret = nodeSecret
 		}
 		r, err := outposttsnet.New(opts)
 		if err != nil {
@@ -204,6 +219,7 @@ func (a *app) cmdServe(args []string) error {
 			Adds:         daemonAdds{a},
 			Control:      sup,
 			Stats:        sampler,
+			NodeSecret:   nodeSecret,
 		})
 		if err != nil {
 			return err

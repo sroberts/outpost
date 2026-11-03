@@ -159,10 +159,10 @@ func TestAdminSeesManageWithWhatEachStateAllows(t *testing.T) {
 		}
 	}
 	notesRow := rowOf(t, b, "notes")
-	if strings.Contains(notesRow, `<summary class="pill"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-start"/></svg><span>Start`) || !strings.Contains(notesRow, `<button class="plain" type="submit"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-start"/></svg><span>Start<span class="sr"> notes</span></span></button>`) {
+	if strings.Contains(notesRow, `<summary class="pill"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-start"/></svg><span>Start`) || !strings.Contains(notesRow, `<button class="plain" type="submit"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-start"/></svg><span>Start<span class="sr"> Notes</span></span></button>`) {
 		t.Errorf("Start should be one step:\n%s", notesRow)
 	}
-	if !strings.Contains(notesRow, "notes stays stopped while its storage is archived") {
+	if !strings.Contains(notesRow, "Notes stays stopped while its storage is archived") {
 		t.Errorf("a stopped app's backup doesn't say it stays stopped:\n%s", notesRow)
 	}
 

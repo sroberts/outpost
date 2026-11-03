@@ -23,6 +23,7 @@ import (
 	"github.com/sroberts/outpost/internal/auth"
 	"github.com/sroberts/outpost/internal/config"
 	"github.com/sroberts/outpost/internal/supervisor"
+	outposttsnet "github.com/sroberts/outpost/internal/tsnet"
 )
 
 // Services is what the gateway needs from the supervisor.
@@ -59,6 +60,10 @@ type Options struct {
 	// PortalNode, when set, reports the portal's own tailnet node, for the
 	// gateway's status. It reports false while there is none.
 	PortalNode func() (PortalNode, bool)
+	// NodeSecret, when set, lets the daemon's tailnet nodes ask whether a
+	// caller may use a service's tcp forwards; see serveTailnetAccess. The
+	// router starts each node with the same value.
+	NodeSecret string
 }
 
 // Gateway is the HTTP front door. It is an http.Handler, so tests can serve
@@ -117,6 +122,8 @@ type Gateway struct {
 
 	// nodeStatus is Options.PortalNode.
 	nodeStatus func() (PortalNode, bool)
+	// nodeSecret is Options.NodeSecret.
+	nodeSecret string
 }
 
 // New builds a gateway from validated settings.
@@ -164,6 +171,7 @@ func New(opts Options) (*Gateway, error) {
 		g.logf = func(string, ...any) {}
 	}
 	g.nodeStatus = opts.PortalNode
+	g.nodeSecret = opts.NodeSecret
 	g.activity = newActivity(opts.Events, g.logf, func() time.Time { return g.now() })
 	// A __Host- cookie must be Secure, and a browser drops a Secure cookie
 	// set over plain http, so http setups use a plain name.
@@ -266,6 +274,9 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	host := g.hostOf(r)
 	switch {
+	case r.URL.Path == outposttsnet.AccessPath && isLocalHost(host):
+		// Ahead of the portal, which may itself be served by address.
+		g.serveTailnetAccess(w, r)
 	case host == g.portalHost:
 		// The one place a token works on the portal: an app's MCP
 		// endpoint, which takes nothing else.

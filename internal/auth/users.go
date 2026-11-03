@@ -19,6 +19,10 @@ type User struct {
 	CreatedAt   time.Time
 	LastLoginAt time.Time
 	Sessions    int // live sessions, for `user list`
+
+	// TailnetLogin is the Tailscale login linked to this user, lower case,
+	// "" if none; see UserForTailnetLogin.
+	TailnetLogin string
 }
 
 var (
@@ -352,7 +356,7 @@ type userRow struct {
 	hash string
 }
 
-const userCols = `id, username, display_name, email, password_hash, is_admin, disabled, created_at, last_login_at`
+const userCols = `id, username, display_name, email, password_hash, is_admin, disabled, created_at, last_login_at, tailnet_login`
 
 type scanner interface{ Scan(dest ...any) error }
 
@@ -362,7 +366,7 @@ func scanUser(sc scanner) (userRow, error) {
 		created, lastLog int64
 	)
 	if err := sc.Scan(&r.id, &r.Username, &r.DisplayName, &r.Email, &r.hash,
-		&r.Admin, &r.Disabled, &created, &lastLog); err != nil {
+		&r.Admin, &r.Disabled, &created, &lastLog, &r.TailnetLogin); err != nil {
 		return userRow{}, err
 	}
 	r.HasPassword = r.hash != ""

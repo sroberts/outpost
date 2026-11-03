@@ -43,6 +43,7 @@ const (
 	CmdUserLogout  = "user.logout"
 	CmdUserAdmin   = "user.admin"
 	CmdUserSignIns = "user.sessions"
+	CmdUserTailnet = "user.tailnet"
 	CmdAuthRotate  = "auth.rotate-key"
 
 	CmdTokenCreate = "token.create"
@@ -102,6 +103,8 @@ type UserRequest struct {
 	Password     string   `json:"password,omitempty"`
 	AddGroups    []string `json:"add_groups,omitempty"`
 	RemoveGroups []string `json:"remove_groups,omitempty"`
+	// TailnetLogin is user.tailnet's login to link; "" unlinks.
+	TailnetLogin string `json:"tailnet_login,omitempty"`
 }
 
 // UserInfo is a user as the CLI sees one. It has no hash fields, so nothing
@@ -117,6 +120,8 @@ type UserInfo struct {
 	CreatedAt   time.Time `json:"created_at"`
 	LastLoginAt time.Time `json:"last_login_at"`
 	Sessions    int       `json:"sessions"`
+	// TailnetLogin is the Tailscale login linked to the user, if any.
+	TailnetLogin string `json:"tailnet_login,omitempty"`
 }
 
 func userInfo(u auth.User) UserInfo {
@@ -124,6 +129,7 @@ func userInfo(u auth.User) UserInfo {
 		Username: u.Username, DisplayName: u.DisplayName, Email: u.Email,
 		Admin: u.Admin, Disabled: u.Disabled, Groups: u.Groups, HasPassword: u.HasPassword,
 		CreatedAt: u.CreatedAt, LastLoginAt: u.LastLoginAt, Sessions: u.Sessions,
+		TailnetLogin: u.TailnetLogin,
 	}
 }
 

@@ -53,6 +53,13 @@ type Service struct {
 	// there, for clients holding an access token.
 	MCPPath string `toml:"mcp_path"`
 
+	// TCP forwards raw TCP from the service's tailnet node to loopback, for
+	// protocols the HTTP proxy can't carry, such as SSH: each key is a port on
+	// the node, each value the service's port on 127.0.0.1. The gateway can't
+	// log a raw stream in, so with it on the node admits only callers whose
+	// tailnet login belongs to an Outpost user allowed this app; see tcp.go.
+	TCP map[string]int `toml:"tcp"`
+
 	// root is the Outpost home that a relative storage path resolves against.
 	// Unexported so TOML cannot set it: it comes from where the manifest was
 	// loaded, never from the manifest's own contents.
@@ -179,6 +186,7 @@ func (s *Service) validateWith(opts Options) []error {
 	}
 
 	errs = append(errs, s.validateCatalog()...)
+	errs = append(errs, s.validateTCP(opts)...)
 
 	return errs
 }
@@ -251,6 +259,8 @@ func ValidateWith(services []*Service, opts Options) []error {
 					svc.Name, svc.TailscaleName))
 			}
 		}
+
+		errs = append(errs, tcpPortClashes(svc, services)...)
 
 		// Two services at one gateway address would leave the second
 		// unreachable, with nothing saying why.
