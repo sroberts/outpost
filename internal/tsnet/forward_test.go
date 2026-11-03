@@ -116,22 +116,29 @@ func TestForwarder_UngatedCarriesBothWays(t *testing.T) {
 
 func TestForwarder_GatedLetsAllowedCallersIn(t *testing.T) {
 	logs := &logLines{}
-	var asked string
+	// Check runs on the forwarder's goroutine; a channel hands the
+	// question back without racing the test.
+	asked := make(chan string, 1)
 	addr := serveForwarder(t, &Forwarder{
 		Service: "soft", Port: 22, Target: echoService(t), Logf: logs.logf,
 		Identify: func(context.Context, string) (Caller, error) {
 			return Caller{Login: "alice@github", Device: "laptop"}, nil
 		},
 		Check: func(_ context.Context, service, login string) (string, error) {
-			asked = service + " " + login
+			asked <- service + " " + login
 			return "alice", nil
 		},
 	})
 	if got := talk(t, addr); got != "you said: hello\nbye\n" {
 		t.Errorf("got %q", got)
 	}
-	if asked != "soft alice@github" {
-		t.Errorf("asked the gateway about %q; want soft alice@github", asked)
+	select {
+	case q := <-asked:
+		if q != "soft alice@github" {
+			t.Errorf("asked the gateway about %q; want soft alice@github", q)
+		}
+	default:
+		t.Error("the gateway was never asked")
 	}
 	if !logs.has("connected alice (alice@github)") {
 		t.Errorf("log doesn't name the user: %v", logs.lines)
