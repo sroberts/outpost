@@ -118,6 +118,16 @@ func (a *app) cmdAdd(args []string) error {
 }
 
 // buildService assembles the manifest from flags and defaults.
+// defaultMCPPath is where a service added with --mcp, or from a descriptor
+// with mcp = true, serves MCP: both are documented as /mcp. Writing it into
+// the manifest is what lets the gateway route /mcp/<name>; mcp alone doesn't.
+func defaultMCPPath(mcp bool) string {
+	if mcp {
+		return "/mcp"
+	}
+	return ""
+}
+
 func (a *app) buildService(name, binary string, port int, storage, tsName, health, policy, argList, envList string, mcp bool) (*manifest.Service, error) {
 	if binary != "" {
 		if resolved, err := exec.LookPath(binary); err == nil {
@@ -167,6 +177,7 @@ func (a *app) buildService(name, binary string, port int, storage, tsName, healt
 		Healthcheck:   health,
 		RestartPolicy: policy,
 		MCP:           mcp,
+		MCPPath:       defaultMCPPath(mcp),
 	}
 	// A hand-written --storage may be relative; anchor it to the Outpost root
 	// so it means the same thing here as it will once the daemon loads it.
@@ -366,6 +377,9 @@ func renderManifest(s *manifest.Service) string {
 	fmt.Fprintf(&b, "restart_policy = %s\n", tomlString(s.RestartPolicy))
 	if s.MCP {
 		b.WriteString("mcp            = true\n")
+	}
+	if s.MCPPath != "" {
+		fmt.Fprintf(&b, "mcp_path       = %s\n", tomlString(s.MCPPath))
 	}
 	// Only written when set, so a generated manifest stays as short as the
 	// service actually needs. start_grace_seconds is what a descriptor can

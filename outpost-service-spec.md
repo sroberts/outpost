@@ -339,8 +339,9 @@ can stream (`text/event-stream`), and there is no time limit on how long you
 take to answer. Only the one path is routed, so the old SSE transport, which
 hands the client a second path, does not work through the portal.
 
-`mcp = true` stays informational: Outpost records it and does nothing else with
-it.
+`mcp = true` in your descriptor means you serve MCP at `/mcp`: `outpost add`
+writes `mcp_path = "/mcp"` into the manifest for you, which is what the portal
+routes by. If you serve it somewhere else, the operator changes `mcp_path`.
 
 **Machine-readable API description.** Serving your OpenAPI document at
 `GET /v1/openapi.json` is what Outpost's Hermes `SKILL.md` generator will
