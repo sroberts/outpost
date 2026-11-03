@@ -61,6 +61,16 @@ func (g *Gateway) servePortal(w http.ResponseWriter, r *http.Request) {
 		default:
 			g.updatesPage(w, r)
 		}
+	case "/add":
+		switch {
+		case g.adder == nil:
+			g.message(w, r, http.StatusNotFound, "Nothing here",
+				"There's no page at this address.", g.portalLink(), "Back to apps")
+		case r.Method == http.MethodPost:
+			g.addSubmit(w, r)
+		default:
+			g.addPage(w, r)
+		}
 	case "/updates/self":
 		if g.updater == nil || g.selfUpdater == nil {
 			g.message(w, r, http.StatusNotFound, "Nothing here",
@@ -120,6 +130,7 @@ func (g *Gateway) home(w http.ResponseWriter, r *http.Request) {
 		d.Waiting = g.waiting()
 		d.UpdatesLink = true
 	}
+	d.AddLink = u.Admin && g.adder != nil
 	if u.Admin && g.control != nil {
 		d.Poll = g.manage(d.Stations)
 	}

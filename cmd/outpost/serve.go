@@ -201,6 +201,7 @@ func (a *app) cmdServe(args []string) error {
 			PortalNode:   portalNodeStatus(tsRouter),
 			Updates:      supervisedUpdates{daemonUpdates{a}, sup},
 			SelfUpdates:  &selfWeb{a: a},
+			Adds:         daemonAdds{a},
 			Control:      sup,
 			Stats:        sampler,
 		})

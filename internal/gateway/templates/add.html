@@ -1,0 +1,34 @@
+{{define "body"}}
+{{template "rail" .}}
+<main class="page adding">
+<p class="back"><a href="{{.Home}}">Back to apps</a></p>
+<h1>Add an app</h1>
+{{with .Add}}<p class="lede">Paste the address of a GitHub repository that publishes releases. Outpost installs its latest release, gives it a port and somewhere to keep its data, and starts it behind the same sign-in as your other apps.</p>
+{{if .Running}}<p class="notice" role="status">Adding {{.Running}}. This page refreshes until it's done.</p>
+{{else if .Result}}<section class="panel" aria-labelledby="result-title">
+<h2 id="result-title">{{if .Failed}}Couldn't add {{.Last}}{{else}}Added {{.Last}}{{end}}</h2>
+<pre class="{{if .Failed}}error{{else}}notice{{end}} output"{{if .Failed}} role="alert"{{end}}>{{.Result}}</pre>
+{{if not .Failed}}<p class="hint">It starts within a few seconds, then shows up with your <a href="{{$.Home}}">apps</a>.</p>{{end}}
+</section>{{end}}
+{{if .Preview}}<section class="panel" aria-labelledby="preview-title">
+<h2 id="preview-title">{{.Target}}</h2>
+<p>This is what adding it would install and declare. Nothing has been downloaded yet.</p>
+<pre class="output">{{.Preview}}</pre>
+<form method="post" action="/add">
+<input type="hidden" name="action" value="add">
+<input type="hidden" name="repo" value="{{.Target}}">
+<button type="submit"{{if .Running}} disabled{{end}}><span>Add {{.Target}}</span></button>
+</form>
+<p class="hint">It runs on this machine with your account's access, so only add software you trust.</p>
+</section>
+{{else}}<form method="post" action="/add">
+<input type="hidden" name="action" value="preview">
+{{if .Error}}<p class="error" id="repo-error" role="alert">{{.Error}}</p>{{end}}
+<label>Repository
+<input name="repo" type="text" inputmode="url" value="{{.Repo}}" placeholder="https://github.com/owner/repo" autocomplete="off" autocapitalize="off" spellcheck="false" required{{if .Error}} aria-invalid="true" aria-describedby="repo-error"{{end}}>
+</label>
+<button type="submit"{{if .Running}} disabled{{end}}><span>Look it up</span></button>
+</form>
+<p class="hint">The CLI does the same: <code>outpost add &lt;repository&gt;</code>.</p>{{end}}{{end}}
+</main>
+{{end}}
