@@ -109,7 +109,9 @@ func TestForwarder_UngatedCarriesBothWays(t *testing.T) {
 	if got := talk(t, addr); got != "you said: hello\nbye\n" {
 		t.Errorf("got %q; want the echo and, after the half-close, bye", got)
 	}
-	if !logs.has("soft: tcp 22: connected") {
+	// The node's output is prefixed with the service already, so the
+	// forwarder's own lines don't name it again.
+	if !logs.has("tcp 22: connected") || logs.has("soft:") {
 		t.Errorf("no connection logged: %v", logs.lines)
 	}
 }
