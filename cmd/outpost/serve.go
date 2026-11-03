@@ -18,6 +18,7 @@ import (
 	"github.com/sroberts/outpost/internal/ipc"
 	"github.com/sroberts/outpost/internal/manifest"
 	"github.com/sroberts/outpost/internal/runtime"
+	"github.com/sroberts/outpost/internal/secrets"
 	"github.com/sroberts/outpost/internal/state"
 	"github.com/sroberts/outpost/internal/stats"
 	"github.com/sroberts/outpost/internal/supervisor"
@@ -91,6 +92,13 @@ func (a *app) cmdServe(args []string) error {
 	}
 	defer authStore.Close()
 
+	watch.at("opening the secrets store")
+	secretStore, err := secrets.Open(a.secretsPath(), a.secretsKeyPath())
+	if err != nil {
+		return err
+	}
+	defer secretStore.Close()
+
 	// config.toml decides whether the tailnet is used at all; an explicit
 	// --tailnet on the command line overrides it for this run.
 	useTailnet := a.config.TailscaleEnabled()
@@ -161,6 +169,7 @@ func (a *app) cmdServe(args []string) error {
 		ProcessRuntime:  procs,
 		Interval:        *interval,
 		CheckRelease:    (&releaseChecks{a: a}).check,
+		Secrets:         secretStore,
 		Logf:            func(format string, v ...any) { fmt.Fprintf(a.out, format+"\n", v...) },
 	})
 	if err != nil {
@@ -190,6 +199,7 @@ func (a *app) cmdServe(args []string) error {
 	}
 	defer srv.Close()
 	srv.UseAuth(authStore)
+	srv.UseSecrets(secretStore)
 	srv.UseConfig(a.config.Fingerprint())
 
 	var gw *gateway.Gateway
@@ -217,6 +227,7 @@ func (a *app) cmdServe(args []string) error {
 			Updates:      supervisedUpdates{daemonUpdates{a}, sup},
 			SelfUpdates:  &selfWeb{a: a},
 			Adds:         daemonAdds{a},
+			Secrets:      secretStore,
 			Control:      sup,
 			Stats:        sampler,
 			NodeSecret:   nodeSecret,

@@ -428,6 +428,18 @@ outpost gateway status           the portal address and the apps it routes
 outpost gateway activity [-n N]  sign-ins, failures and refusals at the gateway
 ```
 
+[Secrets](#secrets) are managed the same way:
+
+```
+outpost secret set <name> [--env VAR] [--service S]... [--global] [--value-stdin]
+                                 create a secret, or rotate its value; prompts for
+                                 it with no echo, or reads all of stdin
+outpost secret list              secrets, their variables and who gets them
+outpost secret bind <name> <service>|--global
+outpost secret unbind <name> <service>|--global
+outpost secret rm <name>         delete a secret
+```
+
 Passwords are typed at a prompt with no echo, never on the command line, and
 cross only the owner-only control socket. Removing, disabling or demoting the
 last enabled admin is refused.
@@ -541,6 +553,53 @@ and `outpost config` shows only that one is set. `outpost install --authkey`
 saves it to the same file, never to the unit, which other users can read.
 `TS_AUTHKEY` in the daemon's own environment wins over the file. Services and
 tsnet nodes never inherit it, nor `GITHUB_TOKEN`.
+
+## Secrets
+
+API keys and other credentials don't have to sit in a manifest's `env`, where
+anything that reads `~/.outpost/services/` sees them and changing one means
+editing files. A secret is kept by the daemon instead and handed to services as
+an environment variable:
+
+```sh
+outpost secret set openai-key --service tasking   # prompts for the value
+outpost secret set sentry-dsn --global --value-stdin < dsn.txt
+outpost secret list
+```
+
+A secret has a name, the variable it becomes (by default the name in upper
+case, `openai-key` → `OPENAI_KEY`) and a value. It reaches a service through a
+binding: to that service by name, or `--global` to every service. A secret bound
+to a service by name wins over a global one for the same variable, so one app
+can have its own key while the rest share one. Two secrets for one variable
+can't be bound at the same level. A secret also wins over the manifest's own
+`env` for the same variable, and the daemon logs that it did; `OUTPOST_`
+variables, and `PATH`, `HOME` and the like, can't be secrets.
+
+**Rotating restarts what uses it.** `outpost secret set` on a secret that
+exists replaces its value. The supervisor notices on its next tick and restarts
+every running service that gets it, since a process only reads its environment
+once and the point of rotating is that the old value stops working. Binding,
+unbinding and removing restart the services they affect the same way; a service
+you stopped stays stopped and picks the change up when it next starts.
+
+**From the portal.** With the [login gateway](#the-login-gateway) on, an admin
+gets a Secrets page, linked from the catalog: add a secret, choose which apps
+get it, rotate it by pasting a new value, or remove it. Each change goes in the
+gateway's activity feed with who made it, never with a value.
+
+**Values go in, never out.** Nothing reads a value back: not the page, not
+`outpost secret list`, not the control socket. To check one, look at what the
+service received. Values are typed at a prompt with no echo or piped in, never
+put on the command line.
+
+Secrets live in `secrets.db`, sealed with AES-256-GCM under a key in
+`secrets.key` beside it, both mode `0600`. That keeps a copy of the database on
+its own, such as a stray backup, from giving the values away. It isn't a wall
+between local processes: anything running as you can read both files, and every
+service runs as you (see [What Outpost trusts](#what-outpost-trusts)). Back the
+two files up together; without the key, the database is unreadable, and the
+daemon refuses to start rather than make a new key and lose them.
 
 ## Running without Tailscale
 
@@ -861,7 +920,8 @@ from that. Knowing where they are tells you what adding a service means.
 **A service is trusted as much as Outpost itself.** Every service runs as the
 same user as the daemon, with no sandbox. It can read everything under
 `~/.outpost` — `auth.db` with its password hashes and the keys that sign
-identity tokens, `config.toml` with the Tailscale auth key, each node's
+identity tokens, `secrets.db` and the key that unseals it, so every other
+service's secrets, `config.toml` with the Tailscale auth key, each node's
 tailnet identity — write a manifest, which is running any command as that
 user, and talk to the control socket, which can add an admin or mint an
 access token. `outpost add <url>` installs a release binary from a GitHub
@@ -921,6 +981,8 @@ Everything lives under `~/.outpost` (or `$OUTPOST_HOME`, or `--home`):
   state.db                 SQLite observed state and event log
   auth.db                  users, password hashes, sessions, signing keys,
                            linked tailnet logins (0600)
+  secrets.db               secrets and their bindings, values sealed (0600)
+  secrets.key              the key that seals them (0600)
   config.toml              global settings, mode 0600 (optional)
   outpost.sock             control socket, mode 0600
   outpost.pid              running daemon's PID
@@ -936,7 +998,8 @@ intent: `outpost stop` records that a service should stay down.
 password hashes, sessions (stored only as SHA-256 hashes of their tokens) and
 the keys that sign identity tokens, so it lives apart from `state.db` and
 should be backed up with the manifests. `outpost backup` covers service
-storage, not this file.
+storage, not this file. The same goes for `secrets.db`, which must be kept
+with `secrets.key`.
 
 > **Note on socket paths.** Unix domain sockets have a hard length limit in the
 > kernel (104 bytes on macOS). `~/.outpost/outpost.sock` is well under it, but a
@@ -1343,7 +1406,7 @@ stays in the CLI and the TUI.
 **The CLI differs from spec §12.** Added: `serve`, `add`, `update`, `remove`,
 `install`, `uninstall`, `config`, `version`, `user`, `auth`, `gateway`,
 `--home` / `$OUTPOST_HOME`, `logs --events`, `backup --list`,
-`backup --schedule`, `--tailnet`. `restore` takes the timestamp as optional,
+`backup --schedule`, `--tailnet`, `secret`. `restore` takes the timestamp as optional,
 defaulting to the newest archive. Not built: `outpost hermes publish`, which
 spec §12 lists.
 
@@ -1352,6 +1415,13 @@ TCP port, and that port is HTTP. The manifest's `tcp` table adds raw TCP
 forwards on the service's node, for protocols such as SSH, gated by tailnet
 identity when the gateway is on; see [Raw TCP forwards](#raw-tcp-forwards).
 The HTTP port is still the one Outpost probes and the gateway fronts.
+
+**Outpost keeps secrets.** The spec has none; a credential went in a
+manifest's `env`. `secrets.db` now holds values the daemon hands services as
+environment variables, bound per service or to every one, and restarts what
+uses one when it changes; see [Secrets](#secrets). The manifest is still the
+source of truth for everything else: a binding to a service that isn't
+declared does nothing until it is.
 
 **Manifest reloading polls instead of using fsnotify.** Spec §6 calls for
 fsnotify. The daemon hashes the manifest directory each tick and re-applies on

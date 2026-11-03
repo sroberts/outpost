@@ -80,10 +80,21 @@ type Options struct {
 	// RunReleaseChecks calls it, never the reconcile loop, since it goes over
 	// the network.
 	CheckRelease func(ctx context.Context, svc *manifest.Service) (ReleaseCheck, error)
+	// Secrets, when set, gives each service the secrets bound to it as
+	// environment variables, and restarts it when they change.
+	Secrets Secrets
 	// Now is injectable so tests can control backoff without sleeping.
 	Now func() time.Time
 	// Logf receives operator-facing progress lines; defaults to discarding.
 	Logf func(format string, args ...any)
+}
+
+// Secrets is where a service's secrets come from. Resolve is called on every
+// tick for each running service, so it must answer from memory.
+type Secrets interface {
+	// Resolve returns the variables service gets, and a revision that changes
+	// whenever they would. "" with no variables means none are bound.
+	Resolve(service string) (vars map[string]string, revision string)
 }
 
 // Supervisor owns the reconcile loop. It is not safe for concurrent use by
@@ -95,6 +106,7 @@ type Supervisor struct {
 	procRT       runtime.Runtime
 	tailnet      TailnetRouter
 	manifestOpts manifest.Options
+	secrets      Secrets
 
 	Interval            time.Duration
 	healthFailThreshold int
@@ -159,6 +171,9 @@ type svcState struct {
 	// halted mirrors the store's halt flag: the supervisor has stopped trying
 	// to keep this service running, per its restart_policy.
 	halted bool
+	// secretRev is the revision of the secrets the running instance was
+	// started with.
+	secretRev string
 }
 
 // New builds a Supervisor. It does not touch the runtime or load manifests;
@@ -181,6 +196,7 @@ func New(opts Options) (*Supervisor, error) {
 		procRT:              opts.ProcessRuntime,
 		tailnet:             opts.Tailnet,
 		manifestOpts:        opts.ManifestOptions,
+		secrets:             opts.Secrets,
 		Interval:            opts.Interval,
 		healthFailThreshold: opts.HealthFailThreshold,
 		now:                 opts.Now,
@@ -497,6 +513,18 @@ func (s *Supervisor) reconcileService(ctx context.Context, svc *manifest.Service
 		st.nextAttempt = time.Time{}
 		st.healthFails = 0
 	}
+	// A rotated secret only reaches a process through a restart, and the
+	// point of rotating is that the old value stops being used.
+	if st.handle != nil && s.secrets != nil {
+		if _, rev := s.secrets.Resolve(svc.Name); rev != st.secretRev {
+			s.logf("%s: secrets changed, restarting", svc.Name)
+			s.event(svc.Name, state.EventRestarted, "secrets changed")
+			s.stopInstance(ctx, st, "secrets changed")
+			st.backoff = initialBackoff(svc)
+			st.nextAttempt = time.Time{}
+			st.healthFails = 0
+		}
+	}
 	st.svc = svc
 
 	rec, _, err := s.store.GetService(svc.Name)
@@ -638,7 +666,8 @@ func (s *Supervisor) maybeStart(ctx context.Context, st *svcState) {
 		return
 	}
 
-	h, err := s.runtimeFor(st.svc).Start(ctx, st.svc)
+	run, rev := s.withSecrets(st.svc)
+	h, err := s.runtimeFor(st.svc).Start(ctx, run)
 	if err != nil {
 		st.status = runtime.StatusFailed
 		s.recordError(st.svc.Name, fmt.Sprintf("start: %v", err))
@@ -648,6 +677,7 @@ func (s *Supervisor) maybeStart(ctx context.Context, st *svcState) {
 	}
 
 	st.handle = h
+	st.secretRev = rev
 	st.reaped = false
 	st.status = runtime.StatusRunning
 	st.startedAt = s.now()
@@ -663,6 +693,33 @@ func (s *Supervisor) maybeStart(ctx context.Context, st *svcState) {
 	// losing tailnet exposure is not a reason to take a working service off.
 	s.attachToTailnet(ctx, st.svc)
 	s.persist(st)
+}
+
+// withSecrets returns the service as it should be started: with its secrets
+// laid over its manifest's env, and their revision. The manifest's own value
+// for a variable a secret also sets is replaced, and said so, since a secret
+// bound to the service is the more deliberate of the two. st.svc itself is
+// left alone, so the manifest comparison still sees only the manifest.
+func (s *Supervisor) withSecrets(svc *manifest.Service) (*manifest.Service, string) {
+	if s.secrets == nil {
+		return svc, ""
+	}
+	vars, rev := s.secrets.Resolve(svc.Name)
+	if len(vars) == 0 {
+		return svc, rev
+	}
+	run := *svc
+	run.Env = make(map[string]string, len(svc.Env)+len(vars))
+	for k, v := range svc.Env {
+		run.Env[k] = v
+	}
+	for k, v := range vars {
+		if _, ok := svc.Env[k]; ok {
+			s.logf("%s: secret replaces env %s from the manifest", svc.Name, k)
+		}
+		run.Env[k] = v
+	}
+	return &run, rev
 }
 
 // attachToTailnet asks the router to put a service on the tailnet. The router

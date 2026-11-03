@@ -51,6 +51,12 @@ const (
 	CmdTokenRevoke = "token.revoke"
 
 	CmdGatewayStatus = "gateway.status"
+
+	CmdSecretList   = "secret.list"
+	CmdSecretSet    = "secret.set"
+	CmdSecretRemove = "secret.rm"
+	CmdSecretBind   = "secret.bind"
+	CmdSecretUnbind = "secret.unbind"
 )
 
 // Timeouts. Most commands are near-instant queries against the supervisor's
@@ -90,6 +96,8 @@ type Request struct {
 	// AccessToken carries the token.* commands' arguments, a pointer for the
 	// same reason.
 	AccessToken *TokenRequest `json:"access_token,omitempty"`
+	// Secret carries the secret.* commands' arguments.
+	Secret *SecretRequest `json:"secret,omitempty"`
 }
 
 // UserRequest is the argument to a user.* command. Password is in clear: it
@@ -172,6 +180,8 @@ type Response struct {
 	// Secret is a new access token, set only by token.create. It crosses the
 	// 0600 socket once and the daemon keeps nothing it could be read back from.
 	Secret string `json:"secret,omitempty"`
+	// Secrets are secret.* results: names, variables and bindings, never a value.
+	Secrets []SecretInfo `json:"secrets,omitempty"`
 }
 
 // errorResponse builds a failure reply.

@@ -299,6 +299,36 @@ func (c *Client) TokenRevoke(id int64) (string, error) {
 	return resp.Message, err
 }
 
+// SecretList returns every secret, without values.
+func (c *Client) SecretList() ([]SecretInfo, error) {
+	resp, err := c.do(Request{Command: CmdSecretList})
+	return resp.Secrets, err
+}
+
+// SecretSet creates a secret, or rotates the value of one that exists.
+func (c *Client) SecretSet(name, env, value string) (string, error) {
+	resp, err := c.do(Request{Command: CmdSecretSet, Secret: &SecretRequest{Name: name, Env: env, Value: value}})
+	return resp.Message, err
+}
+
+// SecretRemove deletes a secret and its bindings.
+func (c *Client) SecretRemove(name string) (string, error) {
+	resp, err := c.do(Request{Command: CmdSecretRemove, Secret: &SecretRequest{Name: name}})
+	return resp.Message, err
+}
+
+// SecretBind hands a secret to a service, or to every service for "".
+func (c *Client) SecretBind(name, service string) (string, error) {
+	resp, err := c.do(Request{Command: CmdSecretBind, Secret: &SecretRequest{Name: name, Service: service, Global: service == ""}})
+	return resp.Message, err
+}
+
+// SecretUnbind takes a secret from a service, or its every-service binding for "".
+func (c *Client) SecretUnbind(name, service string) (string, error) {
+	resp, err := c.do(Request{Command: CmdSecretUnbind, Secret: &SecretRequest{Name: name, Service: service, Global: service == ""}})
+	return resp.Message, err
+}
+
 // GatewayStatus reports the gateway's addresses and routes.
 func (c *Client) GatewayStatus() (gateway.Status, error) {
 	resp, err := c.do(Request{Command: CmdGatewayStatus})

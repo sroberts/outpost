@@ -16,6 +16,7 @@ import (
 	"github.com/sroberts/outpost/internal/auth"
 	"github.com/sroberts/outpost/internal/backup"
 	"github.com/sroberts/outpost/internal/gateway"
+	"github.com/sroberts/outpost/internal/secrets"
 	"github.com/sroberts/outpost/internal/supervisor"
 	"github.com/sroberts/outpost/internal/version"
 )
@@ -28,6 +29,7 @@ const maxSocketPath = 104
 type Server struct {
 	sup     *supervisor.Supervisor
 	auth    *auth.Store
+	secrets *secrets.Store
 	gateway GatewayStatus
 	config  string
 	started time.Time
@@ -246,6 +248,9 @@ func (s *Server) dispatch(ctx context.Context, req Request) Response {
 
 	case CmdTokenCreate, CmdTokenList, CmdTokenRevoke:
 		return s.dispatchToken(ctx, req)
+
+	case CmdSecretList, CmdSecretSet, CmdSecretRemove, CmdSecretBind, CmdSecretUnbind:
+		return s.dispatchSecret(ctx, req)
 
 	case CmdGatewayStatus:
 		if s.gateway == nil {

@@ -446,3 +446,29 @@ button.plain:hover { background: none; border-color: var(--beam); }
 @media (prefers-reduced-motion: reduce) {
   .stats > summary::after { transition: none; }
 }
+
+/* Secrets: a row a secret, its variable beside its name, and its three
+   actions opening beneath it. Values are only ever typed in here. */
+.secret-list { list-style: none; margin: 1.25rem 0 0; padding: 0; }
+.secret-list > li { display: grid; gap: 3px; padding: 1rem 0; scroll-margin-top: 1rem; }
+.secret-list > li + li { border-top: 1px solid var(--rule); }
+.secret-list .top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.6rem; }
+.secret-list .name { font-size: 17px; font-weight: 650; overflow-wrap: anywhere; }
+.secret-list .meta { margin: 0; font-size: 14px; color: var(--dim); overflow-wrap: anywhere; }
+.secret-list .error { margin-top: 0.4rem; }
+.secret-acts { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0.5rem; margin-top: 0.6rem; }
+.secret-acts .pill { border-color: var(--field-edge); min-height: 44px; font-size: 14px; }
+.secret-acts .pill:hover { border-color: var(--beam); }
+.secret-acts form { max-width: 26rem; }
+#add { scroll-margin-top: 1rem; }
+.secrets fieldset.apps { display: grid; gap: 0; margin: 0; padding: 0; border: 0; min-width: 0; }
+.secrets fieldset.apps legend { padding: 0; margin-bottom: 0.25rem; font-weight: 550; font-size: 15px; }
+.secrets label.check {
+  display: flex; align-items: center; gap: 0.65rem; min-height: 44px;
+  font-weight: 400; cursor: pointer;
+}
+.secrets label.check input {
+  flex: none; width: 20px; height: 20px; min-height: 0; padding: 0; margin: 0;
+  accent-color: var(--lamp);
+}
+
