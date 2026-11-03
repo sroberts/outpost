@@ -250,6 +250,12 @@ func (c *Client) UserAdmin(username string, admin bool) (string, error) {
 	return resp.Message, err
 }
 
+// UserTailnet links a Tailscale login to a user; "" unlinks.
+func (c *Client) UserTailnet(username, login string) (string, error) {
+	resp, err := c.do(Request{Command: CmdUserTailnet, User: &UserRequest{Username: username, TailnetLogin: login}})
+	return resp.Message, err
+}
+
 // UserLogout ends every session a user has.
 func (c *Client) UserLogout(username string) (string, error) {
 	resp, err := c.do(Request{Command: CmdUserLogout, User: &UserRequest{Username: username}})

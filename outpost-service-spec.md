@@ -60,6 +60,37 @@ three lines, and every manifest `outpost add` generates sets it, so supporting
 it means the operator need not write `args` at all. Never hard-code a port, and
 never pick one dynamically: Outpost has to know it in advance.
 
+### Protocols that aren't HTTP
+
+Your HTTP port is the one Outpost probes and the gateway fronts. If you also
+speak something else — SSH, a database wire protocol, `git://` — the operator
+can have your tailnet node carry it as raw TCP:
+
+```toml
+port = 8081                  # HTTP: healthcheck, gateway, as above
+tcp  = { 22 = 2222 }         # tailnet port = your port on 127.0.0.1
+```
+
+The same rules hold for these ports: bind `127.0.0.1`, take each port from a
+flag or the environment, never pick one dynamically. Outpost doesn't tell you
+which ports it forwards; the operator writes them twice, as for `port`.
+
+What changes is what reaches you (§3). The gateway can't log a byte stream
+in, so with it on the node asks it about each connection instead and lets in
+only devices whose Tailscale login belongs to an Outpost user allowed to open
+your app. You don't learn which user: every connection arrives from
+`127.0.0.1`, with nothing added to it. So:
+
+- **Authenticate on these ports yourself.** The gate narrows who can reach
+  you to people the operator has given an account; it doesn't say which of
+  them is calling. Your SSH keys, passwords or tokens decide what each may do.
+- **Don't trust the source address.** It is always loopback; per-address
+  limits and logs see one client.
+- **Never forward to your HTTP port.** It would reach you without the
+  gateway's login or identity headers; `outpost apply` refuses it.
+
+With the gateway off, any device on the tailnet can connect, as for HTTP.
+
 ---
 
 ## 2. Serve a healthcheck
@@ -186,6 +217,10 @@ This is how an operator gets one login for all their services, so:
 - **Leave the gateway's cookie alone.** It is called `__Host-outpost` (or
   `outpost` on a plain-http gateway) and is removed before the request reaches
   you. Don't name a cookie of your own either of those.
+
+None of this covers a raw TCP port (§1): no headers reach you there, and
+`OUTPOST_AUTH=gateway` says nothing about who opened the connection. Treat
+those ports as authenticated by you alone.
 
 Non-browser clients sign in with a personal access token instead
 (`outpost token create`), sent as `Authorization: Bearer opat_...` or in
@@ -361,6 +396,7 @@ Do not build expecting any of this:
 | Not provided | What to do instead |
 |---|---|
 | TLS | Your Tailscale node terminates it, with a certificate for its own name; serve plain HTTP on loopback |
+| Identity on raw TCP | The gateway admits only allowed users' devices to a `tcp` forward, but tells you nothing about them; authenticate on those ports yourself |
 | A bind address | You bind loopback; Outpost never binds your port |
 | Authorization | With the login gateway on, Outpost authenticates every request and tells you who it is (§3), but every user can open every app; decide what each may do yourself. Without the gateway, tailnet membership is the boundary |
 | Secrets management | Read secrets from a file path given via env |
@@ -386,6 +422,7 @@ A service conforms when all of these are true.
 - [ ] Speaks plain HTTP, not HTTPS
 - [ ] Accepts its port from a flag and from `OUTPOST_PORT`
 - [ ] Never selects a port dynamically
+- [ ] Any other protocol it speaks is on its own loopback port, declared in `tcp`, never the HTTP port
 
 **Health**
 - [ ] Serves `GET /up` (or the configured path) returning 2xx when healthy
@@ -422,6 +459,7 @@ A service conforms when all of these are true.
 - [ ] Checks `Origin` on its own state-changing requests
 - [ ] Hard-codes no hostname; uses relative URLs, or `Host` and `X-Forwarded-*`
 - [ ] Serves nothing under `/.outpost/` and sets no cookie named `outpost` or `__Host-outpost`
+- [ ] Authenticates every connection on a `tcp` port itself, and doesn't trust its source address
 
 **Updates** (when installed from a release, §14)
 - [ ] Every release has its binaries attached by the time it is published

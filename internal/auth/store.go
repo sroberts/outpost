@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS users (
     is_admin      INTEGER NOT NULL DEFAULT 0,
     disabled      INTEGER NOT NULL DEFAULT 0,
     created_at    INTEGER NOT NULL,
-    last_login_at INTEGER NOT NULL DEFAULT 0
+    last_login_at INTEGER NOT NULL DEFAULT 0,
+    tailnet_login TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS user_groups (
@@ -129,6 +130,10 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := addTailnetLogin(db); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if _, err := db.Exec(`INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)`, schemaVersion); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("record auth schema version: %w", err)
@@ -183,6 +188,41 @@ func addSessionIP(db *sql.DB) error {
 	rows.Close()
 	if _, err := db.Exec(`ALTER TABLE sessions ADD COLUMN ip TEXT NOT NULL DEFAULT ''`); err != nil {
 		return fmt.Errorf("add sessions.ip: %w", err)
+	}
+	return nil
+}
+
+// addTailnetLogin gives a users table from before tailnet logins could be
+// linked its tailnet_login column, then indexes it. The index is made here
+// rather than in schema because on an older database the column only exists
+// once this has run. It's partial so any number of users can have no link.
+func addTailnetLogin(db *sql.DB) error {
+	rows, err := db.Query(`SELECT name FROM pragma_table_info('users')`)
+	if err != nil {
+		return fmt.Errorf("read users columns: %w", err)
+	}
+	defer rows.Close()
+	have := false
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return fmt.Errorf("read users columns: %w", err)
+		}
+		if name == "tailnet_login" {
+			have = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows.Close()
+	if !have {
+		if _, err := db.Exec(`ALTER TABLE users ADD COLUMN tailnet_login TEXT NOT NULL DEFAULT ''`); err != nil {
+			return fmt.Errorf("add users.tailnet_login: %w", err)
+		}
+	}
+	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS users_tailnet_login ON users(tailnet_login) WHERE tailnet_login != ''`); err != nil {
+		return fmt.Errorf("index users.tailnet_login: %w", err)
 	}
 	return nil
 }

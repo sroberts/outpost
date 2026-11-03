@@ -79,6 +79,9 @@ func nodeArgs(cfg nodeConfig) []string {
 	if cfg.UpstreamServerName != "" {
 		args = append(args, "--upstream-server-name", cfg.UpstreamServerName)
 	}
+	for _, f := range cfg.TCP {
+		args = append(args, "--tcp", f.String())
+	}
 	if cfg.Verbose {
 		args = append(args, "--verbose")
 	}
@@ -155,6 +158,9 @@ func (r *Router) startProcessNode(ctx context.Context, cfg nodeConfig) (tailnetN
 		cmd.Env = os.Environ()
 	}
 	cmd.Env = append(outpostruntime.WithoutSecrets(cmd.Env), AuthKeyEnv+"="+cfg.AuthKey)
+	if cfg.AccessSecret != "" {
+		cmd.Env = append(cmd.Env, AccessSecretEnv+"="+cfg.AccessSecret)
+	}
 	// Its own process group, so a Ctrl-C meant for a foreground daemon does
 	// not reach the node first and look like a crash; the daemon stops it in
 	// order on the way out.

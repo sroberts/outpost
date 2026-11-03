@@ -28,6 +28,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -65,6 +66,10 @@ type Options struct {
 	Upstream string
 	// UpstreamServerName verifies an https Upstream's certificate.
 	UpstreamServerName string
+	// AccessSecret is what a node shows the gateway when it asks whether a
+	// tcp forward's caller may connect; the gateway is given the same one.
+	// Only used with Upstream.
+	AccessSecret string
 }
 
 // tailnetNode is one live Tailscale node. The real implementation is a child
@@ -97,6 +102,11 @@ type nodeConfig struct {
 	// Upstream and UpstreamServerName are Options' own.
 	Upstream           string
 	UpstreamServerName string
+	// TCP is the service's tcp forwards.
+	TCP []manifest.TCPForward
+	// AccessSecret is Options' own, given only to a node with forwards to
+	// gate.
+	AccessSecret string
 
 	// onLogin, when set, is told each login URL the node is given while it
 	// waits to be authorised.
@@ -112,6 +122,7 @@ type Router struct {
 
 	upstream           string
 	upstreamServerName string
+	accessSecret       string
 
 	// startNode brings a node up. Swapped out in tests.
 	startNode func(ctx context.Context, cfg nodeConfig) (tailnetNode, error)
@@ -138,6 +149,7 @@ type node struct {
 	name     string
 	hostname string
 	port     int
+	tcp      []manifest.TCPForward
 	// wantHost, set only on the portal's node, is the DNS name public_url
 	// expects it to be given.
 	wantHost string
@@ -209,6 +221,7 @@ func New(opts Options) (*Router, error) {
 		nodes:         map[string]*node{},
 	}
 	r.upstream, r.upstreamServerName = opts.Upstream, opts.UpstreamServerName
+	r.accessSecret = opts.AccessSecret
 	r.startNode = r.startProcessNode
 	return r, nil
 }
@@ -306,14 +319,16 @@ func (r *Router) Attach(ctx context.Context, svc *manifest.Service) error {
 		return fmt.Errorf("%s: tailscale_name is required to join the tailnet", svc.Name)
 	}
 
+	tcp := svc.TCPForwards()
+
 	r.mu.Lock()
 	if existing, ok := r.nodes[svc.Name]; ok {
-		if existing.port == svc.Port && existing.hostname == hostname {
+		if existing.port == svc.Port && existing.hostname == hostname && slices.Equal(existing.tcp, tcp) {
 			// Already attached, or on its way. Nothing to do.
 			r.mu.Unlock()
 			return nil
 		}
-		// A changed port or hostname needs a fresh node. Claim the slot first
+		// A changed port, hostname or forward needs a fresh node. Claim the slot first
 		// so a concurrent Attach cannot start a second one, then tear the old
 		// one down outside the lock.
 		delete(r.nodes, svc.Name)
@@ -330,6 +345,7 @@ func (r *Router) Attach(ctx context.Context, svc *manifest.Service) error {
 		name:     svc.Name,
 		hostname: hostname,
 		port:     svc.Port,
+		tcp:      tcp,
 		cancel:   cancel,
 		done:     make(chan struct{}),
 	}
@@ -402,12 +418,17 @@ func (r *Router) bringUp(ctx context.Context, n *node) {
 
 		Upstream:           r.upstream,
 		UpstreamServerName: r.upstreamServerName,
+		TCP:                n.tcp,
 
 		onLogin: func(url string) {
 			n.mu.Lock()
 			n.loginURL = url
 			n.mu.Unlock()
 		},
+	}
+
+	if len(n.tcp) > 0 && r.upstream != "" {
+		cfg.AccessSecret = r.accessSecret
 	}
 
 	backoff := r.retryInitial
@@ -530,9 +551,9 @@ func (r *Router) serve(ctx context.Context, n *node, live tailnetNode) bool {
 				got, n.wantHost, n.hostname, got)
 		}
 	case r.upstream != "":
-		r.logf("%s: on the tailnet as https://%s -> gateway -> 127.0.0.1:%d", n.name, shown, n.port)
+		r.logf("%s: on the tailnet as https://%s -> gateway -> 127.0.0.1:%d%s", n.name, shown, n.port, describeTCP(n.tcp, true))
 	default:
-		r.logf("%s: on the tailnet as %s -> 127.0.0.1:%d", n.name, shown, n.port)
+		r.logf("%s: on the tailnet as %s -> 127.0.0.1:%d%s", n.name, shown, n.port, describeTCP(n.tcp, false))
 	}
 
 	if srv == nil {
@@ -638,4 +659,21 @@ func (r *Router) shutdownNode(n *node) error {
 		}
 	}
 	return nil
+}
+
+// describeTCP is the forwards for the line logged when a node comes up,
+// saying who may use them.
+func describeTCP(tcp []manifest.TCPForward, gated bool) string {
+	if len(tcp) == 0 {
+		return ""
+	}
+	parts := make([]string, len(tcp))
+	for i, f := range tcp {
+		parts[i] = fmt.Sprintf("%d -> 127.0.0.1:%d", f.Tailnet, f.Local)
+	}
+	who := "open to the whole tailnet, as the gateway is off"
+	if gated {
+		who = "for Outpost users the app allows"
+	}
+	return "; tcp " + strings.Join(parts, ", ") + " (" + who + ")"
 }

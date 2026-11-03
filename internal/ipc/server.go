@@ -241,7 +241,7 @@ func (s *Server) dispatch(ctx context.Context, req Request) Response {
 			Message: fmt.Sprintf("restored %s from %s", req.Service, archive.Timestamp)}
 
 	case CmdUserAdd, CmdUserPasswd, CmdUserRemove, CmdUserList, CmdUserGroups,
-		CmdUserDisable, CmdUserEnable, CmdUserLogout, CmdUserAdmin, CmdUserSignIns, CmdAuthRotate:
+		CmdUserDisable, CmdUserEnable, CmdUserLogout, CmdUserAdmin, CmdUserSignIns, CmdUserTailnet, CmdAuthRotate:
 		return s.dispatchAuth(ctx, req)
 
 	case CmdTokenCreate, CmdTokenList, CmdTokenRevoke:
@@ -369,6 +369,15 @@ func (s *Server) dispatchAuth(ctx context.Context, req Request) Response {
 			return Response{OK: true, Message: u.Username + " is now an admin"}
 		}
 		return Response{OK: true, Message: u.Username + " is no longer an admin"}
+
+	case CmdUserTailnet:
+		if err := s.auth.SetTailnetLogin(u.Username, u.TailnetLogin); err != nil {
+			return errorResponse(err)
+		}
+		if u.TailnetLogin == "" {
+			return Response{OK: true, Message: u.Username + " has no tailnet login linked; a login equal to their email still counts as them"}
+		}
+		return Response{OK: true, Message: "linked tailnet login " + auth.NormalizeTailnetLogin(u.TailnetLogin) + " to " + u.Username}
 
 	case CmdUserSignIns:
 		list, err := s.auth.SignIns(u.Username)
