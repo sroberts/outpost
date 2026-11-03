@@ -119,6 +119,15 @@ It validates the result against every other declared service *before* writing,
 so a port or name collision is an error rather than something the next `apply`
 discovers.
 
+With the [login gateway](#the-login-gateway) on, an admin can do the same from
+the portal: **Add an app** on the catalog opens `/add`, which takes a repository
+link in any of the forms above. **Look it up** runs `outpost add --print`
+inside the daemon and shows the manifest it would write and the asset it would
+install, with nothing downloaded; **Add** then runs `outpost add <owner/repo>`.
+The page takes no flags, so the release's `outpost.toml` decides the rest, and
+it never passes `--force`, so it can't replace a service that's already
+declared. Anything else, including a name clash, stays on the CLI.
+
 ```sh
 outpost remove plumbline            # delete the manifest, keep the data
 outpost remove plumbline --purge    # delete its storage and backups too

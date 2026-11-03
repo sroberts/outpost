@@ -5,6 +5,7 @@
 <h1>Account</h1>
 <p class="lede">Signed in as <strong>{{.Who}}</strong>{{if ne .Who .Username}}, username <code>{{.Username}}</code>{{end}}.{{if .Admin}} As an admin you can open every app.{{end}}</p>
 {{if .UpdatesLink}}<p class="back"><a href="/updates">Updates for Outpost and its apps</a></p>{{end}}
+{{if .AddLink}}<p class="back"><a href="/add">Add an app from GitHub</a></p>{{end}}
 {{if .Notice}}<p class="notice" role="status">{{.Notice}}</p>{{end}}
 {{if .SignIns}}<section class="panel" aria-labelledby="where-title" id="where">
 <h2 id="where-title">Where you're signed in</h2>

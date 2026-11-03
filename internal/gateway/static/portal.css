@@ -286,6 +286,13 @@ button.small { padding: 0 0.95rem; font-size: 14px; }
   margin: 0.25rem 0 0; padding: 0 0 0 0.85rem; border-left: 1px solid var(--rule);
   font-size: 12px; line-height: 1.55; color: var(--dim);
 }
+/* Adding an app: the CLI's own account of what it would do, or did. */
+.adding pre.output {
+  margin: 0.75rem 0 0; padding: 0 0 0 0.85rem; border-left: 1px solid var(--rule);
+  font-size: 12px; line-height: 1.55; color: var(--dim);
+}
+.adding pre.error.output { color: var(--down-ink); }
+.adding pre.notice.output { color: var(--porcelain); }
 .recheck { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; }
 button.plain { background: none; color: var(--porcelain); border: 1px solid var(--field-edge); }
 button.plain:hover { background: none; border-color: var(--beam); }

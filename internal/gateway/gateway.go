@@ -48,6 +48,9 @@ type Options struct {
 	// SelfUpdates, when set alongside Updates, puts Outpost itself on that
 	// page.
 	SelfUpdates SelfUpdates
+	// Adds, when set, gives admins a page for adding an app from a GitHub
+	// release.
+	Adds Adds
 	// Control, when set, gives admins a menu on each app in the catalog to
 	// start, stop, restart or back it up.
 	Control Control
@@ -71,6 +74,8 @@ type Gateway struct {
 	updater      Updates
 	selfUpdater  SelfUpdates
 	updateState  updateState
+	adder        Adds
+	addState     addState
 	control      Control
 	ops          appOps
 	// claim serialises the busy checks of the catalog's actions and the
@@ -138,6 +143,7 @@ func New(opts Options) (*Gateway, error) {
 		tailnetHosts: opts.TailnetHosts,
 		updater:      opts.Updates,
 		selfUpdater:  opts.SelfUpdates,
+		adder:        opts.Adds,
 		control:      opts.Control,
 		stats:        opts.Stats,
 		scheme:       u.Scheme,
