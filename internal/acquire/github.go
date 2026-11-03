@@ -85,8 +85,8 @@ func ghToken() string {
 	if t := strings.TrimSpace(os.Getenv("GITHUB_TOKEN")); t != "" {
 		return t
 	}
-	gh, err := exec.LookPath("gh")
-	if err != nil {
+	gh := findGH(exec.LookPath, isExecutable, ghLocations)
+	if gh == "" {
 		return ""
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -96,6 +96,37 @@ func ghToken() string {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// ghLocations is where package managers put gh. The daemon runs under launchd
+// or systemd, whose PATH is the bare system one, so without these a gh that
+// works fine in the user's shell is invisible to the daemon, and a private
+// repository's updates silently stop being found.
+var ghLocations = []string{
+	"/opt/homebrew/bin/gh",              // Homebrew, Apple silicon
+	"/usr/local/bin/gh",                 // Homebrew, Intel; manual installs
+	"/home/linuxbrew/.linuxbrew/bin/gh", // Homebrew on Linux
+	"/usr/bin/gh",                       // distribution packages
+	"/snap/bin/gh",                      // snap
+}
+
+// findGH returns the gh binary to run, or "": PATH first, so a user's choice
+// wins, then the well-known locations.
+func findGH(lookPath func(string) (string, error), executable func(string) bool, locations []string) string {
+	if p, err := lookPath("gh"); err == nil {
+		return p
+	}
+	for _, p := range locations {
+		if executable(p) {
+			return p
+		}
+	}
+	return ""
+}
+
+func isExecutable(path string) bool {
+	fi, err := os.Stat(path)
+	return err == nil && !fi.IsDir() && fi.Mode()&0o111 != 0
 }
 
 // Asset is one file attached to a release.
