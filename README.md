@@ -824,9 +824,11 @@ the service's own host, and with the same identity headers and identity token
 token it gets `401` with `WWW-Authenticate: Bearer`, never a sign-in page, and
 a browser's session doesn't count. A bad, expired or out-of-scope token, a
 service that doesn't exist and one with no `mcp_path` all get the same `401`,
-so a token can't be used to find out which services there are. Since that
-401 can't say why, `outpost apply` and the daemon's log warn about a
-manifest with `mcp = true` and no `mcp_path`. Only the exact
+so a token can't be used to find out which services there are. `outpost add
+--mcp`, or a release whose descriptor says `mcp = true`, writes
+`mcp_path = "/mcp"` for you; since a 401 can't say why, `outpost apply` and
+the daemon's log warn about a manifest with `mcp = true` and no `mcp_path`.
+Only the exact
 path is routed: `/mcp/<service>/anything` isn't, and the old SSE transport,
 which needs a second path, isn't supported. Responses stream, any `Set-Cookie`
 the service sends is dropped (the portal's origin isn't the service's to set

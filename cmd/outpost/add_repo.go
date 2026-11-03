@@ -287,6 +287,7 @@ func (a *app) serviceFromDescriptor(name, binary string, port int, desc *acquire
 		Healthcheck:       health,
 		RestartPolicy:     policy,
 		MCP:               mcp,
+		MCPPath:           defaultMCPPath(mcp),
 		StartGraceSeconds: desc.StartGraceSeconds,
 		Title:             desc.Title,
 		Description:       desc.Description,
