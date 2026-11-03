@@ -37,7 +37,10 @@ type secretsView struct {
 	Rows   []secretRow
 	Apps   []secretApp // every declared app, for the add form
 	Notice string
-	Error  string
+	// NoticeFor is the secret the notice is about, so it's shown on that
+	// row: the redirect lands there, below where a page-top notice would be.
+	NoticeFor string
+	Error     string
 	// ErrorFor is the secret a failed form was about, so its row shows the
 	// error; "" is the add form.
 	ErrorFor string
@@ -52,8 +55,13 @@ type secretRow struct {
 	Bound     string // the apps it's bound to by name, in words
 	Reaches   string // the apps that get it now, in words
 	ReachN    int    // how many, for the verb's agreement
+	// Shadowed, for a secret given to every app, are the apps that have
+	// their own for the same variable instead, in words.
+	Shadowed  string
+	ShadowedN int
 	Changed   string
 	Apps      []secretApp // checked where bound by name
+	Notice    string
 	Error     string
 }
 
@@ -103,6 +111,11 @@ func (g *Gateway) secretsPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v := secretsView{Notice: g.secretNotice(r)}
+	if name := r.URL.Query().Get("secret"); v.Notice != "" {
+		if _, ok := g.secrets.Get(name); ok {
+			v.NoticeFor = name
+		}
+	}
 	g.renderSecrets(w, r, u, http.StatusOK, v)
 }
 
@@ -139,16 +152,31 @@ func (g *Gateway) renderSecrets(w http.ResponseWriter, r *http.Request, u auth.U
 		for _, s := range sec.Services {
 			bound[s] = true
 		}
+		reached := map[string]bool{}
+		for _, s := range reach {
+			reached[s] = true
+		}
+		var shadowed []string
 		for _, a := range apps {
 			row.Apps = append(row.Apps, secretApp{Name: a.Name, Title: a.Title, Checked: bound[a.Name]})
+			if sec.Global && !reached[a.Name] {
+				shadowed = append(shadowed, a.Title)
+			}
 		}
+		row.Shadowed, row.ShadowedN = listWords(shadowed), len(shadowed)
 		if v.ErrorFor == sec.Name {
 			row.Error = v.Error
+		}
+		if v.NoticeFor == sec.Name {
+			row.Notice = v.Notice
 		}
 		v.Rows = append(v.Rows, row)
 	}
 	if v.ErrorFor != "" {
 		v.Error = "" // shown on its row instead
+	}
+	if v.NoticeFor != "" {
+		v.Notice = ""
 	}
 	v.Apps = apps
 	g.render(w, r, status, "secrets", pageData{

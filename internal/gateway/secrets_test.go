@@ -182,3 +182,35 @@ func TestListWords(t *testing.T) {
 		}
 	}
 }
+
+// A secret given to every app says which apps have their own instead, and a
+// change's confirmation is on the row the redirect lands on.
+func TestSecretsPage_ShadowedAppsAndRowNotice(t *testing.T) {
+	h, st := secretsHarness(t)
+	for _, step := range []func() (secrets.Secret, error){
+		func() (secrets.Secret, error) { return st.Create("shared", "API_KEY", "1") },
+		func() (secrets.Secret, error) { return st.Bind("shared", "") },
+		func() (secrets.Secret, error) { return st.Create("sous-own", "API_KEY", "2") },
+		func() (secrets.Secret, error) { return st.Bind("sous-own", "sous") },
+	} {
+		if _, err := step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c := h.client(true)
+	h.login(c, "root", "", "/")
+
+	b := body(t, h.get(c, portal+"/secrets"))
+	if !strings.Contains(b, "In use by Yarr; Sous has its own API_KEY") {
+		t.Errorf("the shared secret doesn't say Sous has its own:\n%s", b)
+	}
+
+	b = body(t, h.post(c, portal+"/secrets", portal, url.Values{"action": {"rotate"}, "name": {"sous-own"}, "value": {"3"}}))
+	row := b[strings.Index(b, `id="s-sous-own"`):]
+	if i := strings.Index(row, "</li>"); i > 0 {
+		row = row[:i]
+	}
+	if !strings.Contains(row, "Rotated sous-own. Sous restarts with it") {
+		t.Errorf("the rotation's confirmation isn't on its row:\n%s", row)
+	}
+}
