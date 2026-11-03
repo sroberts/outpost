@@ -23,6 +23,8 @@ type Caller struct {
 // Forwarder carries connections from one tailnet port to the service on
 // loopback, byte for byte.
 type Forwarder struct {
+	// Service is the app the gateway is asked about. Log lines leave it
+	// out: the node's output is already prefixed with it.
 	Service string
 	// Port is the tailnet port, for the log.
 	Port int
@@ -76,7 +78,7 @@ func (f *Forwarder) handle(ctx context.Context, c net.Conn) {
 		if why != "" {
 			// Closed without a word: whatever the protocol is, the
 			// service never saw this caller, so nothing is owed to it.
-			f.logf("%s: tcp %d: refused %s: %s", f.Service, f.Port, remote, why)
+			f.logf("tcp %d: refused %s: %s", f.Port, remote, why)
 			return
 		}
 		who = user + " from " + remote
@@ -84,11 +86,11 @@ func (f *Forwarder) handle(ctx context.Context, c net.Conn) {
 
 	up, err := (&net.Dialer{Timeout: dialTimeout}).DialContext(ctx, "tcp", f.Target)
 	if err != nil {
-		f.logf("%s: tcp %d: %s: service on %s is not reachable: %v", f.Service, f.Port, who, f.Target, err)
+		f.logf("tcp %d: %s: service on %s is not reachable: %v", f.Port, who, f.Target, err)
 		return
 	}
 	defer up.Close()
-	f.logf("%s: tcp %d: connected %s", f.Service, f.Port, who)
+	f.logf("tcp %d: connected %s", f.Port, who)
 
 	// Stop both copies when the node is going away, as well as when either
 	// side hangs up.
