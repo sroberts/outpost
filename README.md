@@ -733,7 +733,8 @@ public_paths = ["/webhook/*", "/feed.xml"] # served without a login
 - **`allow`** is checked on every request and before a sign-in link is
   issued; someone not on it gets a plain "No access" page. Admins reach every
   app and see every one, hidden ones marked. A name that matches no user or
-  group yet is logged, not refused, so a manifest can come first.
+  group yet is logged, not refused, so a manifest can come first. It also
+  decides who may open the app's [raw TCP forwards](#raw-tcp-forwards).
 - **`public_paths`** are for webhooks and feeds that carry their own
   credentials. A pattern is an exact path or a prefix ending in `/*`.
   Requests there still have every `X-Outpost-*` header and Outpost's cookie
@@ -907,7 +908,8 @@ Everything lives under `~/.outpost` (or `$OUTPOST_HOME`, or `--home`):
   backups/<name>/<ts>.tar.gz
   tsnet/<name>/            per-service Tailscale node identity
   state.db                 SQLite observed state and event log
-  auth.db                  users, password hashes, sessions, signing keys (0600)
+  auth.db                  users, password hashes, sessions, signing keys,
+                           linked tailnet logins (0600)
   config.toml              global settings, mode 0600 (optional)
   outpost.sock             control socket, mode 0600
   outpost.pid              running daemon's PID
