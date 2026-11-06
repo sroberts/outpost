@@ -306,7 +306,7 @@ release        = "v1.3.0"                      # rewritten by `outpost update`
 port           = 8081                          # required
 storage        = "~/.outpost/data/plumbline"   # required, created 0700 if absent
 tailscale_name = "plumbline"                   # required, unique on the tailnet
-funnel         = false                         # rejected if true
+funnel         = false                         # answer public_paths from the internet; see Funnel
 healthcheck    = "/up"
 mcp            = true                          # informational only
 mcp_path       = "/mcp"                        # where you serve MCP; see Access tokens
@@ -328,7 +328,7 @@ start_grace_seconds = 30
 | `restart_policy` | `on-failure` | See below |
 | `backoff_seconds` | `5` | Doubles per consecutive restart, capped at 300s |
 | `start_grace_seconds` | `30` | Healthcheck failures do not count during this window |
-| `funnel` | `false` | `true` is rejected — deferred, not designed out |
+| `funnel` | `false` | `true` answers `public_paths`, and only those, from the internet through Tailscale Funnel. Needs the gateway, a `tailscale_name` and at least one public path. The portal's Internet access page overrides it; see [Funnel](#funnel-webhooks-from-the-internet) |
 | `source` | — | GitHub `owner/repo` the binary came from; what `outpost update` fetches |
 | `release` | — | Release tag installed. Neither field changes what runs, so editing them restarts nothing |
 | `mcp_path` | — | Where the service serves MCP (Streamable HTTP). Lets MCP clients with an access token reach it at `https://<portal>/mcp/<name>`; see [MCP clients](#mcp-clients) |
@@ -804,7 +804,10 @@ public_paths = ["/webhook/*", "/feed.xml"] # served without a login
   group yet is logged, not refused, so a manifest can come first. It also
   decides who may open the app's [raw TCP forwards](#raw-tcp-forwards).
 - **`public_paths`** are for webhooks and feeds that carry their own
-  credentials. A pattern is an exact path or a prefix ending in `/*`.
+  credentials. A pattern is an exact path or a prefix ending in `/*`. With
+  [`funnel = true`](#funnel-webhooks-from-the-internet) the internet reaches
+  them too. The portal's Internet access page can set them instead, and
+  then wins over the manifest.
   Requests there still have every `X-Outpost-*` header and Outpost's cookie
   removed, and only a path already in its simplest form matches, so
   `/webhook/../admin` gets no exemption.
@@ -937,6 +940,12 @@ tells the gateway from a neighbour; the [service contract](outpost-service-spec.
 says when to verify it. The login front door keeps the outside out; it does
 not keep services apart from each other.
 
+**A public path behind Funnel is on the internet.** With `funnel = true`,
+anyone can send it anything, as often as they like. Outpost makes sure only
+those paths are reachable, anonymously, but it can't tell a real webhook
+from a forged one: the app has to check the signature. See
+[Funnel](#funnel-webhooks-from-the-internet).
+
 **Loopback is a trusted proxy.** By default `trusted_proxies` is the loopback
 range, because that is where the tailnet nodes and `tailscale serve` connect
 from, and they say in `X-Forwarded-For` who the client was. So can any other
@@ -983,6 +992,8 @@ Everything lives under `~/.outpost` (or `$OUTPOST_HOME`, or `--home`):
                            linked tailnet logins (0600)
   secrets.db               secrets and their bindings, values sealed (0600)
   secrets.key              the key that seals them (0600)
+  exposure.db              public paths and Funnel set on the portal, over
+                           the manifests' (0600)
   config.toml              global settings, mode 0600 (optional)
   outpost.sock             control socket, mode 0600
   outpost.pid              running daemon's PID
@@ -999,7 +1010,9 @@ password hashes, sessions (stored only as SHA-256 hashes of their tokens) and
 the keys that sign identity tokens, so it lives apart from `state.db` and
 should be backed up with the manifests. `outpost backup` covers service
 storage, not this file. The same goes for `secrets.db`, which must be kept
-with `secrets.key`.
+with `secrets.key`, and for `exposure.db`, which records what the portal
+set over the manifests: without it, each app goes back to its manifest's
+public paths and Funnel.
 
 > **Note on socket paths.** Unix domain sockets have a hard length limit in the
 > kernel (104 bytes on macOS). `~/.outpost/outpost.sock` is well under it, but a
@@ -1295,7 +1308,8 @@ appends `-1`. To take a name over from an old device, delete that device in
 the Tailscale admin console *before* logging the new node in.
 Each service costs one device on your tailnet, and so does the portal with
 `tailscale_name` set; check your plan's limit before this scales past a
-handful. `funnel = true` is rejected.
+handful. `funnel = true` puts an app's public paths on the internet; see
+[Funnel](#funnel-webhooks-from-the-internet).
 
 The `TAILSCALE` column of `outpost list` is what the node is doing, not only
 what the manifest asks for:
@@ -1359,6 +1373,76 @@ Forwards are validated with the rest of the manifest: each port once, no
 tailnet port 80 or 443, which the node uses, and never a forward to the
 service's own HTTP `port`, which would reach the app without passing the
 gateway. Changing them replaces the node without restarting the service.
+
+### Funnel: webhooks from the internet
+
+Some apps need to hear from the public internet: GitHub, Stripe or a chat
+platform calling a webhook. With the gateway on, an app can have **exactly its
+`public_paths`** answered there, through Tailscale Funnel, at the address it
+already has on the tailnet:
+
+```toml
+tailscale_name = "tasking"
+public_paths   = ["/webhooks/github", "/hooks/*"]
+funnel         = true
+```
+
+```
+https://tasking.<tailnet>.ts.net/webhooks/github   from anywhere
+https://tasking.<tailnet>.ts.net/                  tailnet only, behind the login, as before
+```
+
+Or set the same on the portal: an admin's catalog links to **Internet
+access**, which lists each app's public paths and whether Funnel is on, with
+the addresses the internet can use. **A setting made there wins over the
+manifest**, which stays the default for any app the page hasn't set. The page
+says when it is overriding the manifest, and what the manifest says, and
+"Use the manifest's setting" goes back to it. Changing either restarts the
+app's tailnet node, not the app.
+
+Nothing else is reachable from the internet: not the app's other paths, not
+other apps, not the portal, sign-in, `/mcp/<name>` or `/.outpost/`. That
+holds because of where requests go, not because of a check on each one.
+Funnel traffic arrives on a listener of its own on the app's node, which
+sends it to a gateway listener of its own on loopback, and that listener has
+code only for public paths:
+
+- every `X-Outpost-*` header and Outpost's cookies are removed, and the app
+  sees an anonymous request, as on a public path today;
+- an Outpost access token (`opat_…` or `Outpost-Token`) is refused with a
+  401, never passed on, so a leaked one can't be used from outside;
+- the host must be the node's own name, for an app with Funnel on, and the
+  path one of its public paths, with the same hardening against `..`, `%2f`
+  and `;` tricks. Anything else is a bare 404, never a login page;
+- bodies are capped at 25 MiB, GitHub's largest webhook; upgrades are
+  refused; requests time out after a minute;
+- an address that keeps being refused, a scanner say, is slowed down and
+  then told to wait (429);
+- each request is a line in the daemon log, with the client's address.
+
+**The app still has to check each webhook's signature.** Only it has the
+secret GitHub or Stripe signs with. Outpost's part is that only the paths the
+app chose are reachable, with the body intact. Treat a public path behind
+Funnel as being on the internet, because it is: its hostname is in public
+certificate logs, and scanners will find it within minutes.
+
+Funnel needs, in Tailscale:
+
+- HTTPS turned on for the tailnet, which the nodes already need;
+- the `funnel` attribute for the app's node in the tailnet policy. If yours
+  doesn't grant it, add:
+
+  ```json
+  "nodeAttrs": [{ "target": ["autogroup:member"], "attr": ["funnel"] }]
+  ```
+
+  or narrow `target` to your own user.
+
+Until then, the node serves the tailnet as usual and `outpost status <name>`
+and the Internet access page say Funnel is unavailable, with Tailscale's
+reason. The node keeps trying, so granting the attribute is enough; no
+restart is needed. Admins see a **Public** mark on an app in the catalog
+while the internet can reach it.
 
 ## Development
 
@@ -1454,8 +1538,16 @@ gateway instead, so the service's tailnet address is behind the login, and
 the portal links to that address. Without the gateway, nodes behave as spec
 §7 describes.
 
-**`funnel` is rejected, not ignored.** It is accepted by the schema and refused
-at apply time with an explicit error, per spec §7.
+**`funnel` is built.** Spec §1 has Funnel out of scope and §7 has
+`funnel = true` refused until it was built deliberately. It now answers an
+app's `public_paths`, and nothing else, from the internet; see
+[Funnel](#funnel-webhooks-from-the-internet) and the design in
+`docs/design/funnel-webhooks.md`. `/mcp/<name>` is not exposed that way.
+
+**The portal can override a manifest.** For `funnel` and `public_paths`
+only, a setting made on the Internet access page is kept in `exposure.db`
+and wins over the manifest, which stays the default. Like `auth.db` and
+`secrets.db`, that file is authoritative rather than a cache.
 
 **Backup scheduling uses the init system.** Spec §10 leaves this open; Outpost
 generates a launchd job or a systemd timer rather than growing a scheduler.

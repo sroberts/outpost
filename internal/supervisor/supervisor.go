@@ -83,6 +83,9 @@ type Options struct {
 	// Secrets, when set, gives each service the secrets bound to it as
 	// environment variables, and restarts it when they change.
 	Secrets Secrets
+	// Exposure, when set, is what the portal has set about each service's
+	// funnel and public_paths, which wins over the manifest's.
+	Exposure Exposure
 	// Now is injectable so tests can control backoff without sleeping.
 	Now func() time.Time
 	// Logf receives operator-facing progress lines; defaults to discarding.
@@ -97,6 +100,21 @@ type Secrets interface {
 	Resolve(service string) (vars map[string]string, revision string)
 }
 
+// Exposure is where the portal's settings for funnel and public_paths come
+// from. ok is false for a service the portal hasn't set, which then has its
+// manifest's.
+type Exposure interface {
+	Override(service string) (funnel bool, publicPaths []string, ok bool)
+}
+
+// manifestExposure is what a service's manifest says about funnel and
+// public_paths, kept for a service the portal overrides, so status can say
+// what going back to the manifest would mean.
+type manifestExposure struct {
+	funnel      bool
+	publicPaths []string
+}
+
 // Supervisor owns the reconcile loop. It is not safe for concurrent use by
 // multiple goroutines; Run drives it from one.
 type Supervisor struct {
@@ -107,6 +125,10 @@ type Supervisor struct {
 	tailnet      TailnetRouter
 	manifestOpts manifest.Options
 	secrets      Secrets
+	exposure     Exposure
+	// fromManifest is, for each service the portal overrides, what its
+	// manifest says instead. Reconcile-loop goroutine only.
+	fromManifest map[string]manifestExposure
 
 	Interval            time.Duration
 	healthFailThreshold int
@@ -197,6 +219,8 @@ func New(opts Options) (*Supervisor, error) {
 		tailnet:             opts.Tailnet,
 		manifestOpts:        opts.ManifestOptions,
 		secrets:             opts.Secrets,
+		exposure:            opts.Exposure,
+		fromManifest:        map[string]manifestExposure{},
 		Interval:            opts.Interval,
 		healthFailThreshold: opts.HealthFailThreshold,
 		now:                 opts.Now,
@@ -230,6 +254,7 @@ func (s *Supervisor) applyLocked(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("load manifests: %w", err)
 	}
+	services, fromManifest := s.withExposure(services)
 	if errs := manifest.ValidateWith(services, s.manifestOpts); len(errs) > 0 {
 		return fmt.Errorf("invalid manifests:\n%s", indentErrors(errs))
 	}
@@ -249,11 +274,47 @@ func (s *Supervisor) applyLocked(ctx context.Context) error {
 	}
 
 	s.desired = next
+	s.fromManifest = fromManifest
 	if fp, err := s.manifestFingerprint(); err == nil {
 		s.fingerprint = fp
 	}
 	s.event("", state.EventApply, fmt.Sprintf("applied %d service(s)", len(next)))
 	return nil
+}
+
+// withExposure lays the portal's settings over the manifests' funnel and
+// public_paths. A setting that no longer passes the manifest's rules, such
+// as Funnel after the gateway was turned off, is left out and logged, so it
+// can't stop every other service from applying.
+func (s *Supervisor) withExposure(services []*manifest.Service) ([]*manifest.Service, map[string]manifestExposure) {
+	from := map[string]manifestExposure{}
+	if s.exposure == nil {
+		return services, from
+	}
+	out := make([]*manifest.Service, len(services))
+	for i, svc := range services {
+		out[i] = svc
+		funnel, paths, ok := s.exposure.Override(svc.Name)
+		if !ok {
+			continue
+		}
+		merged, errs := svc.WithExposure(funnel, paths, s.manifestOpts)
+		if len(errs) > 0 {
+			s.logf("%s: the portal's setting for public paths and Funnel doesn't apply, so the manifest's does: %s", svc.Name, joinErrors(errs))
+			continue
+		}
+		from[svc.Name] = manifestExposure{funnel: svc.Funnel, publicPaths: svc.PublicPaths}
+		out[i] = merged
+	}
+	return out, from
+}
+
+func joinErrors(errs []error) string {
+	parts := make([]string, len(errs))
+	for i, err := range errs {
+		parts[i] = err.Error()
+	}
+	return strings.Join(parts, "; ")
 }
 
 // Reload re-applies the manifests if they have changed on disk, and reports

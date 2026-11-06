@@ -37,6 +37,18 @@ type route struct {
 	Source      string
 	Release     string
 	MCPPath     string // where the app serves MCP; "" if it doesn't say
+	// Funnel is whether PublicPaths are meant to be answered from the
+	// internet, and FunnelState whether the node says they are.
+	Funnel      bool
+	FunnelState string
+	FunnelError string
+	// FromPortal says Funnel and PublicPaths were set on the portal's
+	// Internet access page, over the manifest's ManifestFunnel and
+	// ManifestPublicPaths.
+	FromPortal          bool
+	ManifestFunnel      bool
+	ManifestPublicPaths []string
+	TailscaleName       string
 
 	// What the supervisor says, for explaining a service that isn't up.
 	Desired      string
@@ -125,6 +137,11 @@ func (g *Gateway) refreshRoutes(ctx context.Context) {
 			Title: s.Title, Description: s.Description, Hidden: s.Hidden,
 			Allow: s.Allow, PublicPaths: s.PublicPaths, MCPPath: s.MCPPath, Source: s.Source, Release: s.Release,
 			Desired: s.Desired, Halted: s.Halted, RestartCount: s.RestartCount, NextAttempt: s.NextAttempt,
+			Funnel: s.Funnel, FromPortal: s.FromPortal, ManifestFunnel: s.ManifestFunnel,
+			ManifestPublicPaths: s.ManifestPublicPaths, TailscaleName: s.TailscaleName,
+		}
+		if t := s.Tailnet; t != nil {
+			r.FunnelState, r.FunnelError = t.Funnel, t.FunnelError
 		}
 		r.Addr = s.Hostname
 		if r.Addr == "" {

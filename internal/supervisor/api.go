@@ -52,6 +52,15 @@ type ServiceStatus struct {
 	Hidden      bool     `json:"hidden,omitempty"`
 	PublicPaths []string `json:"public_paths,omitempty"`
 	MCPPath     string   `json:"mcp_path,omitempty"`
+	// Funnel is the manifest's funnel: whether public_paths are meant to be
+	// answered from the internet. Tailnet.Funnel says whether they are.
+	Funnel bool `json:"funnel,omitempty"`
+	// FromPortal says Funnel and PublicPaths are the portal's setting, which
+	// wins over the manifest; ManifestFunnel and ManifestPublicPaths are what
+	// the manifest says instead.
+	FromPortal          bool     `json:"from_portal,omitempty"`
+	ManifestFunnel      bool     `json:"manifest_funnel,omitempty"`
+	ManifestPublicPaths []string `json:"manifest_public_paths,omitempty"`
 
 	// Where the binary came from, for the gateway's update page.
 	Source  string `json:"source,omitempty"`
@@ -197,7 +206,19 @@ type TailnetStatus struct {
 	LoginURL string `json:"login_url,omitempty"`
 	// Error is why the last attempt to bring the node up failed.
 	Error string `json:"error,omitempty"`
+	// Funnel is how the node's Funnel listener is doing, for a service
+	// with funnel = true: FunnelOn, FunnelStarting or FunnelUnavailable,
+	// with FunnelError saying why it's unavailable. "" otherwise.
+	Funnel      string `json:"funnel,omitempty"`
+	FunnelError string `json:"funnel_error,omitempty"`
 }
+
+// Funnel states, as TailnetStatus reports them.
+const (
+	FunnelStarting    = "starting"
+	FunnelOn          = "on"
+	FunnelUnavailable = "unavailable"
+)
 
 // TailnetSummary says how s is doing on the tailnet, in a few words for a
 // table: the name it has there, or what its node is doing. "" when it has
@@ -313,6 +334,10 @@ func (s *Supervisor) statusOf(name string) ServiceStatus {
 		st.Release = svc.Release
 		st.PublicPaths = svc.PublicPaths
 		st.MCPPath = svc.MCPPath
+		st.Funnel = svc.Funnel
+		if m, ok := s.fromManifest[name]; ok {
+			st.FromPortal, st.ManifestFunnel, st.ManifestPublicPaths = true, m.funnel, m.publicPaths
+		}
 		s.addRelease(&st, svc)
 	}
 	if rec, found, err := s.store.GetService(name); err == nil && found {

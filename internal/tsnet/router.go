@@ -70,6 +70,10 @@ type Options struct {
 	// tcp forward's caller may connect; the gateway is given the same one.
 	// Only used with Upstream.
 	AccessSecret string
+	// PublicUpstream is the gateway's public listener, where a node with
+	// funnel sends what arrives from the internet. It serves only public
+	// paths. Funnel needs both it and Upstream.
+	PublicUpstream string
 }
 
 // tailnetNode is one live Tailscale node. The real implementation is a child
@@ -107,10 +111,17 @@ type nodeConfig struct {
 	// AccessSecret is Options' own, given only to a node with forwards to
 	// gate.
 	AccessSecret string
+	// Funnel has the node answer the internet too, sending it to
+	// PublicUpstream, Options' own.
+	Funnel         bool
+	PublicUpstream string
 
 	// onLogin, when set, is told each login URL the node is given while it
 	// waits to be authorised.
 	onLogin func(url string)
+	// onFunnel, when set, is told each time a node with Funnel reports how
+	// its Funnel listener is doing: FunnelOn, or FunnelUnavailable and why.
+	onFunnel func(state, why string)
 }
 
 // Router owns one tsnet node per attached service.
@@ -123,6 +134,7 @@ type Router struct {
 	upstream           string
 	upstreamServerName string
 	accessSecret       string
+	publicUpstream     string
 
 	// startNode brings a node up. Swapped out in tests.
 	startNode func(ctx context.Context, cfg nodeConfig) (tailnetNode, error)
@@ -150,6 +162,7 @@ type node struct {
 	hostname string
 	port     int
 	tcp      []manifest.TCPForward
+	funnel   bool
 	// wantHost, set only on the portal's node, is the DNS name public_url
 	// expects it to be given.
 	wantHost string
@@ -170,6 +183,11 @@ type node struct {
 	// is attached.
 	loginURL string
 	lastErr  string
+	// funnelState and funnelErr are how its Funnel listener is doing, for
+	// a node with funnel: "" until the node is on, then NodeFunnelStarting
+	// until it reports.
+	funnelState string
+	funnelErr   string
 }
 
 // Node states, as NodeStatus reports them.
@@ -179,9 +197,20 @@ const (
 	NodeOn         = "on"
 )
 
+// Funnel states, as NodeStatus reports them.
+const (
+	NodeFunnelStarting    = "starting"
+	NodeFunnelOn          = FunnelOn
+	NodeFunnelUnavailable = FunnelUnavailable
+)
+
 // NodeStatus is what the router knows of one service's node.
 type NodeStatus struct {
 	State string
+	// Funnel is how a node with funnel is doing on the internet, and
+	// FunnelError why it's unavailable; "" for a node without funnel.
+	Funnel      string
+	FunnelError string
 	// Host is the node's DNS name, once it is on.
 	Host string
 	// LoginURL is where to authorise it, while it needs a login.
@@ -222,6 +251,7 @@ func New(opts Options) (*Router, error) {
 	}
 	r.upstream, r.upstreamServerName = opts.Upstream, opts.UpstreamServerName
 	r.accessSecret = opts.AccessSecret
+	r.publicUpstream = opts.PublicUpstream
 	r.startNode = r.startProcessNode
 	return r, nil
 }
@@ -295,7 +325,7 @@ func (r *Router) NodeStatus(name string) (NodeStatus, bool) {
 	defer n.mu.Unlock()
 	switch {
 	case n.attached:
-		return NodeStatus{State: NodeOn, Host: n.dnsName}, true
+		return NodeStatus{State: NodeOn, Host: n.dnsName, Funnel: n.funnelState, FunnelError: n.funnelErr}, true
 	case n.loginURL != "":
 		return NodeStatus{State: NodeNeedsLogin, LoginURL: n.loginURL}, true
 	}
@@ -310,9 +340,10 @@ func (r *Router) NodeStatus(name string) (NodeStatus, bool) {
 // Attaching an already-attached service with the same configuration is a no-op,
 // so the reconcile loop may call it on every tick.
 func (r *Router) Attach(ctx context.Context, svc *manifest.Service) error {
-	if svc.Funnel {
-		// Belt and braces: manifest validation rejects this too (§7).
-		return fmt.Errorf("%s: funnel is not supported in v1", svc.Name)
+	// Belt and braces, as validation refuses this too: without the
+	// gateway's two listeners in front, the internet would reach every path.
+	if svc.Funnel && (r.upstream == "" || r.publicUpstream == "") {
+		return fmt.Errorf("%s: funnel needs the gateway, which answers only the app's public_paths from the internet", svc.Name)
 	}
 	hostname := svc.TailscaleName
 	if hostname == "" {
@@ -323,12 +354,12 @@ func (r *Router) Attach(ctx context.Context, svc *manifest.Service) error {
 
 	r.mu.Lock()
 	if existing, ok := r.nodes[svc.Name]; ok {
-		if existing.port == svc.Port && existing.hostname == hostname && slices.Equal(existing.tcp, tcp) {
+		if existing.port == svc.Port && existing.hostname == hostname && slices.Equal(existing.tcp, tcp) && existing.funnel == svc.Funnel {
 			// Already attached, or on its way. Nothing to do.
 			r.mu.Unlock()
 			return nil
 		}
-		// A changed port, hostname or forward needs a fresh node. Claim the slot first
+		// A changed port, hostname, forward or funnel needs a fresh node. Claim the slot first
 		// so a concurrent Attach cannot start a second one, then tear the old
 		// one down outside the lock.
 		delete(r.nodes, svc.Name)
@@ -346,6 +377,7 @@ func (r *Router) Attach(ctx context.Context, svc *manifest.Service) error {
 		hostname: hostname,
 		port:     svc.Port,
 		tcp:      tcp,
+		funnel:   svc.Funnel,
 		cancel:   cancel,
 		done:     make(chan struct{}),
 	}
@@ -425,6 +457,10 @@ func (r *Router) bringUp(ctx context.Context, n *node) {
 			n.loginURL = url
 			n.mu.Unlock()
 		},
+	}
+	if n.funnel {
+		cfg.Funnel, cfg.PublicUpstream = true, r.publicUpstream
+		cfg.onFunnel = func(state, why string) { r.funnelReport(n, state, why) }
 	}
 
 	if len(n.tcp) > 0 && r.upstream != "" {
@@ -534,6 +570,11 @@ func (r *Router) serve(ctx context.Context, n *node, live tailnetNode) bool {
 	if h, ok := live.(hostedNode); ok {
 		n.dnsName = h.Host()
 	}
+	// The node may already have said how its Funnel went, in the moment
+	// after it reported ready; unserve clears what a previous one said.
+	if n.funnel && n.funnelState == "" {
+		n.funnelState = NodeFunnelStarting
+	}
 	n.mu.Unlock()
 
 	shown := n.hostname
@@ -551,7 +592,7 @@ func (r *Router) serve(ctx context.Context, n *node, live tailnetNode) bool {
 				got, n.wantHost, n.hostname, got)
 		}
 	case r.upstream != "":
-		r.logf("%s: on the tailnet as https://%s -> gateway -> 127.0.0.1:%d%s", n.name, shown, n.port, describeTCP(n.tcp, true))
+		r.logf("%s: on the tailnet as https://%s -> gateway -> 127.0.0.1:%d%s%s", n.name, shown, n.port, describeTCP(n.tcp, true), describeFunnel(n.funnel))
 	default:
 		r.logf("%s: on the tailnet as %s -> 127.0.0.1:%d%s", n.name, shown, n.port, describeTCP(n.tcp, false))
 	}
@@ -583,6 +624,7 @@ func (r *Router) unserve(n *node, live tailnetNode) {
 	n.mu.Lock()
 	if n.live == live {
 		n.live, n.http, n.attached, n.dnsName = nil, nil, false, ""
+		n.funnelState, n.funnelErr = "", ""
 	}
 	n.mu.Unlock()
 	// The process has already exited; Close only reaps what is left.
@@ -659,6 +701,36 @@ func (r *Router) shutdownNode(n *node) error {
 		}
 	}
 	return nil
+}
+
+// funnelReport records what a node said about its Funnel listener, logging
+// each change, since it decides whether the internet reaches the app.
+func (r *Router) funnelReport(n *node, state, why string) {
+	n.mu.Lock()
+	changed := n.funnelState != state || n.funnelErr != why
+	n.funnelState, n.funnelErr = state, why
+	host := n.dnsName
+	n.mu.Unlock()
+	if host == "" {
+		host = n.hostname // reported before serve has recorded the name
+	}
+	if !changed {
+		return
+	}
+	switch state {
+	case FunnelOn:
+		r.logf("%s: funnel on: the internet reaches its public_paths at https://%s", n.name, host)
+	default:
+		r.logf("%s: funnel unavailable, so only the tailnet reaches it: %s", n.name, why)
+	}
+}
+
+// describeFunnel is funnel for the line logged when a node comes up.
+func describeFunnel(on bool) string {
+	if !on {
+		return ""
+	}
+	return "; funnel for its public_paths"
 }
 
 // describeTCP is the forwards for the line logged when a node comes up,

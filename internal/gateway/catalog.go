@@ -97,7 +97,10 @@ type station struct {
 	Reason      string // why it isn't up, in words
 	Command     string // what an admin runs to look closer
 	Hidden      bool
-	Usage       *usageView // nil when there's nothing measured to show
+	// Public is whether the internet reaches the app's public paths now,
+	// through Funnel. Only an admin is shown it.
+	Public bool
+	Usage  *usageView // nil when there's nothing measured to show
 
 	// For an admin, when the portal can control apps.
 	Quick  *appAction  // the one step that brings it back, outside the menu
@@ -123,6 +126,7 @@ func (g *Gateway) stations(u auth.User) []station {
 			URL:         origin + "/",
 			Addr:        strings.TrimPrefix(strings.TrimPrefix(origin, "https://"), "http://"),
 			Hidden:      rt.Hidden,
+			Public:      u.Admin && rt.Funnel && rt.FunnelState == "on",
 		}
 		if st.Title == "" {
 			st.Title = titleCase(rt.Name)

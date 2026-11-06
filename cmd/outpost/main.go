@@ -259,6 +259,7 @@ func (a *app) authPath() string    { return filepath.Join(a.home, "auth.db") }
 // the database alone doesn't give the values away; back them up together.
 func (a *app) secretsPath() string    { return filepath.Join(a.home, "secrets.db") }
 func (a *app) secretsKeyPath() string { return filepath.Join(a.home, "secrets.key") }
+func (a *app) exposurePath() string   { return filepath.Join(a.home, "exposure.db") }
 
 // ensureLayout creates the Outpost root on first use. A home created here is
 // a new install, and gets the new-install Tailscale setting.

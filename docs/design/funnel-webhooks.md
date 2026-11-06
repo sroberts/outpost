@@ -1,8 +1,34 @@
 # Design: webhooks from the internet, through Tailscale Funnel
 
-Status: proposed, for review. Nothing built yet.
-Branch: `docs/funnel-webhooks`
-Date: 2026-11-03
+Status: built, on branch `feat/funnel-webhooks`. Designed 2026-11-03, built
+2026-11-06. The operator's side is in the README under
+[Funnel](../../README.md#funnel-webhooks-from-the-internet).
+
+**What changed in building it.** The open questions were answered, and one
+requirement was added:
+
+- **Body cap:** a fixed 25 MiB, GitHub's ceiling, with no per-service field.
+  A declared length over it is refused with 413 before the app sees any of
+  it.
+- **Public paths:** all or nothing per service, as proposed.
+- **Catalog badge:** shown to admins only.
+- **Set from the portal too, with the portal winning.** An admin's Internet
+  access page sets an app's `public_paths` and `funnel`. The setting is kept
+  in `exposure.db` and laid over the manifest when the supervisor loads it,
+  so the router, the gateway and `outpost status` all see the same effective
+  values. The manifest is the default for any app the page hasn't set, and
+  "Use the manifest's setting" goes back to it. A setting is held to the
+  manifest's own rules when it is saved and again on each apply. One that no
+  longer passes, such as Funnel after the gateway is turned off, is logged and
+  left out rather than stopping every other service from applying. Like
+  `auth.db` and `secrets.db`, `exposure.db` is authoritative, an exception to
+  the manifest being the source of truth, limited to these two fields.
+- **One PR, not four.** The implementation plan below was done as one
+  change, since the portal settings touch every layer.
+- **The activity feed** records changes made on the Internet access page.
+  Funnel coming up or going down is logged by the daemon, not put in the
+  feed, and refusals aren't aggregated there; each request is a line in the
+  daemon log instead.
 
 ## Summary
 

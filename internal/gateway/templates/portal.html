@@ -5,7 +5,7 @@
 <div class="hub">
 <span class="lamp" aria-hidden="true"></span>
 <h1>{{.Portal}}</h1>
-<p class="tally">{{with .Counts}}{{.Up}} running{{if .Starting}} · {{.Starting}} starting{{end}}{{if .Down}} · {{.Down}} down{{end}}{{if .Stopped}} · {{.Stopped}} stopped{{end}}{{end}}{{if .Waiting}} · <a href="/updates">{{.Waiting}} {{if eq .Waiting 1}}update{{else}}updates{{end}} available</a>{{else if .UpdatesLink}} · <a href="/updates">Updates</a>{{end}}{{if .AddLink}} · <a href="/add">Add an app</a>{{end}}{{if .SecretsLink}} · <a href="/secrets">Secrets</a>{{end}}</p>
+<p class="tally">{{with .Counts}}{{.Up}} running{{if .Starting}} · {{.Starting}} starting{{end}}{{if .Down}} · {{.Down}} down{{end}}{{if .Stopped}} · {{.Stopped}} stopped{{end}}{{end}}{{if .Waiting}} · <a href="/updates">{{.Waiting}} {{if eq .Waiting 1}}update{{else}}updates{{end}} available</a>{{else if .UpdatesLink}} · <a href="/updates">Updates</a>{{end}}{{if .AddLink}} · <a href="/add">Add an app</a>{{end}}{{if .SecretsLink}} · <a href="/secrets">Secrets</a>{{end}}{{if .PublicLink}} · <a href="/public">Internet access</a>{{end}}</p>
 </div>
 {{if .Search}}<label class="filter" hidden>Filter apps
 <input id="filter" type="search" autocomplete="off" spellcheck="false" hidden>
@@ -17,9 +17,9 @@
 <div class="row">
 <span class="mark" aria-hidden="true"></span>
 <div class="body">
-{{if eq .State "up"}}<div class="top"><a class="name go" href="{{.URL}}">{{.Title}}</a>{{if .Hidden}}<span class="tag">Hidden</span>{{end}}{{if .Busy}}<span class="state">{{.Label}}</span>{{else}}<span class="sr">, {{.Label}}</span>{{end}}</div>
+{{if eq .State "up"}}<div class="top"><a class="name go" href="{{.URL}}">{{.Title}}</a>{{if .Hidden}}<span class="tag">Hidden</span>{{end}}{{if .Public}}<a class="tag" href="/public#p-{{.Name}}" title="The internet reaches its public paths, through Funnel">Public</a>{{end}}{{if .Busy}}<span class="state">{{.Label}}</span>{{else}}<span class="sr">, {{.Label}}</span>{{end}}</div>
 <span class="meta">{{if .Description}}<span class="desc">{{.Description}}</span>{{end}}<span class="addr">{{.Addr}}</span></span>
-{{else}}<div class="top"><span class="name">{{.Title}}</span>{{if .Hidden}}<span class="tag">Hidden</span>{{end}}<span class="state">{{.Label}}</span></div>
+{{else}}<div class="top"><span class="name">{{.Title}}</span>{{if .Hidden}}<span class="tag">Hidden</span>{{end}}{{if .Public}}<a class="tag" href="/public#p-{{.Name}}" title="The internet reaches its public paths, through Funnel">Public</a>{{end}}<span class="state">{{.Label}}</span></div>
 {{if not .Busy}}<span class="why">{{.Reason}}</span>
 {{template "quick" .}}
 {{if .Command}}<code class="cmd">{{.Command}}</code>{{end}}{{end}}

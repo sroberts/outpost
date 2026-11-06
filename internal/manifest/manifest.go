@@ -181,10 +181,7 @@ func (s *Service) validateWith(opts Options) []error {
 		errs = append(errs, fmt.Errorf("restart_policy must be one of \"on-failure\", \"always\", \"never\""))
 	}
 
-	if s.Funnel {
-		errs = append(errs, fmt.Errorf("funnel is not supported in v1"))
-	}
-
+	errs = append(errs, s.validateFunnel(opts)...)
 	errs = append(errs, s.validateCatalog()...)
 	errs = append(errs, s.validateTCP(opts)...)
 
@@ -207,8 +204,9 @@ type Options struct {
 	// PortalTailscaleName is [gateway] tailscale_name: the portal's own node
 	// on the tailnet, which no service may take. "" when it has none.
 	PortalTailscaleName string
-	// Gateway is whether the gateway is on. Validation doesn't read it;
-	// Warnings does, as mcp_path only matters to the gateway.
+	// Gateway is whether the gateway is on. Funnel needs it, since without
+	// it a node would put the whole app on the internet; Warnings reads it
+	// too, as mcp_path only matters to the gateway.
 	Gateway bool
 }
 

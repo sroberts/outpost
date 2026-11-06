@@ -55,6 +55,10 @@ type Options struct {
 	// Secrets, when set, gives admins a page for adding, rotating and
 	// binding the secrets services are given as environment variables.
 	Secrets Secrets
+	// Exposure, when set, gives admins a page for each app's public paths
+	// and whether Funnel answers them from the internet, which win over
+	// the manifest's.
+	Exposure Exposure
 	// Control, when set, gives admins a menu on each app in the catalog to
 	// start, stop, restart or back it up.
 	Control Control
@@ -85,6 +89,7 @@ type Gateway struct {
 	adder        Adds
 	addState     addState
 	secrets      Secrets
+	exposure     Exposure
 	control      Control
 	ops          appOps
 	// claim serialises the busy checks of the catalog's actions and the
@@ -120,6 +125,9 @@ type Gateway struct {
 	// table so a broken cron job can't lock its machine out of the sign-in
 	// page, and token traffic never touches the record of password guesses.
 	tokenThrottle throttle
+	// publicThrottle limits refused requests from the internet per address,
+	// in a table of its own, so scanners can't crowd out sign-ins.
+	publicThrottle throttle
 
 	ln  net.Listener
 	srv *http.Server
@@ -156,6 +164,7 @@ func New(opts Options) (*Gateway, error) {
 		selfUpdater:  opts.SelfUpdates,
 		adder:        opts.Adds,
 		secrets:      opts.Secrets,
+		exposure:     opts.Exposure,
 		control:      opts.Control,
 		stats:        opts.Stats,
 		scheme:       u.Scheme,
@@ -171,6 +180,8 @@ func New(opts Options) (*Gateway, error) {
 		// As for codes: 256 random bits can't be guessed, so this is about
 		// load, and it leaves room for a script with a stale token to be told so.
 		tokenThrottle: throttle{free: 5},
+
+		publicThrottle: throttle{free: publicThrottleFree},
 	}
 	if g.logf == nil {
 		g.logf = func(string, ...any) {}

@@ -46,14 +46,32 @@ func TestStateDirFor_IsPerService(t *testing.T) {
 	}
 }
 
-func TestAttach_RejectsFunnel(t *testing.T) {
+// Funnel on and off are both valid; on needs the gateway's two listeners in
+// front, since without them the internet would reach every path.
+func TestAttach_FunnelNeedsTheGateway(t *testing.T) {
 	r, err := New(Options{StateDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
 	svc := &manifest.Service{Name: "a", TailscaleName: "a", Port: 1234, Funnel: true}
 	if err := r.Attach(context.Background(), svc); err == nil {
-		t.Fatal("Attach with funnel = true: want error, got nil")
+		t.Fatal("Attach with funnel = true and no gateway: want error, got nil")
+	}
+
+	gated, err := New(Options{StateDir: t.TempDir(), Upstream: "http://127.0.0.1:1", PublicUpstream: "http://127.0.0.1:2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gated.startNode = func(ctx context.Context, _ nodeConfig) (tailnetNode, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	t.Cleanup(func() { _ = gated.Close() })
+	for _, on := range []bool{false, true} {
+		svc.Funnel = on
+		if err := gated.Attach(context.Background(), svc); err != nil {
+			t.Errorf("Attach with funnel = %v behind the gateway: %v", on, err)
+		}
 	}
 }
 

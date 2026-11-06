@@ -91,13 +91,15 @@ func TestValidateAll_Errors(t *testing.T) {
 			wantN: 1,
 		},
 		{
-			name: "funnel not supported",
+			// Funnel itself is valid; this one has neither the gateway nor a
+			// public path for it to answer. funnel_test.go has the rest.
+			name: "funnel without the gateway or a public path",
 			setUp: func(t *testing.T) []*Service {
 				return []*Service{
 						{Name: "a", Runtime: "process", Binary: "/usr/bin/true", Port: 8080, Storage: "/tmp/a", TailscaleName: "a", Funnel: true},
 						}
 			},
-			wantN: 1,
+			wantN: 2,
 		},
 		{
 			name: "invalid RestartPolicy",
