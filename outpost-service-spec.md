@@ -233,6 +233,33 @@ left alone, so your own API keys still reach you in `Authorization`. With no
 credential at all, an unauthenticated `GET` is redirected to the sign-in page
 and anything else is refused with `401`.
 
+#### Public paths and webhooks
+
+The operator can let some of your paths skip the login, with `public_paths` in
+your manifest or on the portal's Internet access page: webhooks and feeds that
+carry credentials of their own. With `funnel` on as well, those paths, and
+only those, are answered from the **public internet** through Tailscale
+Funnel, at your own tailnet address. You can suggest paths in your
+`outpost.toml` (§14), but whether they are public, and whether the internet
+reaches them, is the operator's call. Plan for both.
+
+- **A request on a public path has no identity.** No `X-Outpost-*` header and
+  no Outpost cookie reaches you, and Outpost access tokens are refused before
+  you see them. Treat it as anonymous, whoever it claims to be.
+- **Assume it may be from anyone on the internet.** It may arrive any number
+  of times, from scanners as well as the sender you expect. Outpost makes sure
+  only the paths you were given are reachable, with the body intact, but it
+  can't tell a real webhook from a forged one.
+- **Verify every webhook's signature**, such as GitHub's `X-Hub-Signature-256`
+  or Stripe's `Stripe-Signature`, against a secret Outpost hands you as an
+  environment variable (see Secrets below), and reject anything that doesn't
+  match. Keep the handler idempotent, since senders retry.
+- **Stay within the limits.** Bodies over 25 MiB are refused, upgrades such as
+  WebSockets are refused, and a request gets about a minute. Answer quickly
+  and do slow work afterwards.
+- **Expect `X-Forwarded-Proto: https`** and the sender's address in
+  `X-Forwarded-For`.
+
 ### Secrets
 
 The manifest is a plaintext TOML file on disk. Anything in `env` is readable by
@@ -407,6 +434,7 @@ Do not build expecting any of this:
 | TLS | Your Tailscale node terminates it, with a certificate for its own name; serve plain HTTP on loopback |
 | Identity on raw TCP | The gateway admits only allowed users' devices to a `tcp` forward, but tells you nothing about them; authenticate on those ports yourself |
 | A bind address | You bind loopback; Outpost never binds your port |
+| Webhook verification | Funnel can put your public paths on the internet, but Outpost can't check a sender's signature; verify it yourself (§3) |
 | Authorization | With the login gateway on, Outpost authenticates every request and tells you who it is (§3), but every user can open every app; decide what each may do yourself. Without the gateway, tailnet membership is the boundary |
 | Secrets in a file, or rotated in place | Outpost hands secrets over as environment variables and restarts you to change one; if you need a credential as a file, write it into your storage directory yourself |
 | Service discovery | No registry; addresses are the operator's business |
@@ -468,6 +496,7 @@ A service conforms when all of these are true.
 - [ ] Checks `Origin` on its own state-changing requests
 - [ ] Hard-codes no hostname; uses relative URLs, or `Host` and `X-Forwarded-*`
 - [ ] Serves nothing under `/.outpost/` and sets no cookie named `outpost` or `__Host-outpost`
+- [ ] Treats requests on public paths as anonymous, and verifies each webhook's signature
 - [ ] Authenticates every connection on a `tcp` port itself, and doesn't trust its source address
 
 **Updates** (when installed from a release, §14)
