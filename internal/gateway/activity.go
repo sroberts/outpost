@@ -33,6 +33,9 @@ const (
 	EventTokenCreate = "token-create"
 	EventTokenRevoke = "token-revoke"
 	EventTokenFail   = "token-fail"
+	// EventSecret is a secret created, rotated, bound, unbound or removed,
+	// never with its value.
+	EventSecret = "secret"
 )
 
 // Events is where the gateway's activity goes: the supervisor's feed in the

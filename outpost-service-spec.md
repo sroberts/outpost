@@ -150,9 +150,11 @@ Outpost injects, in this order:
 
 1. The daemon's own environment
 2. Every key in the manifest's `env` table
-3. With the login gateway on: `OUTPOST_AUTH=gateway`, `OUTPOST_ISSUER` and
+3. Every secret bound to the service (see [Secrets](#secrets)), replacing a
+   manifest `env` key of the same name
+4. With the login gateway on: `OUTPOST_AUTH=gateway`, `OUTPOST_ISSUER` and
    `OUTPOST_JWKS_URL`
-4. `OUTPOST_STORAGE_DIR`
+5. `OUTPOST_STORAGE_DIR`
 
 What Outpost sets comes after the manifest's `env` and therefore always wins —
 a manifest cannot hand your service the wrong storage path, or claim a gateway
@@ -234,10 +236,16 @@ and anything else is refused with `401`.
 ### Secrets
 
 The manifest is a plaintext TOML file on disk. Anything in `env` is readable by
-anyone who can read `~/.outpost/services/`, and appears in the process
-environment. Outpost has no secrets management. If your service needs a
-credential, prefer reading it from a file path handed to you by env, so the
-secret itself is not in the manifest.
+anyone who can read `~/.outpost/services/`. Put a credential in an Outpost
+secret instead (`outpost secret set`, or the portal's Secrets page) and it
+reaches you as an ordinary environment variable, under whatever name you
+document, without being in the manifest.
+
+Read it once at startup. When the operator rotates a secret, Outpost restarts
+you with the new value rather than changing anything under a running process,
+so you don't need to watch for it; you do need to start cleanly when that
+happens, which section 6 already asks. Like anything else in your environment,
+don't log it and don't echo it back in a response.
 
 ---
 
@@ -400,7 +408,7 @@ Do not build expecting any of this:
 | Identity on raw TCP | The gateway admits only allowed users' devices to a `tcp` forward, but tells you nothing about them; authenticate on those ports yourself |
 | A bind address | You bind loopback; Outpost never binds your port |
 | Authorization | With the login gateway on, Outpost authenticates every request and tells you who it is (§3), but every user can open every app; decide what each may do yourself. Without the gateway, tailnet membership is the boundary |
-| Secrets management | Read secrets from a file path given via env |
+| Secrets in a file, or rotated in place | Outpost hands secrets over as environment variables and restarts you to change one; if you need a credential as a file, write it into your storage directory yourself |
 | Service discovery | No registry; addresses are the operator's business |
 | A database, cache, or queue | Bring your own, inside your storage directory |
 | Scheduling or cron | Not yet decided (`spec.md` open question 2) |

@@ -77,6 +77,17 @@ Users:
   gateway status           the gateway's addresses and the apps it routes
   gateway activity [-n N]  sign-ins, failures and refusals at the gateway
 
+Secrets (handed to services as environment variables; changing one restarts
+the services that get it):
+  secret set <name>        create a secret, or rotate its value, read hidden
+                           (--env VAR, --service S, --global, --value-stdin)
+  secret list              table of secrets and what gets them, never values
+  secret bind <name> <service>|--global
+                           hand a secret to a service, or to every service
+  secret unbind <name> <service>|--global
+                           take it away again
+  secret rm <name>         delete a secret
+
 Flags:
   --home <dir>             Outpost root (default $OUTPOST_HOME or ~/.outpost)
   --version                print the build identity of this binary
@@ -184,6 +195,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return a.cmdUser(cmdArgs)
 	case "token":
 		return a.cmdToken(cmdArgs)
+	case "secret", "secrets":
+		return a.cmdSecret(cmdArgs)
 	case "auth":
 		return a.cmdAuth(cmdArgs)
 	case "gateway":
@@ -241,6 +254,11 @@ func (a *app) backupsDir() string  { return filepath.Join(a.home, "backups") }
 func (a *app) tsnetDir() string    { return filepath.Join(a.home, "tsnet") }
 func (a *app) configPath() string  { return filepath.Join(a.home, "config.toml") }
 func (a *app) authPath() string    { return filepath.Join(a.home, "auth.db") }
+
+// secrets.db and the key its values are sealed with. Kept apart so a copy of
+// the database alone doesn't give the values away; back them up together.
+func (a *app) secretsPath() string    { return filepath.Join(a.home, "secrets.db") }
+func (a *app) secretsKeyPath() string { return filepath.Join(a.home, "secrets.key") }
 
 // ensureLayout creates the Outpost root on first use. A home created here is
 // a new install, and gets the new-install Tailscale setting.

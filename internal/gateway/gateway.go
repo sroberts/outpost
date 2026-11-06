@@ -52,6 +52,9 @@ type Options struct {
 	// Adds, when set, gives admins a page for adding an app from a GitHub
 	// release.
 	Adds Adds
+	// Secrets, when set, gives admins a page for adding, rotating and
+	// binding the secrets services are given as environment variables.
+	Secrets Secrets
 	// Control, when set, gives admins a menu on each app in the catalog to
 	// start, stop, restart or back it up.
 	Control Control
@@ -81,6 +84,7 @@ type Gateway struct {
 	updateState  updateState
 	adder        Adds
 	addState     addState
+	secrets      Secrets
 	control      Control
 	ops          appOps
 	// claim serialises the busy checks of the catalog's actions and the
@@ -151,6 +155,7 @@ func New(opts Options) (*Gateway, error) {
 		updater:      opts.Updates,
 		selfUpdater:  opts.SelfUpdates,
 		adder:        opts.Adds,
+		secrets:      opts.Secrets,
 		control:      opts.Control,
 		stats:        opts.Stats,
 		scheme:       u.Scheme,
