@@ -512,8 +512,10 @@ path to the supervisor.
 | `s`, `x`, `r` | start, stop, restart the selected service |
 | `l` | toggle a log pane for the selected service |
 | `R` | refresh now |
-| `tab` | switch between Services, Users and Gateway |
+| `tab` | switch between Services, Users, Gateway and AI |
 | `L` (Users, twice) | sign the selected user out everywhere |
+| `enter` (AI) | choose a kind's model, or set a provider's key |
+| `a`, `t`, `u` (AI) | choose which apps may use a kind, test it, go back to `config.toml`'s |
 | `?` | expand the help |
 | `q`, `esc`, `ctrl+c` | quit |
 
@@ -521,8 +523,14 @@ A service's detail pane also shows its catalog title and description, its
 gateway address, and who may open it (`allow`, `hidden`, `public_paths`).
 **Users** lists everyone, as `outpost user list` does, and where the selected
 user is signed in. **Gateway** shows what `outpost gateway status` does, with
-the gateway's recent activity. When `config.toml` has changed since the daemon
-started, a line under the title says the daemon needs a restart.
+the gateway's recent activity. **AI** does what the portal's AI models page
+does: it shows the LLM and System 1 model with their provider and apps, each
+hosted provider and whether its key is set, and each app's usage. `enter` on a
+kind opens a list of every provider's models to type into and narrow, which
+also takes a model ID a provider doesn't list; `enter` on a provider asks for
+its key, shown only as dots and never kept once it's sent; `a` chooses the
+apps. When `config.toml` has changed since the daemon started, a line under
+the title says the daemon needs a restart.
 
 It refreshes every two seconds, and an action refreshes immediately rather than
 waiting for the next tick. Status is carried by both colour and a glyph, so it
