@@ -637,7 +637,7 @@ Outpost and the token as the API key, and asks for `llm` or `system1`:
 
 Outpost replaces the `model` an app sends with the one chosen now, so
 changing it reaches every app on its next request, with nothing restarted.
-`outpost-service-spec.md` §3 has the app's side.
+`outpost-service-spec.md` §15 has the app's side: the endpoints, worked calls, the System 1 request and answer, and errors.
 
 **Choosing them.** Either in `config.toml`:
 

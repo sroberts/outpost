@@ -278,43 +278,10 @@ don't log it and don't echo it back in a response.
 
 ### AI models
 
-The operator chooses two models for the whole installation, both served by
-Ollama: an **LLM**, which generates text, and a **System 1** model, which
-answers typed questions about an input with probabilities in one pass. Every
-service is started with:
-
-```
-OUTPOST_AI_URL=http://127.0.0.1:47901   # loopback; the operator can move it
-OUTPOST_AI_TOKEN=oai_…                  # yours alone
-```
-
-Call the API your code already speaks, under a prefix, with the token as the
-API key (`Authorization: Bearer` or `x-api-key`):
-
-| You speak | Base URL for your SDK | Model to send |
-|---|---|---|
-| OpenAI Chat Completions | `$OUTPOST_AI_URL/openai/v1` | `llm` |
-| Anthropic Messages | `$OUTPOST_AI_URL/anthropic` | `llm` |
-| System 1 | `POST $OUTPOST_AI_URL/systemone/v1/systemone` | `system1` |
-
-The path decides the model, not you. Outpost replaces whatever `model` you
-send with the one the operator chose, which can change at any moment without
-restarting you; the `model` in the reply says which answered. Don't hard-code
-a provider's model name, and don't cache the choice. `GET
-$OUTPOST_AI_URL/openai/v1/models` lists what `llm` and `system1` are now.
-
-Expect, and handle, these:
-
-- **503** when the operator hasn't chosen a model of that kind, or Ollama
-  doesn't have the one chosen. Treat AI as optional where you can: degrade,
-  don't crash.
-- **502** when Ollama isn't running.
-- **401** for a missing or wrong token. Read the token from the environment
-  each time you start; the operator can replace it, which restarts you.
-
-Requests are capped at 32 MiB. Streaming works as each API defines it. Keep
-the token like any other credential: don't log it, and don't send it anywhere
-but `OUTPOST_AI_URL`.
+Every service is also started with `OUTPOST_AI_URL` and `OUTPOST_AI_TOKEN`,
+which reach the two models the operator chose for the whole installation: an
+LLM and a System 1 model. You don't need them. If you want them, §15 is how
+to call them and what to expect back.
 
 ---
 
@@ -479,7 +446,7 @@ Do not build expecting any of this:
 | Webhook verification | Funnel can put your public paths on the internet, but Outpost can't check a sender's signature; verify it yourself (§3) |
 | Authorization | With the login gateway on, Outpost authenticates every request and tells you who it is (§3), but every user can open every app; decide what each may do yourself. Without the gateway, tailnet membership is the boundary |
 | Secrets in a file, or rotated in place | Outpost hands secrets over as environment variables and restarts you to change one; if you need a credential as a file, write it into your storage directory yourself |
-| A choice of AI model, or a hosted provider | Outpost gives you one LLM and one System 1 model, both from Ollama, chosen by the operator (§3); for anything else, bring your own provider and its key as a secret |
+| A choice of AI model, or a hosted provider | Outpost gives you one LLM and one System 1 model, both from Ollama, chosen by the operator (§15); for anything else, bring your own provider and its key as a secret |
 | Service discovery | No registry; addresses are the operator's business |
 | A database, cache, or queue | Bring your own, inside your storage directory |
 | Scheduling or cron | Not yet decided (`spec.md` open question 2) |
@@ -516,7 +483,6 @@ A service conforms when all of these are true.
 - [ ] Reads all configuration from environment variables and flags
 - [ ] Starts unattended: no prompts, no TTY, no interactive login
 - [ ] Requires no config file at a well-known path
-- [ ] If it uses AI: calls `OUTPOST_AI_URL` with `OUTPOST_AI_TOKEN`, sends `llm` or `system1` as the model, and keeps running when a model isn't available
 
 **State**
 - [ ] Writes all persistent state under `OUTPOST_STORAGE_DIR`
@@ -548,6 +514,13 @@ A service conforms when all of these are true.
 - [ ] Asset names keep the same shape from one release to the next
 - [ ] Data migrations finish before the healthcheck passes, and a failed one exits non-zero
 - [ ] A new release still accepts the args and env an earlier `outpost.toml` declared
+
+**AI models** (if it uses them, §15)
+- [ ] Reads `OUTPOST_AI_URL` and `OUTPOST_AI_TOKEN` from the environment, and treats AI as off when they're unset
+- [ ] Sends `llm` or `system1` as the model, never a provider's model name
+- [ ] Keeps running, and stays healthy, when a model is unavailable (503, 502)
+- [ ] Allows minutes for a first request, while Ollama loads the model
+- [ ] Doesn't log the token, or send it anywhere but `OUTPOST_AI_URL`
 
 **Logging**
 - [ ] Logs to stdout and stderr only
@@ -820,9 +793,9 @@ has no other way to be told what it got.
 
 If you read the port from `OUTPOST_PORT` instead (§1), you need no `args` at
 all: `outpost add` writes `OUTPOST_PORT` into every manifest it generates. Note
-that this is a property of the generated manifest, not of the runtime — Outpost
-itself only ever injects `OUTPOST_STORAGE_DIR` (§4), so a hand-written manifest
-gets `OUTPOST_PORT` only if it says so.
+that this is a property of the generated manifest, not of the runtime — what
+Outpost itself injects is listed in §3, and `OUTPOST_PORT` isn't among it, so
+a hand-written manifest gets `OUTPOST_PORT` only if it says so.
 
 Setting a fixed `port` is possible and usually wrong: it removes Outpost's
 ability to avoid a collision with another service on the same machine.
@@ -864,3 +837,248 @@ Adding a service that already exists refuses unless given `--force`; to move
 an installed service to a newer release, use `outpost update`. Private
 repositories work if the operator has the `gh` CLI authenticated, or
 `GITHUB_TOKEN` set; Outpost stores no credentials of its own.
+
+## 15. Using the operator's AI models
+
+Outpost can give your service a model to call without you choosing one,
+running one, or holding a key. The operator picks two for the whole
+installation, both served by [Ollama](https://ollama.com) on their machine:
+
+- **The LLM** generates text: chat, summaries, extraction, tool calls, as far
+  as the model chosen supports them. Gemma 4 or Qwen 3, for instance.
+- **The System 1 model** writes no text. You give it an input and typed
+  questions, and in one fast pass it answers each with probabilities: which
+  label fits, yes or no, where on a scale. Laya, for instance. Use it for
+  routing, triage, moderation and scoring, where an LLM would be slow and its
+  answer would need parsing.
+
+Everything here is optional. A service that never reads these variables is
+unaffected.
+
+### What you're given
+
+Every service is started with two variables (§3):
+
+```
+OUTPOST_AI_URL=http://127.0.0.1:47901
+OUTPOST_AI_TOKEN=oai_…
+```
+
+- **`OUTPOST_AI_URL`** is a loopback endpoint the Outpost daemon serves. The
+  port is the operator's choice, so read it from the variable rather than
+  assuming `47901`. It's plain HTTP and only this machine can reach it.
+- **`OUTPOST_AI_TOKEN`** is yours alone. Every request needs it, as
+  `Authorization: Bearer <token>` or as `x-api-key: <token>`, whichever your
+  SDK sends. It stays the same across restarts of you and of the daemon, and
+  changes only when the operator replaces it, which restarts you with the new
+  one. Read it from the environment at startup, every time. Treat it as a
+  credential: don't log it, and don't send it anywhere but `OUTPOST_AI_URL`.
+
+**When the variables are unset,** you aren't running under an Outpost that
+has AI models: an older one, or none, such as on a developer's machine. Treat
+AI as off. If you want to develop against a model without Outpost, take the
+base URL and key from your own flags as well, with Outpost's variables as the
+default.
+
+### The endpoints
+
+Pick whichever API your code already speaks. Each sits under its own prefix,
+so an SDK's base URL can point there unchanged:
+
+| API | Method and path | Reaches | Model to send |
+|---|---|---|---|
+| OpenAI Chat Completions | `POST /openai/v1/chat/completions` | the LLM | `llm` |
+| Anthropic Messages | `POST /anthropic/v1/messages` | the LLM | `llm` |
+| System 1 | `POST /systemone/v1/systemone` | the System 1 model | `system1` |
+| Model list | `GET /openai/v1/models` | what `llm` and `system1` are now | — |
+
+For SDKs:
+
+| SDK | Base URL | API key |
+|---|---|---|
+| OpenAI, any language | `$OUTPOST_AI_URL/openai/v1` | `$OUTPOST_AI_TOKEN` |
+| Anthropic, any language | `$OUTPOST_AI_URL/anthropic` | `$OUTPOST_AI_TOKEN` |
+
+Nothing else is served. Ollama's own API (`/api/chat`, `/api/generate`),
+embeddings, images and audio aren't reachable through Outpost, and their
+paths return 404.
+
+**The path decides the model, not you.** Outpost replaces the `model` in
+your request body with the model the operator has chosen for that kind, as it
+is at that moment. Send `llm` or `system1` so your code reads correctly. The
+operator can change the model at any time, without restarting you, so:
+
+- don't hard-code a provider's model name, which would be replaced anyway;
+- don't cache which model is behind `llm`. The reply's `model` field says
+  which one answered that request, which is worth logging.
+
+Everything else in your body passes through to Ollama untouched: messages,
+`system`, `temperature`, `max_tokens`, `tools`, `stream` and so on. Outpost
+forwards `Content-Type`, `Accept`, `Anthropic-Version` and `Anthropic-Beta`,
+and no other request header. In particular your token is never forwarded.
+Replies come back with Ollama's status, body, `Content-Type` and
+`Cache-Control`.
+
+### Calling the LLM
+
+With the OpenAI SDK, in Python:
+
+```python
+import os
+from openai import OpenAI
+
+ai = OpenAI(base_url=os.environ["OUTPOST_AI_URL"] + "/openai/v1",
+            api_key=os.environ["OUTPOST_AI_TOKEN"])
+reply = ai.chat.completions.create(
+    model="llm",
+    messages=[{"role": "user", "content": "Summarise this recipe in one line: …"}],
+)
+print(reply.choices[0].message.content)
+```
+
+With the Anthropic SDK:
+
+```python
+import os
+from anthropic import Anthropic
+
+ai = Anthropic(base_url=os.environ["OUTPOST_AI_URL"] + "/anthropic",
+               api_key=os.environ["OUTPOST_AI_TOKEN"])
+reply = ai.messages.create(
+    model="llm", max_tokens=512,
+    messages=[{"role": "user", "content": "Summarise this recipe in one line: …"}],
+)
+print(reply.content[0].text)
+```
+
+Or with no SDK:
+
+```sh
+curl -s "$OUTPOST_AI_URL/openai/v1/chat/completions" \
+  -H "Authorization: Bearer $OUTPOST_AI_TOKEN" \
+  -d '{"model": "llm", "messages": [{"role": "user", "content": "Say hi"}]}'
+```
+
+**Streaming** works as each API defines it (`"stream": true`): server-sent
+events, passed on as Ollama sends them.
+
+**What the LLM can do depends on the model the operator chose.** Tool calls,
+images and "thinking" are features of some models and not others, and
+`/openai/v1/models` doesn't say which. If you rely on one, handle Ollama's
+refusal by falling back to a plain prompt. It comes back as an error from
+Ollama, currently a 500, whose message says what isn't supported, such as
+`image input is not supported`. Document what you need, so the operator can choose a model
+that has it.
+
+### Calling the System 1 model
+
+`POST $OUTPOST_AI_URL/systemone/v1/systemone` takes a `state` and up to 64
+`questions`, each keyed by an ID you choose:
+
+```json
+{
+  "model": "system1",
+  "state": "My order arrived broken and nobody answers my emails.",
+  "questions": {
+    "upset": {
+      "type": "noul",
+      "instructions": "Is the customer upset?"
+    },
+    "topic": {
+      "type": "choice",
+      "instructions": "What is the message about?",
+      "criteria": {
+        "shipping": "delivery, damage or a missing parcel",
+        "billing": "charges, refunds or invoices",
+        "other": "anything else"
+      }
+    },
+    "urgency": {
+      "type": "score",
+      "instructions": "How urgently does this need a reply?",
+      "criteria": ["can wait", "this week", "today", "right now"]
+    }
+  }
+}
+```
+
+- **`state`** is what's being judged: a string, or a JSON object when you
+  have fields. Laya reads text, up to about 8,000 tokens.
+- **`noul`** is a yes or no question. It takes only `instructions`.
+- **`choice`** picks one label. `criteria` maps each label to a description of
+  when it applies.
+- **`score`** places the state on an ordered scale. `criteria` lists the
+  levels, lowest first.
+- **`box`** locates something in an image, for models that take images. Laya
+  doesn't.
+
+The answers come back under the same IDs:
+
+```json
+{
+  "model": "laya:latest",
+  "answers": {
+    "upset":   {"type": "noul", "noul": 0.87},
+    "topic":   {"type": "choice", "choice": "shipping", "confidence": 0.76,
+                "probabilities": {"shipping": 0.94, "billing": 0.03, "other": 0.03}},
+    "urgency": {"type": "score", "score": 2.89, "confidence": 0.76,
+                "legend": {"0": "can wait", "1": "this week", "2": "today", "3": "right now"},
+                "probabilities": {"0": 0.01, "1": 0.02, "2": 0.05, "3": 0.92}}
+  },
+  "usage": {"input_tokens": 137, "output_tokens": 0}
+}
+```
+
+- **`noul`** is the probability of yes, from 0 to 1.
+- **`choice`** is the most likely label, with every label's probability.
+- **`score`** is a number on the scale, not a label: the levels are numbered
+  from 0 in the order you gave them, `legend` maps each number back to its
+  level, and `probabilities` are keyed by that number. 2.89 here sits between
+  "today" (2) and "right now" (3), and nearer the second. Round it, or compare
+  it with a threshold, as suits you.
+- **`confidence`**, where given, is how sure the model is of the whole
+  answer, from 0 to 1.
+
+Decide your own thresholds, and treat answers near the middle as "don't know"
+rather than forcing a yes or no. Ask every question you have about one input in a single request: they're
+answered in the same pass, so a second question costs almost nothing.
+
+### What can go wrong
+
+Errors that Outpost itself returns have this shape, which both SDKs read a
+message from:
+
+```json
+{"type": "error", "error": {"type": "api_error", "message": "no LLM is configured in Outpost; …"}}
+```
+
+| Status | Means | What to do |
+|---|---|---|
+| 401 | missing or wrong token | Check you send `OUTPOST_AI_TOKEN`; it isn't a request to retry |
+| 404 | a path Outpost doesn't serve | Use one from the table above |
+| 405 | wrong method | `POST`, or `GET` for the model list |
+| 400 | the body isn't a JSON object | Fix the request |
+| 413 | the body is over 32 MiB | Send less, such as smaller images |
+| 503 | no model of that kind is chosen, or Ollama doesn't have the one chosen | AI is unavailable for now; carry on without it, and try again later |
+| 502 | Ollama isn't running | The same as 503 |
+| anything else | Ollama's own answer, passed through | As that API documents |
+
+**Treat AI as an enhancement, not a dependency.** The operator may not have
+chosen a model yet, may switch to one that's still downloading, or may stop
+Ollama. Keep running, keep passing your healthcheck (§2), and do without:
+show the recipe unsummarised, leave a message untriaged, queue the work for
+later. Exiting, or reporting unhealthy, because AI is unavailable restarts
+you (§5), which fixes nothing.
+
+**Allow time.** The first request after a model is chosen, or after Ollama
+has unloaded it, waits while Ollama loads it, which can take a minute or more
+for a large model. Outpost waits up to 10 minutes for Ollama to start
+answering. Ollama also serves only a few requests to a model at once and
+queues the rest, so a long generation for another app can delay yours. Use generous timeouts, and do AI work in the
+background, not in the request a user is waiting on, wherever you can.
+
+**Nothing is rate-limited or billed,** and Outpost doesn't cache answers.
+Each request is one line in the daemon's log: your service, the kind, the
+model, the status, the time taken and the token counts. Prompts and replies
+are never logged. The operator sees your request counts on the portal's AI
+models page.

@@ -4,7 +4,7 @@ Status: built, on branch `feat/ai-models`. Designed and built 2026-11-06.
 This is phase 1. Hosted providers come later, in
 [#120](https://github.com/sroberts/outpost/issues/120). The operator's side is
 in the README under [AI models](../../README.md#ai-models), and the app's side
-in `outpost-service-spec.md` §3.
+in `outpost-service-spec.md` §15.
 
 **What changed in building it:**
 
