@@ -30,9 +30,20 @@ const (
 	viewServices view = iota
 	viewUsers
 	viewGateway
+	viewAI
 )
 
-var viewNames = []string{"Services", "Users", "Gateway"}
+var viewNames = []string{"Services", "Users", "Gateway", "AI"}
+
+// views are the views this client can show: the AI view only with
+// AIExtras.
+func (m Model) views() []view {
+	v := []view{viewServices, viewUsers, viewGateway}
+	if _, ok := m.aiClient(); ok {
+		v = append(v, viewAI)
+	}
+	return v
+}
 
 // WithConfigCheck has the header say when config.toml no longer matches
 // what the daemon started with. changed is asked on every refresh; the CLI
@@ -187,12 +198,23 @@ func (m Model) handleExtraKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	}
 	switch msg.String() {
 	case "tab", "shift+tab":
+		vs := m.views()
+		at := 0
+		for i, v := range vs {
+			if v == m.view {
+				at = i
+			}
+		}
 		step := 1
 		if msg.String() == "shift+tab" {
-			step = len(viewNames) - 1
+			step = len(vs) - 1
 		}
-		m.view = (m.view + view(step)) % view(len(viewNames))
+		m.view = vs[(at+step)%len(vs)]
 		m.confirm, m.notice = "", ""
+		if m.view == viewAI {
+			m.ai.mode = aiBrowse
+			return m, tea.Batch(m.refreshExtras(), m.fetchAI()), true
+		}
 		return m, m.refreshExtras(), true
 	}
 	if m.view == viewServices {
@@ -255,9 +277,11 @@ func (m Model) selectedUser() string {
 
 // tabs is the line naming the views, the current one marked.
 func (m Model) tabs() string {
-	parts := make([]string, 0, len(viewNames))
-	for i, name := range viewNames {
-		if view(i) == m.view {
+	vs := m.views()
+	parts := make([]string, 0, len(vs))
+	for _, v := range vs {
+		name := viewNames[v]
+		if v == m.view {
 			parts = append(parts, selectedRow.Render("▸ "+name))
 		} else {
 			parts = append(parts, labelStyle.Render("  "+name))
@@ -474,6 +498,8 @@ func (m Model) helpLine() string {
 			key("L", "sign out everywhere"), key("tab", "next view"), key("R", "refresh"), key("q", "quit")}, sep)
 	case viewGateway:
 		return strings.Join([]string{key("tab", "next view"), key("R", "refresh"), key("q", "quit")}, sep)
+	case viewAI:
+		return m.aiHelp(key, sep)
 	}
 	// The generated bar gives up items to leave room for this one, rather
 	// than the line running past the terminal.

@@ -110,14 +110,8 @@ func (a *app) cmdServe(args []string) error {
 	defer exposureStore.Close()
 
 	watch.at("opening the AI store")
-	aiService, err := ai.Open(ai.Options{
-		Path:      a.aiPath(),
-		OllamaURL: a.config.AI.OllamaBase(),
-		Listen:    a.config.AI.ListenAddr(),
-		LLM:       a.config.AI.LLM,
-		System1:   a.config.AI.System1,
-		Logf:      func(format string, v ...any) { fmt.Fprintf(a.out, format+"\n", v...) },
-	})
+	aiService, err := ai.Open(aiOptions(a.config.AI, a.aiPath(), secretKeys{secretStore},
+		func(format string, v ...any) { fmt.Fprintf(a.out, format+"\n", v...) }))
 	if err != nil {
 		return err
 	}

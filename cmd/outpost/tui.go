@@ -50,8 +50,12 @@ func (a *app) cmdTUI(args []string) error {
 	return nil
 }
 
-// The dashboard shows users and the gateway through the same client.
-var _ tui.Extras = (*ipc.Client)(nil)
+// The dashboard shows users, the gateway and the AI models through the same
+// client.
+var (
+	_ tui.Extras   = (*ipc.Client)(nil)
+	_ tui.AIExtras = (*ipc.Client)(nil)
+)
 
 // tailWindow is how much of the end of a log file tailLog reads. Logs rotate at
 // 10 MiB, and the dashboard re-reads them every couple of seconds, so it reads a

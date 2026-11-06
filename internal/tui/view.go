@@ -88,6 +88,8 @@ func (m Model) render(start, end int, compact bool) string {
 		b.WriteString(m.usersPane())
 	case m.view == viewGateway:
 		b.WriteString(m.gatewayPane())
+	case m.view == viewAI:
+		b.WriteString(m.aiPane())
 	case !m.loaded:
 		b.WriteString(labelStyle.Render("  loading…"))
 	case len(m.services) == 0:

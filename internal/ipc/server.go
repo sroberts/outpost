@@ -253,7 +253,7 @@ func (s *Server) dispatch(ctx context.Context, req Request) Response {
 	case CmdSecretList, CmdSecretSet, CmdSecretRemove, CmdSecretBind, CmdSecretUnbind:
 		return s.dispatchSecret(ctx, req)
 
-	case CmdAIStatus, CmdAISet, CmdAIReset, CmdAITest, CmdAIRegenerate:
+	case CmdAIStatus, CmdAISet, CmdAIReset, CmdAITest, CmdAIRegenerate, CmdAIApps, CmdAIAppsReset, CmdAIKey:
 		return s.dispatchAI(ctx, req)
 
 	case CmdGatewayStatus:

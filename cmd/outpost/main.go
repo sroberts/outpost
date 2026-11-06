@@ -88,12 +88,17 @@ the services that get it):
                            take it away again
   secret rm <name>         delete a secret
 
-AI models (one LLM and one System 1 model, served by Ollama, which every app
-reaches at OUTPOST_AI_URL with its own OUTPOST_AI_TOKEN):
-  ai                       the models in force, what Ollama has, and usage
-  ai set llm|system1 <model>
-                           choose one, over config.toml's
+AI models (one LLM and one System 1 model, from Ollama or a hosted provider,
+which apps reach at OUTPOST_AI_URL with their own OUTPOST_AI_TOKEN):
+  ai                       the models in force, the providers, and usage
+  ai set llm|system1 <model> [--provider P]
+                           choose one, over config.toml's; P is ollama, openai,
+                           anthropic, openrouter or typesafe
   ai reset llm|system1     go back to config.toml's
+  ai apps llm|system1 --all|--none|--reset|<app>...
+                           choose which apps may use it
+  ai key <provider>        save a hosted provider's API key, read hidden
+                           (--value-stdin)
   ai test llm|system1      send it one small request
   ai regenerate <service>  give an app a new token; it restarts
 

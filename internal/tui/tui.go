@@ -84,6 +84,9 @@ type Model struct {
 	confirm       string // the user a first L asked to sign out
 	configChanged func() bool
 	configStale   bool
+
+	// The AI view, when the client has AIExtras (ai.go).
+	ai aiState
 }
 
 // New builds a dashboard model.
@@ -200,6 +203,9 @@ func (m Model) act(verb, service string) tea.Cmd {
 
 // Update handles one message.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if next, cmd, ok := m.updateAI(msg); ok {
+		return next, cmd
+	}
 	if next, cmd, ok := m.updateExtras(msg); ok {
 		return next, cmd
 	}
@@ -274,6 +280,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// First, so a picker or the key field gets every key, q and esc too.
+	if m.view == viewAI {
+		if next, cmd, ok := m.handleAIKey(msg); ok {
+			return next, cmd
+		}
+	}
 	if !key.Matches(msg, m.keys.Quit) && !key.Matches(msg, m.keys.Help) {
 		if next, cmd, ok := m.handleExtraKey(msg); ok {
 			return next, cmd
