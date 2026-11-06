@@ -33,6 +33,9 @@ type Model struct {
 	ParameterSize string    `json:"parameter_size,omitempty"`
 	Quantization  string    `json:"quantization,omitempty"`
 	Capabilities  []string  `json:"capabilities,omitempty"`
+	// Note says what a hosted provider tells about it: its full name, its
+	// context, its price.
+	Note string `json:"note,omitempty"`
 }
 
 // Serves reports whether the model can be used as kind.

@@ -505,6 +505,20 @@ func (e *entry) public() Secret {
 	return sec
 }
 
+// Value returns a secret's value, for the daemon's own use: the AI
+// endpoint's keys for hosted providers, which it sends on each request and
+// no app is given. Nothing on the control socket or the portal calls it, so
+// a value still can't be read back out of the daemon.
+func (s *Store) Value(name string) (string, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	e, ok := s.cache[name]
+	if !ok {
+		return "", false
+	}
+	return e.value, true
+}
+
 // List returns every secret, by name, without values.
 func (s *Store) List() []Secret {
 	s.mu.RLock()

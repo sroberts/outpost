@@ -1,12 +1,13 @@
 # Design: AI models for Outpost's apps
 
-Status: built, on branch `feat/ai-models`. Designed and built 2026-11-06.
-This is phase 1. Hosted providers come later, in
-[#120](https://github.com/sroberts/outpost/issues/120). The operator's side is
-in the README under [AI models](../../README.md#ai-models), and the app's side
-in `outpost-service-spec.md` §15.
+Status: phase 1 (Ollama) built in v0.5.0; phase 2 (hosted providers and app
+access, [#120](https://github.com/sroberts/outpost/issues/120)) built on
+branch `feat/ai-providers`. The operator's side is in the README under
+[AI models](../../README.md#ai-models), and the app's side in
+`outpost-service-spec.md` §15. Phase 2 is described at the end; the rest of
+this note is phase 1 as designed, with what changed in building it here.
 
-**What changed in building it:**
+**What changed in building phase 1:**
 
 - **Tokens are derived, not stored.** Keeping only a token's hash, as
   proposed, would leave nothing to hand an app when it starts again after a
@@ -18,9 +19,9 @@ in `outpost-service-spec.md` §15.
   changes. `serve` wraps the secrets store, so it also returns
   `OUTPOST_AI_URL` and `OUTPOST_AI_TOKEN`, with the token's generation in the
   revision. Regenerating restarts the app with no change to the supervisor.
-- **A missing model is learned from Ollama's 404.** A model missing from Ollama comes back from Ollama
-  as a 404, which the proxy turns into the 503 naming the model, instead of
-  listing Ollama's models on every request.
+- **A missing model is learned from Ollama's 404.** A model missing
+  from Ollama comes back from Ollama as a 404, which the proxy turns into the
+  503 naming the model, instead of listing Ollama's models on every request.
 - **The proxy is hand-written, not `httputil.ReverseProxy`.** The body is
   rewritten anyway, and only `Content-Type`, `Accept` and the
   `Anthropic-Version`/`-Beta` headers go upstream. Credentials never do.
@@ -229,3 +230,72 @@ One PR, built in this order:
    - the README section;
    - `outpost-service-spec.md`, for what an app gets and how to call it;
    - this note, updated to "built".
+
+## Phase 2: hosted providers and app access
+
+Built for [#120](https://github.com/sroberts/outpost/issues/120). Each kind
+now comes from one provider:
+
+| Provider | LLM, via | System 1, via | Models listed from |
+|---|---|---|---|
+| Ollama | `/v1/chat/completions`, `/v1/messages` | `/v1/systemone` | `/api/tags` and `/api/show` |
+| OpenAI | `/v1/chat/completions` only | `/v1/decisions`, translated | `/v1/models`, chat models only; System 1 suggests `gpt-6-luna` |
+| Anthropic | `/v1/messages`, `/v1/chat/completions` | — | `/v1/models` |
+| OpenRouter | `/api/v1/chat/completions`, `/api/v1/messages` | `/api/v1/systemone` | `/api/v1/models`, and `?output_modalities=decisions` for System 1 |
+| TypeSafe | — | `/v1/systemone` | none; suggests `jev-latest` |
+
+The app-facing contract is unchanged: the same URL, token, paths and model
+names. Decisions:
+
+**One provider per kind, still one model per kind.** The choice became a
+(provider, model) pair. `config.toml` gained `llm_provider` and
+`system1_provider`, with Ollama the default, so a v0.5.0 file means what it
+did. `ai.db`'s settings gained a `provider` column, added by a migration that
+fills in `ollama` for what v0.5.0 saved.
+
+**Keys are secrets, given to no app.** A provider's key is a secret named
+`<provider>-api-key` (or `api_key_secret`), created unbound when it's set on
+the page or with `outpost ai key`. That gives sealing, the Secrets page and
+rotation for nothing. The secrets store gained `Value`, which the daemon alone
+calls to add a key to a request; nothing on the socket or the portal can read
+one. Rotating takes effect on the next request, and restarts no app, since no
+app holds it.
+
+**A mismatch is refused, not translated, for chat.** OpenAI is the one LLM
+provider that doesn't take the Anthropic Messages API; Anthropic answers the
+OpenAI API too, and Ollama and OpenRouter take both. So `/anthropic` with an
+OpenAI LLM is a 400 naming the path to use, and the page and `outpost ai` say
+so beside the choice. Translating chat formats, with tool calls and streaming
+events, was judged not worth getting subtly wrong.
+
+**System 1 to OpenAI is translated.** OpenAI's decision model takes the same
+questions in its own Decisions API shape, so the proxy translates both ways:
+questions keep the app's order (read with a token decoder, since a map loses
+it), `noul` becomes `predicate`, criteria become `choices` and `levels`, a
+JSON state becomes an `input_json` message, and the answers come back keyed
+by name, with `score` levels keyed by index as System 1 has them. What
+OpenAI can't take, such as a one-label choice or TypeSafe's `assets`, is
+refused with a 400 saying so.
+
+**Lists are complete or suggestions.** A provider whose list is complete has
+a model checked against it when it's chosen. OpenAI's System 1 and TypeSafe
+have no list, so their usual names are suggested and any ID is taken; Test is
+how to check one. Hosted lists are cached for ten minutes (a minute after a
+failure), since OpenRouter's is large and they change rarely. The page offers
+them as a type-to-search list, since a radio per model doesn't scale to 380.
+
+**Which apps may use each kind.** Hosted requests cost money, so each kind is
+for every app (the default, and v0.5.0's behaviour) or a chosen list, set in
+`config.toml` (`llm_apps`, `system1_apps`; unset is every app, `[]` none) or
+on the page, which wins and is kept in `ai.db`'s new `access` table. A refused
+app gets a 403 and isn't listed the model. Every app still gets the
+variables, so giving one access later needs no restart.
+
+**Compatibility kept, not rewritten.** v0.5.0's `Set`, `Options.LLM` and
+`Overview.Models` keep their meaning, and the portal and the socket reach
+the new operations through a separate `AIControls` interface, so phase 1's
+callers and tests are unchanged.
+
+**Not done in phase 2:** budgets, rate limits and per-app costs (token
+counts are recorded, prices aren't applied); fallback from one provider to
+another; more than one model per kind.

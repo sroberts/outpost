@@ -64,6 +64,9 @@ const (
 	CmdAIReset      = "ai.reset"
 	CmdAITest       = "ai.test"
 	CmdAIRegenerate = "ai.regenerate"
+	CmdAIApps       = "ai.apps"
+	CmdAIAppsReset  = "ai.apps-reset"
+	CmdAIKey        = "ai.key"
 )
 
 // Timeouts. Most commands are near-instant queries against the supervisor's

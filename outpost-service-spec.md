@@ -446,7 +446,7 @@ Do not build expecting any of this:
 | Webhook verification | Funnel can put your public paths on the internet, but Outpost can't check a sender's signature; verify it yourself (§3) |
 | Authorization | With the login gateway on, Outpost authenticates every request and tells you who it is (§3), but every user can open every app; decide what each may do yourself. Without the gateway, tailnet membership is the boundary |
 | Secrets in a file, or rotated in place | Outpost hands secrets over as environment variables and restarts you to change one; if you need a credential as a file, write it into your storage directory yourself |
-| A choice of AI model, or a hosted provider | Outpost gives you one LLM and one System 1 model, both from Ollama, chosen by the operator (§15); for anything else, bring your own provider and its key as a secret |
+| A choice of AI model | Outpost gives you one LLM and one System 1 model, chosen by the operator from Ollama or a hosted provider (§15); for a model of your own choosing, bring its provider and key as a secret |
 | Service discovery | No registry; addresses are the operator's business |
 | A database, cache, or queue | Bring your own, inside your storage directory |
 | Scheduling or cron | Not yet decided (`spec.md` open question 2) |
@@ -518,7 +518,8 @@ A service conforms when all of these are true.
 **AI models** (if it uses them, §15)
 - [ ] Reads `OUTPOST_AI_URL` and `OUTPOST_AI_TOKEN` from the environment, and treats AI as off when they're unset
 - [ ] Sends `llm` or `system1` as the model, never a provider's model name
-- [ ] Keeps running, and stays healthy, when a model is unavailable (503, 502)
+- [ ] Keeps running, and stays healthy, when a model is unavailable or not given to it (503, 502, 403)
+- [ ] Sticks to what every provider takes: the OpenAI chat API if it can, and System 1 questions with instructions, two or more labels, and two to ten levels
 - [ ] Allows minutes for a first request, while Ollama loads the model
 - [ ] Doesn't log the token, or send it anywhere but `OUTPOST_AI_URL`
 
@@ -842,15 +843,25 @@ repositories work if the operator has the `gh` CLI authenticated, or
 
 Outpost can give your service a model to call without you choosing one,
 running one, or holding a key. The operator picks two for the whole
-installation, both served by [Ollama](https://ollama.com) on their machine:
+installation, each from [Ollama](https://ollama.com) on their machine or from
+a hosted provider (OpenAI, Anthropic, OpenRouter, TypeSafe):
 
 - **The LLM** generates text: chat, summaries, extraction, tool calls, as far
-  as the model chosen supports them. Gemma 4 or Qwen 3, for instance.
+  as the model chosen supports them. Gemma 4, Claude Haiku or a GPT model, for
+  instance.
 - **The System 1 model** writes no text. You give it an input and typed
   questions, and in one fast pass it answers each with probabilities: which
-  label fits, yes or no, where on a scale. Laya, for instance. Use it for
-  routing, triage, moderation and scoring, where an LLM would be slow and its
-  answer would need parsing.
+  label fits, yes or no, where on a scale. Laya, Jev or OpenAI's
+  `gpt-6-luna`, for instance. Use it for routing, triage, moderation and
+  scoring, where an LLM would be slow and its answer would need parsing.
+
+Which provider is behind each is the operator's business, and can change
+while you run. You call Outpost the same way whichever it is, and never hold
+a provider's key: Outpost adds it to each request.
+
+The operator may also give each kind to only some apps, since hosted models
+cost money. If yours isn't one of them, its requests for that kind get a 403
+(see What can go wrong).
 
 Everything here is optional. A service that never reads these variables is
 unaffected.
@@ -890,7 +901,7 @@ so an SDK's base URL can point there unchanged:
 | OpenAI Chat Completions | `POST /openai/v1/chat/completions` | the LLM | `llm` |
 | Anthropic Messages | `POST /anthropic/v1/messages` | the LLM | `llm` |
 | System 1 | `POST /systemone/v1/systemone` | the System 1 model | `system1` |
-| Model list | `GET /openai/v1/models` | what `llm` and `system1` are now | — |
+| Model list | `GET /openai/v1/models` | what `llm` and `system1` are now, for you | — |
 
 For SDKs:
 
@@ -899,9 +910,21 @@ For SDKs:
 | OpenAI, any language | `$OUTPOST_AI_URL/openai/v1` | `$OUTPOST_AI_TOKEN` |
 | Anthropic, any language | `$OUTPOST_AI_URL/anthropic` | `$OUTPOST_AI_TOKEN` |
 
-Nothing else is served. Ollama's own API (`/api/chat`, `/api/generate`),
-embeddings, images and audio aren't reachable through Outpost, and their
-paths return 404.
+Nothing else is served. Ollama's and the providers' other APIs, embeddings,
+images and audio aren't reachable through Outpost, and their paths return
+404.
+
+The model list has an entry for each kind you may use: its `id` is `llm` or
+`system1`, `outpost_model` is the model behind it now, and
+`outpost_provider` is who serves it (`ollama`, `openai`, `anthropic`,
+`openrouter` or `typesafe`). A kind you aren't given isn't listed.
+
+**Either chat API reaches the LLM, with one exception.** Ollama, Anthropic and
+OpenRouter take both. OpenAI doesn't take the Anthropic Messages API, so
+while the LLM is an OpenAI model, `/anthropic/v1/messages` answers 400 with a
+message saying to use `/openai/v1/chat/completions`. If you can, speak the
+OpenAI Chat Completions API, which every LLM provider takes; if you speak
+Anthropic's, handle that 400 by telling the operator.
 
 **The path decides the model, not you.** Outpost replaces the `model` in
 your request body with the model the operator has chosen for that kind, as it
@@ -912,12 +935,14 @@ operator can change the model at any time, without restarting you, so:
 - don't cache which model is behind `llm`. The reply's `model` field says
   which one answered that request, which is worth logging.
 
-Everything else in your body passes through to Ollama untouched: messages,
-`system`, `temperature`, `max_tokens`, `tools`, `stream` and so on. Outpost
-forwards `Content-Type`, `Accept`, `Anthropic-Version` and `Anthropic-Beta`,
-and no other request header. In particular your token is never forwarded.
-Replies come back with Ollama's status, body, `Content-Type` and
-`Cache-Control`.
+Everything else in your body passes through to the provider untouched:
+messages, `system`, `temperature`, `max_tokens`, `tools`, `stream` and so on.
+What a field means, and which are accepted, is the provider's, so keep to
+what the API you speak documents. Outpost forwards `Content-Type`, `Accept`,
+`Anthropic-Version` and `Anthropic-Beta`, and no other request header; it
+adds the provider's own key, and your token is never forwarded. Replies come
+back with the provider's status, body, `Content-Type`, `Cache-Control` and
+`Retry-After`.
 
 ### Calling the LLM
 
@@ -960,20 +985,22 @@ curl -s "$OUTPOST_AI_URL/openai/v1/chat/completions" \
 ```
 
 **Streaming** works as each API defines it (`"stream": true`): server-sent
-events, passed on as Ollama sends them.
+events, passed on as the provider sends them.
 
 **What the LLM can do depends on the model the operator chose.** Tool calls,
 images and "thinking" are features of some models and not others, and
-`/openai/v1/models` doesn't say which. If you rely on one, handle Ollama's
-refusal by falling back to a plain prompt. It comes back as an error from
-Ollama, currently a 500, whose message says what isn't supported, such as
-`image input is not supported`. Document what you need, so the operator can choose a model
+`/openai/v1/models` doesn't say which. If you rely on one, handle the
+provider's refusal by falling back to a plain prompt. It comes back as the
+provider's own error: a 400 from most hosted providers, currently a 500 from
+Ollama, with a message saying what isn't supported, such as `image input is
+not supported`. Document what you need, so the operator can choose a model
 that has it.
 
 ### Calling the System 1 model
 
-`POST $OUTPOST_AI_URL/systemone/v1/systemone` takes a `state` and up to 64
-`questions`, each keyed by an ID you choose:
+`POST $OUTPOST_AI_URL/systemone/v1/systemone` takes a `state` and
+`questions`, each keyed by an ID you choose. How many questions a request may
+hold depends on the model: Laya takes 64, Jev 128 and OpenAI's 400.
 
 ```json
 {
@@ -1009,8 +1036,15 @@ that has it.
   when it applies.
 - **`score`** places the state on an ordered scale. `criteria` lists the
   levels, lowest first.
-- **`box`** locates something in an image, for models that take images. Laya
-  doesn't.
+- **`box`** locates something in an image, for models that take images: Jev
+  does, Laya doesn't, and other providers refuse it.
+
+Write questions every provider can take, and the operator can switch freely:
+give a `choice` at least two labels and a `score` two to ten levels, and give
+every question `instructions`. OpenAI's decision model needs all three, and
+Outpost refuses with a 400 what it can't put to it. Images are where
+providers differ most: TypeSafe takes them as `assets`, OpenAI as data URLs in
+`images`, and Laya not at all, so treat them as optional.
 
 The answers come back under the same IDs:
 
@@ -1038,10 +1072,17 @@ The answers come back under the same IDs:
   it with a threshold, as suits you.
 - **`confidence`**, where given, is how sure the model is of the whole
   answer, from 0 to 1.
+- **`refusal`** is a `type` some hosted models answer with instead, when they
+  won't answer that question. It has nothing else in it; treat it as "don't
+  know".
+
+The shape is the same whichever provider answered. For OpenAI's decision
+model, which has its own API, Outpost translates both ways.
 
 Decide your own thresholds, and treat answers near the middle as "don't know"
-rather than forcing a yes or no. Ask every question you have about one input in a single request: they're
-answered in the same pass, so a second question costs almost nothing.
+rather than forcing a yes or no. Ask every question you have about one input
+in a single request: they're answered in the same pass, so a second question
+costs almost nothing.
 
 ### What can go wrong
 
@@ -1055,30 +1096,38 @@ message from:
 | Status | Means | What to do |
 |---|---|---|
 | 401 | missing or wrong token | Check you send `OUTPOST_AI_TOKEN`; it isn't a request to retry |
+| 403 | the operator hasn't given your service this kind | Do without it; the message says so, for your log |
 | 404 | a path Outpost doesn't serve | Use one from the table above |
 | 405 | wrong method | `POST`, or `GET` for the model list |
-| 400 | the body isn't a JSON object | Fix the request |
+| 400 | the body isn't a JSON object; the LLM is OpenAI's and you called `/anthropic`; or a System 1 question OpenAI's decision model can't take | Fix the request, or call `/openai/v1/chat/completions` |
 | 413 | the body is over 32 MiB | Send less, such as smaller images |
-| 503 | no model of that kind is chosen, or Ollama doesn't have the one chosen | AI is unavailable for now; carry on without it, and try again later |
-| 502 | Ollama isn't running | The same as 503 |
-| anything else | Ollama's own answer, passed through | As that API documents |
+| 503 | no model of that kind is chosen; its provider doesn't have it; or Outpost has no key for the provider | AI is unavailable for now; carry on without it, and try again later |
+| 502 | the provider can't be reached | The same as 503 |
+| 429 | the provider's rate limit, passed through with its `Retry-After` | Wait that long, then retry |
+| anything else | the provider's own answer, passed through | As that API documents |
 
 **Treat AI as an enhancement, not a dependency.** The operator may not have
-chosen a model yet, may switch to one that's still downloading, or may stop
-Ollama. Keep running, keep passing your healthcheck (§2), and do without:
+chosen a model yet, may switch to one that's still downloading, may not give
+it to you, or may stop Ollama, and a hosted provider can be down or out of
+credit. Keep running, keep passing your healthcheck (§2), and do without:
 show the recipe unsummarised, leave a message untriaged, queue the work for
 later. Exiting, or reporting unhealthy, because AI is unavailable restarts
 you (§5), which fixes nothing.
 
-**Allow time.** The first request after a model is chosen, or after Ollama
-has unloaded it, waits while Ollama loads it, which can take a minute or more
-for a large model. Outpost waits up to 10 minutes for Ollama to start
-answering. Ollama also serves only a few requests to a model at once and
-queues the rest, so a long generation for another app can delay yours. Use generous timeouts, and do AI work in the
-background, not in the request a user is waiting on, wherever you can.
+**Allow time.** With Ollama, the first request after a model is chosen, or
+after Ollama has unloaded it, waits while Ollama loads it, which can take a
+minute or more for a large model. Outpost waits up to 10 minutes for a
+provider to start answering. Ollama also serves only a few requests to a
+model at once and queues the rest, so a long generation for another app can
+delay yours, and hosted providers have rate limits. Use generous timeouts,
+and do AI work in the background, not in the request a user is waiting on,
+wherever you can.
 
-**Nothing is rate-limited or billed,** and Outpost doesn't cache answers.
-Each request is one line in the daemon's log: your service, the kind, the
-model, the status, the time taken and the token counts. Prompts and replies
-are never logged. The operator sees your request counts on the portal's AI
-models page.
+**Hosted models cost the operator money.** Outpost doesn't rate-limit you or
+cache answers, so be economical: don't ask the same thing twice, don't send
+more context than the answer needs, and prefer the System 1 model, which is
+far cheaper, wherever a typed answer will do. Each request is one line in the
+daemon's log: your service, the kind, the provider and model, the status, the
+time taken and the token counts. Prompts and replies are never logged. The
+operator sees your request counts on the portal's AI models page, and decides
+which apps may use each kind.

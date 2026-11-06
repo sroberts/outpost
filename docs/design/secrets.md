@@ -190,3 +190,11 @@ that app missing from the "in use by" list unexplained.
 - **No per-secret access control.** Any admin can manage every secret, and
   non-admins can't see the page at all. Outpost has one admin role, and this
   follows it.
+
+## Since: provider keys for AI models
+
+The AI models feature (`docs/design/ai-models.md`) keeps hosted providers'
+API keys as secrets bound to no service. To send one, the daemon reads it
+with `Store.Value`, added for that and called nowhere else: not by the
+control socket, the portal or the CLI, so "values go in, never out" still
+holds for everything outside the daemon.

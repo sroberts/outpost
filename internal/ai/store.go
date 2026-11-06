@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -32,7 +33,23 @@ CREATE TABLE IF NOT EXISTS tokens (
     service    TEXT PRIMARY KEY,
     generation INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS access (
+    kind       TEXT PRIMARY KEY,
+    every      INTEGER NOT NULL,
+    apps       TEXT NOT NULL,
+    updated_at INTEGER NOT NULL,
+    updated_by TEXT NOT NULL
+);
 `
+
+// migrations bring an ai.db from an earlier release up to date. Each is
+// checked for before it's run, so running them again is harmless.
+var migrations = []struct {
+	table, column, add string
+}{
+	// v0.5.0 had only Ollama, so every setting it saved is Ollama's.
+	{"settings", "provider", `ALTER TABLE settings ADD COLUMN provider TEXT NOT NULL DEFAULT 'ollama'`},
+}
 
 // tokenPrefix marks an app's token for the AI endpoint, so one found in a log
 // says what it is, as opat_ does for access tokens.
@@ -41,7 +58,17 @@ const tokenPrefix = "oai_"
 // Setting is what the portal chose for one kind.
 type Setting struct {
 	Kind      string
+	Provider  string
 	Model     string
+	UpdatedAt time.Time
+	UpdatedBy string
+}
+
+// Access is which apps the portal let use one kind: Every, or Apps.
+type Access struct {
+	Kind      string
+	Every     bool
+	Apps      []string
 	UpdatedAt time.Time
 	UpdatedBy string
 }
@@ -61,6 +88,7 @@ type store struct {
 
 	mu       sync.RWMutex
 	settings map[string]Setting
+	access   map[string]Access
 	gens     map[string]int64
 }
 
@@ -86,6 +114,10 @@ func openStore(path string) (*store, error) {
 		_ = db.Close() // failing anyway
 		return nil, fmt.Errorf("apply ai schema: %w", err)
 	}
+	if err := migrate(db); err != nil {
+		_ = db.Close() // failing anyway
+		return nil, err
+	}
 	s := &store{db: db, now: time.Now}
 	if s.key, err = s.tokenKey(); err != nil {
 		_ = db.Close() // failing anyway
@@ -99,6 +131,33 @@ func openStore(path string) (*store, error) {
 }
 
 func (s *store) close() error { return s.db.Close() }
+
+func migrate(db *sql.DB) error {
+	for _, m := range migrations {
+		rows, err := db.Query(`SELECT name FROM pragma_table_info(?)`, m.table)
+		if err != nil {
+			return fmt.Errorf("read ai.db's %s table: %w", m.table, err)
+		}
+		has := false
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
+				_ = rows.Close() // failing anyway
+				return err
+			}
+			has = has || name == m.column
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+		if !has {
+			if _, err := db.Exec(m.add); err != nil {
+				return fmt.Errorf("upgrade ai.db: %w", err)
+			}
+		}
+	}
+	return nil
+}
 
 // tokenKey reads the key tokens are made with, making one the first time.
 // INSERT OR IGNORE and a read back, so two daemons racing agree on one.
@@ -122,7 +181,7 @@ func (s *store) tokenKey() ([]byte, error) {
 
 func (s *store) reload() error {
 	settings := map[string]Setting{}
-	rows, err := s.db.Query(`SELECT kind, model, updated_at, updated_by FROM settings`)
+	rows, err := s.db.Query(`SELECT kind, provider, model, updated_at, updated_by FROM settings`)
 	if err != nil {
 		return fmt.Errorf("read ai settings: %w", err)
 	}
@@ -130,13 +189,37 @@ func (s *store) reload() error {
 	for rows.Next() {
 		var st Setting
 		var at int64
-		if err := rows.Scan(&st.Kind, &st.Model, &at, &st.UpdatedBy); err != nil {
+		if err := rows.Scan(&st.Kind, &st.Provider, &st.Model, &at, &st.UpdatedBy); err != nil {
 			return err
 		}
 		st.UpdatedAt = time.Unix(at, 0)
 		settings[st.Kind] = st
 	}
 	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	access := map[string]Access{}
+	arows, err := s.db.Query(`SELECT kind, every, apps, updated_at, updated_by FROM access`)
+	if err != nil {
+		return fmt.Errorf("read ai access: %w", err)
+	}
+	defer func() { _ = arows.Close() }() // read-only
+	for arows.Next() {
+		var a Access
+		var every int
+		var apps string
+		var at int64
+		if err := arows.Scan(&a.Kind, &every, &apps, &at, &a.UpdatedBy); err != nil {
+			return err
+		}
+		if err := json.Unmarshal([]byte(apps), &a.Apps); err != nil {
+			return fmt.Errorf("ai access for %s: %w", a.Kind, err)
+		}
+		a.Every, a.UpdatedAt = every != 0, time.Unix(at, 0)
+		access[a.Kind] = a
+	}
+	if err := arows.Err(); err != nil {
 		return err
 	}
 
@@ -159,7 +242,7 @@ func (s *store) reload() error {
 	}
 
 	s.mu.Lock()
-	s.settings, s.gens = settings, gens
+	s.settings, s.access, s.gens = settings, access, gens
 	s.mu.Unlock()
 	return nil
 }
@@ -171,10 +254,11 @@ func (s *store) get(kind string) (Setting, bool) {
 	return st, ok
 }
 
-func (s *store) set(kind, model, by string) error {
-	if _, err := s.db.Exec(`INSERT INTO settings (kind, model, updated_at, updated_by) VALUES (?, ?, ?, ?)
-		ON CONFLICT(kind) DO UPDATE SET model = excluded.model, updated_at = excluded.updated_at, updated_by = excluded.updated_by`,
-		kind, model, s.now().Unix(), by); err != nil {
+func (s *store) set(kind, provider, model, by string) error {
+	if _, err := s.db.Exec(`INSERT INTO settings (kind, provider, model, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(kind) DO UPDATE SET provider = excluded.provider, model = excluded.model,
+		updated_at = excluded.updated_at, updated_by = excluded.updated_by`,
+		kind, provider, model, s.now().Unix(), by); err != nil {
 		return fmt.Errorf("save ai setting: %w", err)
 	}
 	return s.reload()
@@ -183,6 +267,42 @@ func (s *store) set(kind, model, by string) error {
 func (s *store) reset(kind string) error {
 	if _, err := s.db.Exec(`DELETE FROM settings WHERE kind = ?`, kind); err != nil {
 		return fmt.Errorf("reset ai setting: %w", err)
+	}
+	return s.reload()
+}
+
+func (s *store) getAccess(kind string) (Access, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	a, ok := s.access[kind]
+	a.Apps = append([]string(nil), a.Apps...)
+	return a, ok
+}
+
+func (s *store) setAccess(kind string, every bool, apps []string, by string) error {
+	if apps == nil {
+		apps = []string{}
+	}
+	b, err := json.Marshal(apps)
+	if err != nil {
+		return err
+	}
+	e := 0
+	if every {
+		e = 1
+	}
+	if _, err := s.db.Exec(`INSERT INTO access (kind, every, apps, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(kind) DO UPDATE SET every = excluded.every, apps = excluded.apps,
+		updated_at = excluded.updated_at, updated_by = excluded.updated_by`,
+		kind, e, string(b), s.now().Unix(), by); err != nil {
+		return fmt.Errorf("save ai access: %w", err)
+	}
+	return s.reload()
+}
+
+func (s *store) resetAccess(kind string) error {
+	if _, err := s.db.Exec(`DELETE FROM access WHERE kind = ?`, kind); err != nil {
+		return fmt.Errorf("reset ai access: %w", err)
 	}
 	return s.reload()
 }

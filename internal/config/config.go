@@ -191,7 +191,8 @@ func (c Config) Fingerprint() string {
 	if err != nil {
 		return "" // can't happen: Config is plain data
 	}
-	ai := AI{Listen: c.AI.ListenAddr(), OllamaURL: c.AI.OllamaBase(), LLM: c.AI.LLM, System1: c.AI.System1}
+	ai := c.AI
+	ai.Listen, ai.OllamaURL = c.AI.ListenAddr(), c.AI.OllamaBase()
 	if ai != (AI{Listen: DefaultAIListen, OllamaURL: DefaultOllamaURL}) {
 		more, err := json.Marshal(ai)
 		if err != nil {

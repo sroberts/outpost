@@ -477,5 +477,7 @@ button.plain:hover { background: none; border-color: var(--beam); }
    its size beside it, and the endpoint's paths listed plainly. */
 .ai label.check > span { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 0.5rem; overflow-wrap: anywhere; }
 .ai .secret-acts form { max-width: 34rem; }
+.ai .provider-pick { margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid var(--rule); display: grid; gap: 0.5rem; }
+.ai .provider-pick h3 { margin: 0; font-size: 15px; font-weight: 650; }
 .ai .meta-list { margin: 0.5rem 0 0; padding-left: 1.1rem; display: grid; gap: 0.3rem; font-size: 14px; color: var(--dim); overflow-wrap: anywhere; }
 

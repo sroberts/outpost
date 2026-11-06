@@ -444,8 +444,12 @@ outpost secret rm <name>         delete a secret
 
 ```
 outpost ai                       the models in force, what Ollama has, and usage
-outpost ai set llm|system1 <model>
+outpost ai set llm|system1 <model> [--provider P]
                                  choose one, over config.toml's
+outpost ai apps llm|system1 --all|--none|--reset|<app>...
+                                 choose which apps may use it
+outpost ai key <provider> [--value-stdin]
+                                 save a hosted provider's API key, read hidden
 outpost ai reset llm|system1     go back to config.toml's
 outpost ai test llm|system1      send it one small request
 outpost ai regenerate <service>  give an app a new token; it restarts
@@ -616,10 +620,19 @@ daemon refuses to start rather than make a new key and lose them.
 ## AI models
 
 Apps can use AI without each one choosing a model, pointing at a server and
-holding a key. Outpost has one **LLM**, which generates text (Gemma 4, Qwen 3
-and the like), and one **System 1** model, which answers typed questions
-about an input with probabilities in a single pass (Laya). Both are served by
-[Ollama](https://ollama.com), and every app reaches them through Outpost:
+holding a key. Outpost has one **LLM**, which generates text, and one
+**System 1** model, which answers typed questions about an input with
+probabilities in a single pass. Each comes from one provider:
+
+| Provider | LLM | System 1 | Key |
+|---|---|---|---|
+| [Ollama](https://ollama.com), on this machine | Gemma 4, Qwen 3, … | Laya | none |
+| OpenAI | GPT models | `gpt-6-luna`, through its Decisions API | yes |
+| Anthropic | Claude models | — | yes |
+| OpenRouter | its 380 or so chat models | its decision models: Jev, Liquid d1, … | yes |
+| TypeSafe | — | Jev | yes |
+
+Every app reaches them through Outpost, never the provider directly:
 
 ```
 OUTPOST_AI_URL=http://127.0.0.1:47901
@@ -635,51 +648,99 @@ Outpost and the token as the API key, and asks for `llm` or `system1`:
 | Anthropic Messages | `$OUTPOST_AI_URL/anthropic` | `llm` |
 | System 1 | `POST $OUTPOST_AI_URL/systemone/v1/systemone` | `system1` |
 
-Outpost replaces the `model` an app sends with the one chosen now, so
-changing it reaches every app on its next request, with nothing restarted.
-`outpost-service-spec.md` §15 has the app's side: the endpoints, worked calls, the System 1 request and answer, and errors.
+Outpost replaces the `model` an app sends with the one chosen now, adds the
+provider's key, and sends the request on, so changing the model, or the
+provider, reaches every app on its next request with nothing restarted. Two
+combinations need more than that:
+
+- **OpenAI doesn't take the Anthropic Messages API.** While the LLM is an
+  OpenAI model, an app calling `/anthropic` gets a 400 telling it to use
+  `/openai/v1/chat/completions`; the page and `outpost ai` warn about this.
+  Every other LLM provider takes both APIs.
+- **OpenAI's decision model speaks its own Decisions API.** Apps still send
+  System 1; Outpost translates the questions there and the answers back.
+
+`outpost-service-spec.md` §15 has the app's side: the endpoints, worked
+calls, the System 1 request and answer, and errors.
 
 **Choosing them.** Either in `config.toml`:
 
 ```toml
 [ai]
-llm     = "gemma4:e4b"
-system1 = "laya:latest"
-# ollama_url = "http://127.0.0.1:11434"
-# listen     = "127.0.0.1:47901"
+llm              = "claude-haiku-5-5"
+llm_provider     = "anthropic"          # unset is ollama
+system1          = "laya:latest"
+# system1_provider = "ollama"
+# llm_apps       = ["sous", "tasking"]  # unset is every app; [] is none
+# system1_apps   = ["tasking"]
+# ollama_url     = "http://127.0.0.1:11434"
+# listen         = "127.0.0.1:47901"
+
+# Only to move a provider, or keep its key under another secret's name:
+# [ai.openai]
+# base_url       = "https://my-proxy.example/openai"
+# api_key_secret = "openai-api-key"
 ```
 
 or, with the [login gateway](#the-login-gateway) on, on the admin-only **AI
 models** page, which wins over the file, the same as Internet access does for
-Funnel. The page lists what Ollama has each time it loads, sorted by what each
-model can do: Ollama reports `completion` for a text model and `decision` for
-a System 1 one, so Laya can't be picked as the LLM or Gemma as System 1.
-Saving checks the model is still there; with Ollama down, nothing can be
-checked and nothing is saved. **Test** sends the model one small request and
-shows the reply. "Use config.toml's" forgets the page's choice. From the CLI,
-`outpost ai set llm <model>` does the same as the page.
+Funnel. For each kind it offers:
 
-Outpost doesn't pull models. Run `ollama pull` yourself; if a chosen model is
-later removed, the page and `outpost ai` say so, the daemon logs it at start,
-and apps get a 503 naming it until you choose another or pull it again.
+- **Ollama's models** each time the page loads, sorted by what Ollama says
+  each can do: `completion` for an LLM and `decision` for System 1, so Laya
+  can't be picked as the LLM or Gemma as System 1;
+- **each hosted provider's models,** from its own model list, kept for ten
+  minutes, to search and pick from. OpenAI's decision model and TypeSafe's Jev
+  have no list, so their usual names are suggested and any model ID can be
+  typed in.
+
+Saving checks the model is in the provider's list, when there is one; if the
+list can't be had, nothing is saved. **Test** sends the model one small
+request and shows the reply. "Use config.toml's" forgets the page's choice.
+
+From the CLI:
+
+```sh
+outpost ai key anthropic                         # prompts for the key, hidden
+outpost ai set llm claude-haiku-5-5 --provider anthropic
+outpost ai set system1 typesafe/jev-1.14 --provider openrouter
+outpost ai apps llm sous tasking                 # or --all, --none, --reset
+outpost ai test llm
+```
+
+**Keys.** A hosted provider's key is entered on the page's Providers section
+or with `outpost ai key <provider>`, and kept as a secret in `secrets.db`
+(`openai-api-key` and so on), so it's sealed, shown on the Secrets page and
+replaceable there. It isn't given to any app: Outpost adds it to each request
+itself, so a key never sits in an app's environment or logs. Replacing it
+takes effect on the next request.
+
+**Which apps may use each.** Hosted models cost money per request, so each
+kind can be given to every app, which is the default, or to the apps you
+choose, on the page's **Apps…** or with `outpost ai apps`. An app left out
+gets a 403 saying so, and isn't shown the model in `/openai/v1/models`.
+Every app still gets the variables either way.
+
+Outpost doesn't pull Ollama models. Run `ollama pull` yourself; if a chosen
+model is later removed, or a provider stops listing it, the page and
+`outpost ai` say so, the daemon logs it at start, and apps get a 503 naming
+it until you choose another.
 
 **What's counted.** Each request is one line in the daemon's log: the app,
-the kind, the model, the status, the time taken and the tokens. Prompts and
-replies are never logged. The page and `outpost ai` show each app's requests,
-failures and tokens since the daemon started. Changes go in the gateway's
-activity feed.
+the kind, the provider and model, the status, the time taken and the tokens.
+Prompts and replies are never logged. The page and `outpost ai` show each
+app's requests, failures and tokens since the daemon started. Changes go in
+the gateway's activity feed, a key only as having changed.
 
 **Tokens.** An app's token is derived from its name and a key in `ai.db`, so
 it is the same every time the app starts, across daemon restarts too, and
 nothing that can be read back is stored. **New token** on the page, or
 `outpost ai regenerate <app>`, replaces it and restarts that app; the old one
-stops working at once. Ollama itself answers any local process without a key,
-so the token says which app asked, rather than keeping anyone out.
+stops working at once. The token is how Outpost tells apps apart, for
+counting and for who may use what.
 
 The endpoint listens on loopback only. It isn't on the tailnet, behind the
-gateway or reachable through Funnel. Hosted providers (Anthropic, OpenAI,
-TypeSafe's Jev) are planned, in
-[#120](https://github.com/sroberts/outpost/issues/120); the design is in
+gateway or reachable through Funnel. The design is in
 `docs/design/ai-models.md`.
 
 ## Running without Tailscale
@@ -1005,7 +1066,8 @@ from that. Knowing where they are tells you what adding a service means.
 same user as the daemon, with no sandbox. It can read everything under
 `~/.outpost` — `auth.db` with its password hashes and the keys that sign
 identity tokens, `secrets.db` and the key that unseals it, so every other
-service's secrets, `ai.db`, from which any app's AI token can be made,
+service's secrets and the AI providers' API keys, `ai.db`, from which any
+app's AI token can be made,
 `config.toml` with the Tailscale auth key, each node's
 tailnet identity — write a manifest, which is running any command as that
 user, and talk to the control socket, which can add an admin or mint an
@@ -1076,8 +1138,8 @@ Everything lives under `~/.outpost` (or `$OUTPOST_HOME`, or `--home`):
   secrets.key              the key that seals them (0600)
   exposure.db              public paths and Funnel set on the portal, over
                            the manifests' (0600)
-  ai.db                    AI models chosen on the portal, and the key apps'
-                           AI tokens come from (0600)
+  ai.db                    AI models and their apps chosen on the portal,
+                           and the key apps' AI tokens come from (0600)
   config.toml              global settings, mode 0600 (optional)
   outpost.sock             control socket, mode 0600
   outpost.pid              running daemon's PID
