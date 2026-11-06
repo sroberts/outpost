@@ -134,7 +134,13 @@ func selfVerdict(latest seenRelease) gateway.ReleaseCheck {
 	}
 	build := selfBuild()
 	installed, clean := buildRelease(build.String())
+	later, described := laterThanBase(build.String(), latest.tag)
 	switch order, ordered := compareReleases(installed, latest.tag); {
+	case !clean && described && later:
+		check.Newer = true
+	case !clean && described:
+		base, _ := madeFrom(build.String())
+		check.Note = fmt.Sprintf("This development build was made from %s, so it has everything in %s.", base, latest.tag)
 	case !clean:
 		// The row already shows the build; saying it again only repeats it.
 		check.Note = fmt.Sprintf("This is a development build, so Outpost can't tell whether %s is newer.", latest.tag)
@@ -159,7 +165,10 @@ func (w *selfWeb) Refusal() string {
 // changed, and returns the job and the binary to replace.
 func (w *selfWeb) ready() (daemonJob, string, error) {
 	build := selfBuild()
-	if _, clean := buildRelease(build.String()); !clean {
+	// One made cleanly from a release is let through: the helper installs
+	// only a later one, which is the only kind the page offers it.
+	_, described := madeFrom(build.String())
+	if _, clean := buildRelease(build.String()); !clean && !described {
 		return daemonJob{}, "", fmt.Errorf("this is a development build (%s), not a release; "+
 			"`outpost update --self --to TAG` on the host installs one", build)
 	}
