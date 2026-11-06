@@ -36,6 +36,9 @@ const (
 	// EventSecret is a secret created, rotated, bound, unbound or removed,
 	// never with its value.
 	EventSecret = "secret"
+	// EventExposure is an app's public paths or Funnel changed on the
+	// Internet access page.
+	EventExposure = "exposure"
 )
 
 // Events is where the gateway's activity goes: the supervisor's feed in the

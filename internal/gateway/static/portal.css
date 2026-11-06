@@ -212,13 +212,14 @@ h2 { font-size: 19px; font-weight: 680; }
 .door .hub + .panel { margin-top: 1.5rem; }
 form { display: grid; gap: 1rem; margin-top: 1.1rem; }
 label { display: grid; gap: 0.35rem; font-weight: 550; font-size: 15px; }
-input {
+input, textarea {
   font: inherit; color: var(--porcelain); background: var(--night);
   min-height: 46px; padding: 0.6rem 0.75rem;
   border: 1px solid var(--field-edge); border-radius: 6px;
 }
-input:hover { border-color: var(--beam); }
-input:focus-visible { outline-offset: 1px; border-color: var(--lamp); }
+textarea { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; resize: vertical; }
+input:hover, textarea:hover { border-color: var(--beam); }
+input:focus-visible, textarea:focus-visible { outline-offset: 1px; border-color: var(--lamp); }
 input[aria-invalid="true"] { border-color: var(--down-ink); }
 button, .button {
   display: inline-flex; align-items: center; justify-content: center;

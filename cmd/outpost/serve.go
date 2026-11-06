@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
 	"strconv"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/sroberts/outpost/internal/auth"
+	"github.com/sroberts/outpost/internal/exposure"
 	"github.com/sroberts/outpost/internal/gateway"
 	"github.com/sroberts/outpost/internal/ipc"
 	"github.com/sroberts/outpost/internal/manifest"
@@ -99,6 +101,13 @@ func (a *app) cmdServe(args []string) error {
 	}
 	defer secretStore.Close()
 
+	watch.at("opening the exposure store")
+	exposureStore, err := exposure.Open(a.exposurePath())
+	if err != nil {
+		return err
+	}
+	defer exposureStore.Close()
+
 	// config.toml decides whether the tailnet is used at all; an explicit
 	// --tailnet on the command line overrides it for this run.
 	useTailnet := a.config.TailscaleEnabled()
@@ -116,6 +125,16 @@ func (a *app) cmdServe(args []string) error {
 			return fmt.Errorf("node secret: %w", err)
 		}
 		nodeSecret = hex.EncodeToString(b)
+	}
+	// The gateway's public listener, where nodes with Funnel send what
+	// arrives from the internet. Bound now, on loopback, so the router can be
+	// told where it is before any node starts.
+	var publicLn net.Listener
+	if a.config.Gateway.Enabled {
+		if publicLn, err = net.Listen("tcp", "127.0.0.1:0"); err != nil {
+			return fmt.Errorf("gateway public listener: %w", err)
+		}
+		defer func() { _ = publicLn.Close() }() // ServePublic has stopped by then, or never started
 	}
 
 	watch.at("starting the tailnet router")
@@ -135,6 +154,7 @@ func (a *app) cmdServe(args []string) error {
 		if a.config.Gateway.Enabled {
 			opts.Upstream, opts.UpstreamServerName = gateway.LocalUpstream(a.config.Gateway)
 			opts.AccessSecret = nodeSecret
+			opts.PublicUpstream = "http://" + publicLn.Addr().String()
 		}
 		r, err := outposttsnet.New(opts)
 		if err != nil {
@@ -170,6 +190,7 @@ func (a *app) cmdServe(args []string) error {
 		Interval:        *interval,
 		CheckRelease:    (&releaseChecks{a: a}).check,
 		Secrets:         secretStore,
+		Exposure:        exposureStore,
 		Logf:            func(format string, v ...any) { fmt.Fprintf(a.out, format+"\n", v...) },
 	})
 	if err != nil {
@@ -228,6 +249,7 @@ func (a *app) cmdServe(args []string) error {
 			SelfUpdates:  &selfWeb{a: a},
 			Adds:         daemonAdds{a},
 			Secrets:      secretStore,
+			Exposure:     exposureWeb{a: a, store: exposureStore, sup: sup, opts: a.manifestOptions(useTailnet)},
 			Control:      sup,
 			Stats:        sampler,
 			NodeSecret:   nodeSecret,
@@ -284,6 +306,12 @@ func (a *app) cmdServe(args []string) error {
 	gwDone := make(chan struct{})
 	if gw != nil {
 		fmt.Fprintf(a.out, "outpost: gateway at %s, listening on %s\n", gw.PortalURL(), gw.Addr())
+		// Ends with ctx, as Serve does; nothing it serves outlives the stores.
+		go func() {
+			if err := gw.ServePublic(ctx, publicLn); err != nil {
+				fmt.Fprintf(a.err, "outpost: gateway public listener: %v\n", err)
+			}
+		}()
 		go func() {
 			defer close(gwDone)
 			if err := gw.Serve(ctx); err != nil {
@@ -396,5 +424,15 @@ func (r reportingRouter) TailnetStatus(name string) (supervisor.TailnetStatus, b
 	case outposttsnet.NodeNeedsLogin:
 		state = supervisor.TailnetNeedsLogin
 	}
-	return supervisor.TailnetStatus{State: state, Host: ns.Host, LoginURL: ns.LoginURL, Error: ns.Error}, ok
+	funnel := ""
+	switch ns.Funnel {
+	case outposttsnet.NodeFunnelOn:
+		funnel = supervisor.FunnelOn
+	case outposttsnet.NodeFunnelUnavailable:
+		funnel = supervisor.FunnelUnavailable
+	case outposttsnet.NodeFunnelStarting:
+		funnel = supervisor.FunnelStarting
+	}
+	return supervisor.TailnetStatus{State: state, Host: ns.Host, LoginURL: ns.LoginURL, Error: ns.Error,
+		Funnel: funnel, FunnelError: ns.FunnelError}, ok
 }

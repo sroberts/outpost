@@ -299,6 +299,9 @@ type target struct {
 	// is a line of plain text, not a page, and the app may set no cookies,
 	// since the response is on the portal's origin.
 	mcp bool
+	// public marks a request from the internet, through Funnel: an error
+	// says nothing about what's behind it.
+	public bool
 }
 
 func (g *Gateway) newProxy() *httputil.ReverseProxy {
@@ -334,7 +337,11 @@ func (g *Gateway) newProxy() *httputil.ReverseProxy {
 			// every name an app might take a client address from.
 			pr.Out.Header.Set("X-Forwarded-For", t.client)
 			pr.Out.Header.Set("X-Forwarded-Host", t.host)
-			pr.Out.Header.Set("X-Forwarded-Proto", g.scheme)
+			proto := g.scheme
+			if t.public {
+				proto = "https" // Funnel serves nothing else
+			}
+			pr.Out.Header.Set("X-Forwarded-Proto", proto)
 			pr.Out.Header.Set("X-Real-IP", t.client)
 			pr.Out.Header.Del("True-Client-IP")
 			pr.Out.Header.Del("X-Client-IP")
@@ -367,6 +374,10 @@ func (g *Gateway) newProxy() *httputil.ReverseProxy {
 				return // the client went away; nobody to tell
 			}
 			g.logf("gateway: %s: %v", t.name, err)
+			if t.public {
+				http.Error(w, "unavailable", http.StatusBadGateway)
+				return
+			}
 			if t.mcp {
 				http.Error(w, "outpost: "+t.name+" is not answering", http.StatusBadGateway)
 				return

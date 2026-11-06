@@ -27,6 +27,8 @@ func runTsnetNode(args []string, stdout, stderr io.Writer) error {
 	fs.BoolVar(&cfg.Verbose, "verbose", false, "pass tsnet's own logging through")
 	fs.StringVar(&cfg.Upstream, "upstream", "", "send traffic here, the login gateway, instead of the service")
 	fs.StringVar(&cfg.UpstreamServerName, "upstream-server-name", "", "verify an https upstream's certificate for this name")
+	fs.BoolVar(&cfg.Funnel, "funnel", false, "also answer the internet through Tailscale Funnel, sending it to --public-upstream")
+	fs.StringVar(&cfg.PublicUpstream, "public-upstream", "", "the gateway's public listener, for what arrives through Funnel")
 	fs.Func("tcp", "forward a tailnet port to the service, as <tailnet port>=<local port>; repeatable", func(v string) error {
 		f, err := manifest.ParseTCPForward(v)
 		if err != nil {
@@ -45,6 +47,9 @@ func runTsnetNode(args []string, stdout, stderr io.Writer) error {
 	// portal's node has no service at all.
 	if cfg.Port == 0 && cfg.Upstream == "" {
 		return fmt.Errorf("%s: --port is required without --upstream", outposttsnet.NodeCommand)
+	}
+	if cfg.Funnel && (cfg.Upstream == "" || cfg.PublicUpstream == "") {
+		return fmt.Errorf("%s: --funnel needs --upstream and --public-upstream", outposttsnet.NodeCommand)
 	}
 	cfg.AuthKey = os.Getenv(outposttsnet.AuthKeyEnv)
 	cfg.AccessSecret = os.Getenv(outposttsnet.AccessSecretEnv)

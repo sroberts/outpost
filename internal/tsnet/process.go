@@ -48,6 +48,18 @@ const HostLinePrefix = "outpost-tsnet-node: host "
 // latest, so the operator finds it in `outpost status` rather than the log.
 const LoginLinePrefix = "outpost-tsnet-node: login "
 
+// FunnelLinePrefix starts a line a node with Funnel prints on stdout, after
+// ReadyLine, each time its Funnel listener comes up or fails to:
+// FunnelOn, or FunnelUnavailable and the reason Tailscale gave. The node
+// serves the tailnet either way.
+const FunnelLinePrefix = "outpost-tsnet-node: funnel "
+
+// What follows FunnelLinePrefix.
+const (
+	FunnelOn          = "on"
+	FunnelUnavailable = "unavailable"
+)
+
 // AuthKeyEnv carries the auth key to the node. An argument would put the key
 // in the process table for any local user to read.
 const AuthKeyEnv = "OUTPOST_TSNET_AUTHKEY"
@@ -81,6 +93,9 @@ func nodeArgs(cfg nodeConfig) []string {
 	}
 	for _, f := range cfg.TCP {
 		args = append(args, "--tcp", f.String())
+	}
+	if cfg.Funnel {
+		args = append(args, "--funnel", "--public-upstream", cfg.PublicUpstream)
 	}
 	if cfg.Verbose {
 		args = append(args, "--verbose")
@@ -208,6 +223,13 @@ func (r *Router) startProcessNode(ctx context.Context, cfg nodeConfig) (tailnetN
 			// router sees the node.
 			if host, ok := strings.CutPrefix(sc.Text(), HostLinePrefix); ok {
 				p.host = strings.TrimSuffix(strings.TrimSpace(host), ".")
+				continue
+			}
+			if f, ok := strings.CutPrefix(sc.Text(), FunnelLinePrefix); ok {
+				if cfg.onFunnel != nil {
+					state, why, _ := strings.Cut(strings.TrimSpace(f), " ")
+					cfg.onFunnel(state, why)
+				}
 				continue
 			}
 			if u, ok := strings.CutPrefix(sc.Text(), LoginLinePrefix); ok {

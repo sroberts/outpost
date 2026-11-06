@@ -200,6 +200,14 @@ func (a *app) cmdStatus(args []string) error {
 			fmt.Fprintf(a.out, "  login:         %s\n", t.LoginURL)
 			fmt.Fprintln(a.out, "                 open it to add this node to your tailnet, or set an auth key with `outpost config --authkey`")
 		}
+		if len(st.PublicPaths) > 0 || st.Funnel {
+			from := ""
+			if st.FromPortal {
+				from = " (set on the portal's Internet access page, over the manifest)"
+			}
+			fmt.Fprintf(a.out, "  public paths:  %s%s\n", strings.Join(st.PublicPaths, ", "), from)
+			fmt.Fprintf(a.out, "  funnel:        %s\n", funnelLine(st))
+		}
 		fmt.Fprintf(a.out, "  restart:       %s (backoff %ds)\n", st.RestartPolicy, st.Backoff)
 		if st.Source != "" {
 			fmt.Fprintf(a.out, "  installed:     %s from %s\n", orDash(st.Release), st.Source)
@@ -461,4 +469,26 @@ func truncateDur(d time.Duration) string {
 		return d.Truncate(time.Minute).String()
 	}
 	return d.Truncate(time.Hour).String()
+}
+
+// funnelLine says whether the internet reaches a service's public paths, and
+// at what addresses.
+func funnelLine(st supervisor.ServiceStatus) string {
+	if !st.Funnel {
+		return "off (only the tailnet reaches the public paths)"
+	}
+	t := st.Tailnet
+	switch {
+	case t == nil || t.Funnel == "":
+		return "on, once its node is up"
+	case t.Funnel == supervisor.FunnelOn && t.Host != "":
+		urls := make([]string, len(st.PublicPaths))
+		for i, p := range st.PublicPaths {
+			urls[i] = "https://" + t.Host + p
+		}
+		return "on: " + strings.Join(urls, ", ")
+	case t.Funnel == supervisor.FunnelUnavailable:
+		return "unavailable: " + t.FunnelError
+	}
+	return "starting"
 }

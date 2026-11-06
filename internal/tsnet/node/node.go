@@ -8,6 +8,7 @@ package node
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -43,6 +44,12 @@ type Config struct {
 	// AccessSecret lets the node ask the gateway about each forwarded
 	// connection. Required for forwards when Upstream is set.
 	AccessSecret string
+	// Funnel also answers the public internet, through Tailscale Funnel, on
+	// a listener of its own that sends everything to PublicUpstream: the
+	// gateway's public listener, which serves only public paths. Needs
+	// Upstream.
+	Funnel         bool
+	PublicUpstream string
 }
 
 // Run brings the node up, prints outposttsnet.ReadyLine to ready once it is
@@ -143,6 +150,15 @@ func Run(ctx context.Context, cfg Config, ready, logs io.Writer) error {
 	if _, err := fmt.Fprintln(ready, outposttsnet.ReadyLine); err != nil {
 		return fmt.Errorf("report ready: %w", err)
 	}
+	// After ready, so a tailnet that doesn't allow Funnel still gets the
+	// tailnet side, which nothing here can stop.
+	if cfg.Funnel {
+		target, err := url.Parse(cfg.PublicUpstream)
+		if err != nil || cfg.Upstream == "" {
+			return fmt.Errorf("funnel needs the gateway's two listeners; public upstream %q", cfg.PublicUpstream)
+		}
+		go runFunnel(ctx, server, outposttsnet.NewFunnelHandler(ownName, target, cfg.UpstreamServerName), ready, logf)
+	}
 
 	select {
 	case err := <-served:
@@ -159,6 +175,80 @@ func Run(ctx context.Context, cfg Config, ready, logs io.Writer) error {
 		}
 		return nil
 	}
+}
+
+// Funnel retry pacing: Tailscale refuses Funnel until the tailnet policy
+// grants the node's "funnel" attribute, which someone may do at any time.
+var (
+	funnelRetryInitial = 30 * time.Second
+	funnelRetryMax     = 5 * time.Minute
+)
+
+// runFunnel opens the node's Funnel listener and serves it until ctx ends,
+// reporting each time it comes up or can't, and trying again after a
+// failure. The tailnet listeners are untouched by any of it.
+func runFunnel(ctx context.Context, server *tsnet.Server, h http.Handler, report io.Writer, logf func(string, ...any)) {
+	say := func(state, why string) {
+		line := outposttsnet.FunnelLinePrefix + state
+		if why != "" {
+			line += " " + strings.Join(strings.Fields(why), " ")
+		}
+		_, _ = fmt.Fprintln(report, line) // the daemon gone means ctx is ending too
+	}
+	backoff := funnelRetryInitial
+	for ctx.Err() == nil {
+		// FunnelOnly: no tailnet connection can arrive on this listener, and
+		// none from the internet on the tailnet's, which is the line the
+		// gateway's two listeners rest on.
+		ln, err := server.ListenFunnel("tcp", ":443", tsnet.FunnelOnly())
+		if err != nil {
+			say(outposttsnet.FunnelUnavailable, err.Error())
+		} else {
+			say(outposttsnet.FunnelOn, "")
+			backoff = funnelRetryInitial
+			srv := &http.Server{
+				Handler:           h,
+				ReadHeaderTimeout: outposttsnet.FunnelReadHeaderTimeout,
+				ReadTimeout:       outposttsnet.FunnelReadTimeout,
+				WriteTimeout:      outposttsnet.FunnelWriteTimeout,
+				IdleTimeout:       time.Minute,
+				ConnContext:       funnelClient,
+			}
+			stop := context.AfterFunc(ctx, func() {
+				shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				_ = srv.Shutdown(shutdown) // leaving anyway
+			})
+			err := srv.Serve(ln)
+			stop()
+			if ctx.Err() != nil {
+				return
+			}
+			say(outposttsnet.FunnelUnavailable, "the Funnel listener stopped: "+err.Error())
+			logf("funnel: listener stopped: %v", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
+		if backoff *= 2; backoff > funnelRetryMax {
+			backoff = funnelRetryMax
+		}
+	}
+}
+
+// funnelClient records the client a Funnel connection is from. The
+// connection's own peer is the Funnel relay; Tailscale keeps the client's
+// address on the connection it hands over, under the TLS layer.
+func funnelClient(ctx context.Context, c net.Conn) context.Context {
+	if tc, ok := c.(*tls.Conn); ok {
+		c = tc.NetConn()
+	}
+	if fc, ok := c.(*ipn.FunnelConn); ok && fc.Src.IsValid() {
+		return outposttsnet.WithFunnelClient(ctx, fc.Src.Addr().String())
+	}
+	return ctx
 }
 
 // reportLogin prints outposttsnet.LoginLinePrefix and the URL to out each
