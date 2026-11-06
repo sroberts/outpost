@@ -59,6 +59,9 @@ type Options struct {
 	// and whether Funnel answers them from the internet, which win over
 	// the manifest's.
 	Exposure Exposure
+	// AI, when set, gives admins a page for choosing the models apps are
+	// given.
+	AI AIModels
 	// Control, when set, gives admins a menu on each app in the catalog to
 	// start, stop, restart or back it up.
 	Control Control
@@ -90,6 +93,7 @@ type Gateway struct {
 	addState     addState
 	secrets      Secrets
 	exposure     Exposure
+	ai           AIModels
 	control      Control
 	ops          appOps
 	// claim serialises the busy checks of the catalog's actions and the
@@ -165,6 +169,7 @@ func New(opts Options) (*Gateway, error) {
 		adder:        opts.Adds,
 		secrets:      opts.Secrets,
 		exposure:     opts.Exposure,
+		ai:           opts.AI,
 		control:      opts.Control,
 		stats:        opts.Stats,
 		scheme:       u.Scheme,

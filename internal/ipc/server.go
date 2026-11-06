@@ -30,6 +30,7 @@ type Server struct {
 	sup     *supervisor.Supervisor
 	auth    *auth.Store
 	secrets *secrets.Store
+	ai      gateway.AIModels
 	gateway GatewayStatus
 	config  string
 	started time.Time
@@ -251,6 +252,9 @@ func (s *Server) dispatch(ctx context.Context, req Request) Response {
 
 	case CmdSecretList, CmdSecretSet, CmdSecretRemove, CmdSecretBind, CmdSecretUnbind:
 		return s.dispatchSecret(ctx, req)
+
+	case CmdAIStatus, CmdAISet, CmdAIReset, CmdAITest, CmdAIRegenerate:
+		return s.dispatchAI(ctx, req)
 
 	case CmdGatewayStatus:
 		if s.gateway == nil {

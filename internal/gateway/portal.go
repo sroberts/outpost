@@ -91,6 +91,16 @@ func (g *Gateway) servePortal(w http.ResponseWriter, r *http.Request) {
 		default:
 			g.publicPage(w, r)
 		}
+	case "/ai":
+		switch {
+		case g.ai == nil:
+			g.message(w, r, http.StatusNotFound, "Nothing here",
+				"There's no page at this address.", g.portalLink(), "Back to apps")
+		case r.Method == http.MethodPost:
+			g.aiSubmit(w, r)
+		default:
+			g.aiPage(w, r)
+		}
 	case "/updates/self":
 		if g.updater == nil || g.selfUpdater == nil {
 			g.message(w, r, http.StatusNotFound, "Nothing here",
@@ -153,6 +163,7 @@ func (g *Gateway) home(w http.ResponseWriter, r *http.Request) {
 	d.AddLink = u.Admin && g.adder != nil
 	d.SecretsLink = u.Admin && g.secrets != nil
 	d.PublicLink = u.Admin && g.exposure != nil
+	d.AILink = u.Admin && g.ai != nil
 	if u.Admin && g.control != nil {
 		d.Poll = g.manage(d.Stations)
 	}

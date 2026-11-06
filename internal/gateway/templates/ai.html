@@ -1,0 +1,76 @@
+{{define "body"}}
+{{template "rail" .}}
+<main class="page ai">
+<p class="back"><a href="{{.Home}}">Back to apps</a></p>
+<h1>AI models</h1>
+{{with .AI}}<p class="lede">The two models every app can use through Outpost, both served by Ollama. Apps ask for <code>llm</code> or <code>system1</code> and get whichever model is chosen here. A change reaches them on their next request, and no app restarts. What you choose here wins over <code>config.toml</code>.</p>
+{{if .OllamaError}}<p class="error" role="alert">Outpost can't list Ollama's models: {{.OllamaError}}. The models below stay in force, but nothing can be changed until Ollama answers.</p>{{end}}
+<ul class="secret-list">
+{{range .Kinds}}<li id="k-{{.Kind}}">
+<span class="top"><span class="name">{{.Name}}</span>{{if .Model}}<code>{{.Model}}</code>{{end}}</span>
+<p class="meta">{{if eq .Kind "llm"}}Generates text. Apps call it with the OpenAI or Anthropic chat API.{{else}}Answers typed questions about an input with probabilities, in one pass. Apps call it with the System 1 API.{{end}}</p>
+{{if .Model}}<p class="meta">{{.Source}}</p>{{else}}<p class="meta">None chosen. Apps asking for it get an error that says so.</p>{{end}}
+{{if .Missing}}<p class="error" role="alert">Ollama doesn't have {{.Model}} any more. Apps asking for the {{.Name}} get an error until you choose another or pull it again with <code>ollama pull {{.Model}}</code>.</p>{{end}}
+{{if .Notice}}<p class="notice" role="status">{{.Notice}}</p>{{end}}
+{{if .Test}}<p class="notice" role="status">{{.Test}}</p>{{end}}
+{{if .Error}}<p class="error" role="alert" id="err-{{.Kind}}">{{.Error}}</p>{{end}}
+<div class="secret-acts">
+{{if .Options}}<details class="confirm" name="ai-{{.Kind}}"{{if .Error}} open{{end}}><summary class="pill"><span>Choose<span class="sr"> the {{.Name}}</span>…</span></summary>
+<form method="post" action="/ai#k-{{.Kind}}">
+<input type="hidden" name="action" value="save">
+<input type="hidden" name="kind" value="{{.Kind}}">
+<fieldset class="models"{{if .Error}} aria-describedby="err-{{.Kind}}"{{end}}><legend>{{.Name}} models Ollama has</legend>
+{{range .Options}}<label class="check"><input type="radio" name="model" value="{{.Name}}"{{if .Checked}} checked{{end}} required> <span><code>{{.Name}}</code>{{if .Detail}} <span class="hint">{{.Detail}}</span>{{end}}</span></label>
+{{end}}</fieldset>
+<button type="submit"><span>Use it for the {{.Name}}</span></button>
+</form>
+</details>{{else if not $.AI.OllamaError}}<p class="hint">Ollama has no {{.Name}} models. {{if eq .Kind "llm"}}Pull one, such as <code>ollama pull gemma4</code>{{else}}Pull one, such as <code>ollama pull laya</code>{{end}}, then come back.</p>{{end}}
+{{if .Model}}<form method="post" action="/ai#k-{{.Kind}}">
+<input type="hidden" name="action" value="test">
+<input type="hidden" name="kind" value="{{.Kind}}">
+<button class="plain" type="submit"><span>Test<span class="sr"> the {{.Name}}</span></span></button>
+</form>{{end}}
+{{if .FromPortal}}<form method="post" action="/ai#k-{{.Kind}}">
+<input type="hidden" name="action" value="reset">
+<input type="hidden" name="kind" value="{{.Kind}}">
+<button class="ghost" type="submit"><span>Use config.toml's<span class="sr"> {{.Name}}</span></span></button>
+</form>{{end}}
+</div>
+</li>
+{{end}}</ul>
+
+<section class="panel" aria-labelledby="apps-title" id="apps">
+<h2 id="apps-title">Apps</h2>
+<p class="hint">Every app is started with <code>OUTPOST_AI_URL</code> ({{.URL}}) and a token of its own in <code>OUTPOST_AI_TOKEN</code>. Counts are since Outpost last started.</p>
+{{if .Apps}}<ul class="secret-list">
+{{range .Apps}}<li id="a-{{.Name}}">
+<span class="top"><span class="name">{{.Title}}</span></span>
+{{if .Used}}{{range .Used}}<p class="meta">{{.}}</p>{{end}}{{else}}<p class="meta">No requests yet.</p>{{end}}
+{{if .LastError}}<p class="meta">Last error: {{.LastError}}</p>{{end}}
+{{if .Notice}}<p class="notice" role="status">{{.Notice}}</p>{{end}}
+<div class="secret-acts">
+<details class="confirm" name="ai-app"><summary class="pill"><span>New token<span class="sr"> for {{.Title}}</span>…</span></summary>
+<p>{{.Title}} restarts with a new token, and the one it has stops working.</p>
+<form method="post" action="/ai#a-{{.Name}}">
+<input type="hidden" name="action" value="regenerate">
+<input type="hidden" name="app" value="{{.Name}}">
+<button class="plain" type="submit"><span>Make a new token for {{.Title}}</span></button>
+</form>
+</details>
+</div>
+</li>
+{{end}}</ul>{{else}}<p class="empty">No apps yet.</p>{{end}}
+</section>
+
+<section class="panel" aria-labelledby="use-title">
+<h2 id="use-title">Calling them from an app</h2>
+<p class="hint">Use the SDK the app already has, pointed at Outpost, with the token as its API key:</p>
+<ul class="meta-list">
+<li>OpenAI chat: base URL <code>$OUTPOST_AI_URL/openai/v1</code>, model <code>llm</code></li>
+<li>Anthropic messages: base URL <code>$OUTPOST_AI_URL/anthropic</code>, model <code>llm</code></li>
+<li>System 1: <code>POST $OUTPOST_AI_URL/systemone/v1/systemone</code>, model <code>system1</code></li>
+</ul>
+<p class="hint">Ollama is at {{.OllamaURL}}. Pulling and removing models stays with <code>ollama pull</code> and <code>ollama rm</code>; this page lists what Ollama has each time it loads.</p>
+</section>{{end}}
+</main>
+{{end}}

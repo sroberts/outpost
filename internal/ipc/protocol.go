@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/sroberts/outpost/internal/ai"
 	"github.com/sroberts/outpost/internal/auth"
 	"github.com/sroberts/outpost/internal/backup"
 	"github.com/sroberts/outpost/internal/gateway"
@@ -57,6 +58,12 @@ const (
 	CmdSecretRemove = "secret.rm"
 	CmdSecretBind   = "secret.bind"
 	CmdSecretUnbind = "secret.unbind"
+
+	CmdAIStatus     = "ai.status"
+	CmdAISet        = "ai.set"
+	CmdAIReset      = "ai.reset"
+	CmdAITest       = "ai.test"
+	CmdAIRegenerate = "ai.regenerate"
 )
 
 // Timeouts. Most commands are near-instant queries against the supervisor's
@@ -71,6 +78,9 @@ const (
 	// purpose: cutting a working backup off partway through and reporting a
 	// failure is far worse than waiting.
 	TransferTimeout = 2 * time.Hour
+	// AITestTimeout bounds ai.test. The first request to a model Ollama
+	// hasn't loaded waits while it loads, which for a large one is minutes.
+	AITestTimeout = 3 * time.Minute
 )
 
 // Timeout returns how long the given command is allowed to take.
@@ -78,6 +88,8 @@ func Timeout(command string) time.Duration {
 	switch command {
 	case CmdBackup, CmdRestore:
 		return TransferTimeout
+	case CmdAITest:
+		return AITestTimeout
 	default:
 		return RequestTimeout
 	}
@@ -98,6 +110,8 @@ type Request struct {
 	AccessToken *TokenRequest `json:"access_token,omitempty"`
 	// Secret carries the secret.* commands' arguments.
 	Secret *SecretRequest `json:"secret,omitempty"`
+	// AI carries the ai.* commands' arguments.
+	AI *AIRequest `json:"ai,omitempty"`
 }
 
 // UserRequest is the argument to a user.* command. Password is in clear: it
@@ -182,6 +196,10 @@ type Response struct {
 	Secret string `json:"secret,omitempty"`
 	// Secrets are secret.* results: names, variables and bindings, never a value.
 	Secrets []SecretInfo `json:"secrets,omitempty"`
+	// AI is ai.status's result: the models in force and what Ollama has.
+	AI *ai.Overview `json:"ai,omitempty"`
+	// AITest is ai.test's result.
+	AITest *ai.TestResult `json:"ai_test,omitempty"`
 }
 
 // errorResponse builds a failure reply.

@@ -440,6 +440,17 @@ outpost secret unbind <name> <service>|--global
 outpost secret rm <name>         delete a secret
 ```
 
+[AI models](#ai-models) too:
+
+```
+outpost ai                       the models in force, what Ollama has, and usage
+outpost ai set llm|system1 <model>
+                                 choose one, over config.toml's
+outpost ai reset llm|system1     go back to config.toml's
+outpost ai test llm|system1      send it one small request
+outpost ai regenerate <service>  give an app a new token; it restarts
+```
+
 Passwords are typed at a prompt with no echo, never on the command line, and
 cross only the owner-only control socket. Removing, disabling or demoting the
 last enabled admin is refused.
@@ -539,7 +550,8 @@ shouldn't lose their tailnet on upgrade. `outpost config --tailscale on|off`
 changes it at any time; run `outpost daemon restart` afterwards.
 
 `[gateway]` turns on the login gateway; its settings are in
-[The login gateway](#the-login-gateway).
+[The login gateway](#the-login-gateway). `[ai]` chooses the models apps are
+given; see [AI models](#ai-models).
 
 The daemon reads the file only when it starts. Manifests reload by themselves,
 but a change here waits for a restart, so `outpost list`, `status`, `config`
@@ -600,6 +612,75 @@ between local processes: anything running as you can read both files, and every
 service runs as you (see [What Outpost trusts](#what-outpost-trusts)). Back the
 two files up together; without the key, the database is unreadable, and the
 daemon refuses to start rather than make a new key and lose them.
+
+## AI models
+
+Apps can use AI without each one choosing a model, pointing at a server and
+holding a key. Outpost has one **LLM**, which generates text (Gemma 4, Qwen 3
+and the like), and one **System 1** model, which answers typed questions
+about an input with probabilities in a single pass (Laya). Both are served by
+[Ollama](https://ollama.com), and every app reaches them through Outpost:
+
+```
+OUTPOST_AI_URL=http://127.0.0.1:47901
+OUTPOST_AI_TOKEN=oai_…            # each app its own
+```
+
+An app calls the API it already speaks, with its SDK's base URL pointed at
+Outpost and the token as the API key, and asks for `llm` or `system1`:
+
+| API | Base URL | Model |
+|---|---|---|
+| OpenAI Chat Completions | `$OUTPOST_AI_URL/openai/v1` | `llm` |
+| Anthropic Messages | `$OUTPOST_AI_URL/anthropic` | `llm` |
+| System 1 | `POST $OUTPOST_AI_URL/systemone/v1/systemone` | `system1` |
+
+Outpost replaces the `model` an app sends with the one chosen now, so
+changing it reaches every app on its next request, with nothing restarted.
+`outpost-service-spec.md` §3 has the app's side.
+
+**Choosing them.** Either in `config.toml`:
+
+```toml
+[ai]
+llm     = "gemma4:e4b"
+system1 = "laya:latest"
+# ollama_url = "http://127.0.0.1:11434"
+# listen     = "127.0.0.1:47901"
+```
+
+or, with the [login gateway](#the-login-gateway) on, on the admin-only **AI
+models** page, which wins over the file, the same as Internet access does for
+Funnel. The page lists what Ollama has each time it loads, sorted by what each
+model can do: Ollama reports `completion` for a text model and `decision` for
+a System 1 one, so Laya can't be picked as the LLM or Gemma as System 1.
+Saving checks the model is still there; with Ollama down, nothing can be
+checked and nothing is saved. **Test** sends the model one small request and
+shows the reply. "Use config.toml's" forgets the page's choice. From the CLI,
+`outpost ai set llm <model>` does the same as the page.
+
+Outpost doesn't pull models. Run `ollama pull` yourself; if a chosen model is
+later removed, the page and `outpost ai` say so, the daemon logs it at start,
+and apps get a 503 naming it until you choose another or pull it again.
+
+**What's counted.** Each request is one line in the daemon's log: the app,
+the kind, the model, the status, the time taken and the tokens. Prompts and
+replies are never logged. The page and `outpost ai` show each app's requests,
+failures and tokens since the daemon started. Changes go in the gateway's
+activity feed.
+
+**Tokens.** An app's token is derived from its name and a key in `ai.db`, so
+it is the same every time the app starts, across daemon restarts too, and
+nothing that can be read back is stored. **New token** on the page, or
+`outpost ai regenerate <app>`, replaces it and restarts that app; the old one
+stops working at once. Ollama itself answers any local process without a key,
+so the token says which app asked, rather than keeping anyone out.
+
+The endpoint listens on loopback only. It isn't on the tailnet, behind the
+gateway or reachable through Funnel. Hosted providers (Anthropic, OpenAI,
+TypeSafe's Jev) are planned, in
+[#120](https://github.com/sroberts/outpost/issues/120); the design is in
+`docs/design/ai-models.md`.
 
 ## Running without Tailscale
 
@@ -924,7 +1005,8 @@ from that. Knowing where they are tells you what adding a service means.
 same user as the daemon, with no sandbox. It can read everything under
 `~/.outpost` — `auth.db` with its password hashes and the keys that sign
 identity tokens, `secrets.db` and the key that unseals it, so every other
-service's secrets, `config.toml` with the Tailscale auth key, each node's
+service's secrets, `ai.db`, from which any app's AI token can be made,
+`config.toml` with the Tailscale auth key, each node's
 tailnet identity — write a manifest, which is running any command as that
 user, and talk to the control socket, which can add an admin or mint an
 access token. `outpost add <url>` installs a release binary from a GitHub
@@ -994,6 +1076,8 @@ Everything lives under `~/.outpost` (or `$OUTPOST_HOME`, or `--home`):
   secrets.key              the key that seals them (0600)
   exposure.db              public paths and Funnel set on the portal, over
                            the manifests' (0600)
+  ai.db                    AI models chosen on the portal, and the key apps'
+                           AI tokens come from (0600)
   config.toml              global settings, mode 0600 (optional)
   outpost.sock             control socket, mode 0600
   outpost.pid              running daemon's PID
@@ -1012,7 +1096,8 @@ should be backed up with the manifests. `outpost backup` covers service
 storage, not this file. The same goes for `secrets.db`, which must be kept
 with `secrets.key`, and for `exposure.db`, which records what the portal
 set over the manifests: without it, each app goes back to its manifest's
-public paths and Funnel.
+public paths and Funnel. Without `ai.db`, the models go back to
+`config.toml`'s and every app gets a new AI token when it next starts.
 
 > **Note on socket paths.** Unix domain sockets have a hard length limit in the
 > kernel (104 bytes on macOS). `~/.outpost/outpost.sock` is well under it, but a
@@ -1493,7 +1578,7 @@ stays in the CLI and the TUI.
 **The CLI differs from spec §12.** Added: `serve`, `add`, `update`, `remove`,
 `install`, `uninstall`, `config`, `version`, `user`, `auth`, `gateway`,
 `--home` / `$OUTPOST_HOME`, `logs --events`, `backup --list`,
-`backup --schedule`, `--tailnet`, `secret`. `restore` takes the timestamp as optional,
+`backup --schedule`, `--tailnet`, `secret`, `ai`. `restore` takes the timestamp as optional,
 defaulting to the newest archive. Not built: `outpost hermes publish`, which
 spec §12 lists.
 
@@ -1548,6 +1633,11 @@ app's `public_paths`, and nothing else, from the internet; see
 only, a setting made on the Internet access page is kept in `exposure.db`
 and wins over the manifest, which stays the default. Like `auth.db` and
 `secrets.db`, that file is authoritative rather than a cache.
+
+**Outpost gives apps AI models.** The spec has nothing like it. `ai.db`
+holds the models chosen on the portal and the key app tokens are derived
+from; like `exposure.db`, it is authoritative rather than a cache. See
+[AI models](#ai-models).
 
 **Backup scheduling uses the init system.** Spec §10 leaves this open; Outpost
 generates a launchd job or a systemd timer rather than growing a scheduler.

@@ -152,9 +152,11 @@ Outpost injects, in this order:
 2. Every key in the manifest's `env` table
 3. Every secret bound to the service (see [Secrets](#secrets)), replacing a
    manifest `env` key of the same name
-4. With the login gateway on: `OUTPOST_AUTH=gateway`, `OUTPOST_ISSUER` and
+4. `OUTPOST_AI_URL` and `OUTPOST_AI_TOKEN`, for the operator's models (see
+   [AI models](#ai-models))
+5. With the login gateway on: `OUTPOST_AUTH=gateway`, `OUTPOST_ISSUER` and
    `OUTPOST_JWKS_URL`
-5. `OUTPOST_STORAGE_DIR`
+6. `OUTPOST_STORAGE_DIR`
 
 What Outpost sets comes after the manifest's `env` and therefore always wins —
 a manifest cannot hand your service the wrong storage path, or claim a gateway
@@ -273,6 +275,46 @@ you with the new value rather than changing anything under a running process,
 so you don't need to watch for it; you do need to start cleanly when that
 happens, which section 6 already asks. Like anything else in your environment,
 don't log it and don't echo it back in a response.
+
+### AI models
+
+The operator chooses two models for the whole installation, both served by
+Ollama: an **LLM**, which generates text, and a **System 1** model, which
+answers typed questions about an input with probabilities in one pass. Every
+service is started with:
+
+```
+OUTPOST_AI_URL=http://127.0.0.1:47901   # loopback; the operator can move it
+OUTPOST_AI_TOKEN=oai_…                  # yours alone
+```
+
+Call the API your code already speaks, under a prefix, with the token as the
+API key (`Authorization: Bearer` or `x-api-key`):
+
+| You speak | Base URL for your SDK | Model to send |
+|---|---|---|
+| OpenAI Chat Completions | `$OUTPOST_AI_URL/openai/v1` | `llm` |
+| Anthropic Messages | `$OUTPOST_AI_URL/anthropic` | `llm` |
+| System 1 | `POST $OUTPOST_AI_URL/systemone/v1/systemone` | `system1` |
+
+The path decides the model, not you. Outpost replaces whatever `model` you
+send with the one the operator chose, which can change at any moment without
+restarting you; the `model` in the reply says which answered. Don't hard-code
+a provider's model name, and don't cache the choice. `GET
+$OUTPOST_AI_URL/openai/v1/models` lists what `llm` and `system1` are now.
+
+Expect, and handle, these:
+
+- **503** when the operator hasn't chosen a model of that kind, or Ollama
+  doesn't have the one chosen. Treat AI as optional where you can: degrade,
+  don't crash.
+- **502** when Ollama isn't running.
+- **401** for a missing or wrong token. Read the token from the environment
+  each time you start; the operator can replace it, which restarts you.
+
+Requests are capped at 32 MiB. Streaming works as each API defines it. Keep
+the token like any other credential: don't log it, and don't send it anywhere
+but `OUTPOST_AI_URL`.
 
 ---
 
@@ -437,6 +479,7 @@ Do not build expecting any of this:
 | Webhook verification | Funnel can put your public paths on the internet, but Outpost can't check a sender's signature; verify it yourself (§3) |
 | Authorization | With the login gateway on, Outpost authenticates every request and tells you who it is (§3), but every user can open every app; decide what each may do yourself. Without the gateway, tailnet membership is the boundary |
 | Secrets in a file, or rotated in place | Outpost hands secrets over as environment variables and restarts you to change one; if you need a credential as a file, write it into your storage directory yourself |
+| A choice of AI model, or a hosted provider | Outpost gives you one LLM and one System 1 model, both from Ollama, chosen by the operator (§3); for anything else, bring your own provider and its key as a secret |
 | Service discovery | No registry; addresses are the operator's business |
 | A database, cache, or queue | Bring your own, inside your storage directory |
 | Scheduling or cron | Not yet decided (`spec.md` open question 2) |
@@ -473,6 +516,7 @@ A service conforms when all of these are true.
 - [ ] Reads all configuration from environment variables and flags
 - [ ] Starts unattended: no prompts, no TTY, no interactive login
 - [ ] Requires no config file at a well-known path
+- [ ] If it uses AI: calls `OUTPOST_AI_URL` with `OUTPOST_AI_TOKEN`, sends `llm` or `system1` as the model, and keeps running when a model isn't available
 
 **State**
 - [ ] Writes all persistent state under `OUTPOST_STORAGE_DIR`
