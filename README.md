@@ -282,6 +282,28 @@ Outpost injects the manifest's `env` plus `OUTPOST_STORAGE_DIR` into the
 process environment. `OUTPOST_STORAGE_DIR` is appended last, so a manifest
 cannot accidentally override it.
 
+## Outpost-ready projects
+
+These open-source projects follow the service contract and ship an
+`outpost.toml` descriptor, so Outpost knows how to run them. Each is also a
+worked example for writing your own.
+
+| Project | What it is | Install |
+|---|---|---|
+| [Domestique](https://github.com/sroberts/domestique) | Self-hosted training log: imports Whoop, Wahoo, Zwift and Strava, logs lifting, serves REST and MCP | `outpost add sroberts/domestique` |
+| [Sous](https://github.com/sroberts/sous) | Household recipe manager: import from any site, cook step by step with timers, and use it from AI agents over MCP | `outpost add sroberts/sous` |
+| [Yarr](https://github.com/sroberts/yarr) | RSS reader, a fork of [nkanaev/yarr](https://github.com/nkanaev/yarr) with Instapaper, swipe triage and an MCP server | `outpost add sroberts/yarr` |
+| [Soft Serve](https://github.com/sroberts/soft-serve) | Self-hostable Git server, a fork of [charmbracelet/soft-serve](https://github.com/charmbracelet/soft-serve) that runs under Outpost: loopback listeners, `OUTPOST_PORT`, and SSH as a [raw TCP forward](#raw-tcp-forwards) | build from source, then `outpost add --binary` |
+
+`outpost add` installs a project's latest release, checked against its
+`SHA256SUMS`, and writes a manifest from its descriptor. See
+[Adding and removing services](#adding-and-removing-services). The Soft Serve
+fork publishes no releases yet, so build it and add the binary by path.
+
+Have a project that runs under Outpost? `outpost-service-spec.md` is the
+contract it has to meet, and §14 covers publishing releases `outpost add` can
+install.
+
 ## Manifest schema
 
 One TOML file per service in `~/.outpost/services/`. The filename minus its
