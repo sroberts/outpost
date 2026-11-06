@@ -88,6 +88,15 @@ the services that get it):
                            take it away again
   secret rm <name>         delete a secret
 
+AI models (one LLM and one System 1 model, served by Ollama, which every app
+reaches at OUTPOST_AI_URL with its own OUTPOST_AI_TOKEN):
+  ai                       the models in force, what Ollama has, and usage
+  ai set llm|system1 <model>
+                           choose one, over config.toml's
+  ai reset llm|system1     go back to config.toml's
+  ai test llm|system1      send it one small request
+  ai regenerate <service>  give an app a new token; it restarts
+
 Flags:
   --home <dir>             Outpost root (default $OUTPOST_HOME or ~/.outpost)
   --version                print the build identity of this binary
@@ -197,6 +206,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return a.cmdToken(cmdArgs)
 	case "secret", "secrets":
 		return a.cmdSecret(cmdArgs)
+	case "ai":
+		return a.cmdAI(cmdArgs)
 	case "auth":
 		return a.cmdAuth(cmdArgs)
 	case "gateway":
@@ -260,6 +271,7 @@ func (a *app) authPath() string    { return filepath.Join(a.home, "auth.db") }
 func (a *app) secretsPath() string    { return filepath.Join(a.home, "secrets.db") }
 func (a *app) secretsKeyPath() string { return filepath.Join(a.home, "secrets.key") }
 func (a *app) exposurePath() string   { return filepath.Join(a.home, "exposure.db") }
+func (a *app) aiPath() string         { return filepath.Join(a.home, "ai.db") }
 
 // ensureLayout creates the Outpost root on first use. A home created here is
 // a new install, and gets the new-install Tailscale setting.

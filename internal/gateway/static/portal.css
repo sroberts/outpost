@@ -462,14 +462,20 @@ button.plain:hover { background: none; border-color: var(--beam); }
 .secret-acts .pill:hover { border-color: var(--beam); }
 .secret-acts form { max-width: 26rem; }
 #add { scroll-margin-top: 1rem; }
-.secrets fieldset.apps { display: grid; gap: 0; margin: 0; padding: 0; border: 0; min-width: 0; }
-.secrets fieldset.apps legend { padding: 0; margin-bottom: 0.25rem; font-weight: 550; font-size: 15px; }
-.secrets label.check {
+.secrets fieldset.apps, .ai fieldset.models { display: grid; gap: 0; margin: 0; padding: 0; border: 0; min-width: 0; }
+.secrets fieldset.apps legend, .ai fieldset.models legend { padding: 0; margin-bottom: 0.25rem; font-weight: 550; font-size: 15px; }
+.secrets label.check, .ai label.check {
   display: flex; align-items: center; gap: 0.65rem; min-height: 44px;
   font-weight: 400; cursor: pointer;
 }
-.secrets label.check input {
+.secrets label.check input, .ai label.check input {
   flex: none; width: 20px; height: 20px; min-height: 0; padding: 0; margin: 0;
   accent-color: var(--lamp);
 }
+
+/* AI models: the two kinds as rows like secrets, each model a radio with
+   its size beside it, and the endpoint's paths listed plainly. */
+.ai label.check > span { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 0.5rem; overflow-wrap: anywhere; }
+.ai .secret-acts form { max-width: 34rem; }
+.ai .meta-list { margin: 0.5rem 0 0; padding-left: 1.1rem; display: grid; gap: 0.3rem; font-size: 14px; color: var(--dim); overflow-wrap: anywhere; }
 

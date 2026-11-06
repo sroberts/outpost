@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/sroberts/outpost/internal/ai"
 	"github.com/sroberts/outpost/internal/auth"
 	"github.com/sroberts/outpost/internal/exposure"
 	"github.com/sroberts/outpost/internal/gateway"
@@ -108,6 +109,30 @@ func (a *app) cmdServe(args []string) error {
 	}
 	defer exposureStore.Close()
 
+	watch.at("opening the AI store")
+	aiService, err := ai.Open(ai.Options{
+		Path:      a.aiPath(),
+		OllamaURL: a.config.AI.OllamaBase(),
+		Listen:    a.config.AI.ListenAddr(),
+		LLM:       a.config.AI.LLM,
+		System1:   a.config.AI.System1,
+		Logf:      func(format string, v ...any) { fmt.Fprintf(a.out, format+"\n", v...) },
+	})
+	if err != nil {
+		return err
+	}
+	defer aiService.Close()
+	// Bound before any app starts, since every app is told this address. A
+	// port already taken is reported, not fatal: the apps still run, and
+	// their AI requests fail until the daemon restarts on a free one.
+	aiLn, err := net.Listen("tcp", a.config.AI.ListenAddr())
+	if err != nil {
+		fmt.Fprintf(a.err, "outpost: AI endpoint: %v; apps can't reach their models until [ai] listen names a free port and the daemon restarts\n", err)
+		aiLn = nil
+	} else {
+		defer func() { _ = aiLn.Close() }() // Serve has stopped by then, or never started
+	}
+
 	// config.toml decides whether the tailnet is used at all; an explicit
 	// --tailnet on the command line overrides it for this run.
 	useTailnet := a.config.TailscaleEnabled()
@@ -189,7 +214,7 @@ func (a *app) cmdServe(args []string) error {
 		ProcessRuntime:  procs,
 		Interval:        *interval,
 		CheckRelease:    (&releaseChecks{a: a}).check,
-		Secrets:         secretStore,
+		Secrets:         withAI{secrets: secretStore, ai: aiService},
 		Exposure:        exposureStore,
 		Logf:            func(format string, v ...any) { fmt.Fprintf(a.out, format+"\n", v...) },
 	})
@@ -221,6 +246,7 @@ func (a *app) cmdServe(args []string) error {
 	defer srv.Close()
 	srv.UseAuth(authStore)
 	srv.UseSecrets(secretStore)
+	srv.UseAI(aiService)
 	srv.UseConfig(a.config.Fingerprint())
 
 	var gw *gateway.Gateway
@@ -250,6 +276,7 @@ func (a *app) cmdServe(args []string) error {
 			Adds:         daemonAdds{a},
 			Secrets:      secretStore,
 			Exposure:     exposureWeb{a: a, store: exposureStore, sup: sup, opts: a.manifestOptions(useTailnet)},
+			AI:           aiService,
 			Control:      sup,
 			Stats:        sampler,
 			NodeSecret:   nodeSecret,
@@ -322,6 +349,22 @@ func (a *app) cmdServe(args []string) error {
 		close(gwDone)
 	}
 
+	aiDone := make(chan struct{})
+	if aiLn != nil {
+		fmt.Fprintf(a.out, "outpost: AI endpoint at %s, models from Ollama at %s\n", aiService.URL(), aiService.OllamaURL())
+		go func() {
+			defer close(aiDone)
+			if err := aiService.Serve(ctx, aiLn); err != nil {
+				fmt.Fprintf(a.err, "outpost: AI endpoint: %v\n", err)
+			}
+		}()
+		// Said once at start, off the startup path: a model config.toml
+		// names that Ollama doesn't have, or an Ollama that isn't running.
+		go warnAIModels(ctx, aiService, a.out)
+	} else {
+		close(aiDone)
+	}
+
 	// Off the loop, which must never wait on the network, and over by the time
 	// the store closes.
 	checksDone := make(chan struct{})
@@ -350,6 +393,7 @@ func (a *app) cmdServe(args []string) error {
 		fmt.Fprintf(a.err, "outpost: socket server: %v\n", err)
 	}
 	<-gwDone
+	<-aiDone
 
 	fmt.Fprintln(a.out, "outpost: stopped")
 	if runErr != nil && ctx.Err() == nil {

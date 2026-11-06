@@ -39,6 +39,9 @@ const (
 	// EventExposure is an app's public paths or Funnel changed on the
 	// Internet access page.
 	EventExposure = "exposure"
+	// EventAI is a model chosen or put back, or an app's AI token
+	// regenerated, on the AI models page.
+	EventAI = "ai"
 )
 
 // Events is where the gateway's activity goes: the supervisor's feed in the
