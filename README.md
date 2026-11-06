@@ -288,12 +288,15 @@ These open-source projects follow the service contract and ship an
 `outpost.toml` descriptor, so Outpost knows how to run them. Each is also a
 worked example for writing your own.
 
-| Project | What it is | Install |
+| Project | Description | Install |
 |---|---|---|
-| [Domestique](https://github.com/sroberts/domestique) | Self-hosted training log: imports Whoop, Wahoo, Zwift and Strava, logs lifting, serves REST and MCP | `outpost add sroberts/domestique` |
-| [Sous](https://github.com/sroberts/sous) | Household recipe manager: import from any site, cook step by step with timers, and use it from AI agents over MCP | `outpost add sroberts/sous` |
-| [Yarr](https://github.com/sroberts/yarr) | RSS reader, a fork of [nkanaev/yarr](https://github.com/nkanaev/yarr) with Instapaper, swipe triage and an MCP server | `outpost add sroberts/yarr` |
-| [Soft Serve](https://github.com/sroberts/soft-serve) | Self-hostable Git server, a fork of [charmbracelet/soft-serve](https://github.com/charmbracelet/soft-serve) that runs under Outpost: loopback listeners, `OUTPOST_PORT`, and SSH as a [raw TCP forward](#raw-tcp-forwards) | build from source, then `outpost add --binary` |
+| [Domestique](https://github.com/sroberts/domestique) | Training log for cycling and lifting, importing from Whoop, Wahoo, Zwift and Strava | `outpost add sroberts/domestique` |
+| [Sous](https://github.com/sroberts/sous) | Household recipe manager with step-by-step cooking and timers | `outpost add sroberts/sous` |
+| [Yarr](https://github.com/sroberts/yarr) | RSS reader with Instapaper and swipe triage; a fork of [nkanaev/yarr](https://github.com/nkanaev/yarr) | `outpost add sroberts/yarr` |
+| [Soft Serve](https://github.com/sroberts/soft-serve) | Git server you browse and push to over SSH; a fork of [charmbracelet/soft-serve](https://github.com/charmbracelet/soft-serve) | build it, then `outpost add --binary` |
+
+Domestique, Sous and Yarr also serve MCP, so AI agents can use them through
+the Outpost portal.
 
 `outpost add` installs a project's latest release, checked against its
 `SHA256SUMS`, and writes a manifest from its descriptor. See
