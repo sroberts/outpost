@@ -1067,9 +1067,12 @@ the copy is there if you need it. Otherwise the old binary is kept as
 It needs the job, since nothing else could start the new daemon, so install one
 first. It refuses, changing nothing, when:
 
-- this `outpost` is a development build, from `make build` between tags, with
-  uncommitted changes, or from `go install`. There's no telling which release is
-  newer than that; `--to` a tag, or `--force` for the latest.
+- this `outpost` is a development build with uncommitted changes, or from
+  `go install`. There's no telling which release is newer than that; `--to` a
+  tag, or `--force` for the latest. A clean `make build` between tags, such as
+  `v0.2.0-30-g6c3ba82`, is the exception: it was made from v0.2.0, so any
+  later release is an update for it, and it is refused only when the latest
+  is no later than v0.2.0.
 - the job runs a different binary from the `outpost` you ran. It names the one to
   run instead.
 - the binary belongs to a package manager, such as Homebrew or Nix, or to another
@@ -1105,7 +1108,7 @@ once Outpost is back, with the result. The activity feed records who started
 it and how it ended.
 
 The row says why instead of offering the button when Outpost can't be updated
-from there: a development build, a binary a package manager or another user
+from there: a development build (other than a clean one made from a release older than the latest), a binary a package manager or another user
 owns, a daemon that wasn't started by its launchd job or systemd unit (and so
 wouldn't be started again), or a systemd system service, which has to be
 updated on the host with `sudo outpost update --self`. While it runs, apps'

@@ -102,6 +102,41 @@ func buildRelease(s string) (tag string, clean bool) {
 	return tag, true
 }
 
+// madeFrom is the release a clean build between tags was made from: v0.2.0
+// for `make build`'s v0.2.0-30-g6c3ba82 (git describe names the nearest tag
+// in the build's history). A release later than that one isn't in the build's
+// history, so it is an update, even though the build itself has no place in
+// the order of releases. ok is false for anything else: a modified tree, whose
+// changes are in no release; "dev"; a pseudo-version, which names the next
+// version rather than the last; and a release, which orders as itself.
+func madeFrom(build string) (base string, ok bool) {
+	fields := strings.Fields(build)
+	if len(fields) == 0 || strings.Contains(build, "dirty") {
+		return "", false
+	}
+	loc := gitDescribe.FindStringIndex(fields[0])
+	if loc == nil {
+		return "", false
+	}
+	base = fields[0][:loc[0]]
+	if _, ok := parseVersion(base); !ok {
+		return "", false
+	}
+	return base, true
+}
+
+// laterThanBase says whether release is later than the one a clean build
+// between tags was made from, and so an update for it. ok is false when the
+// build isn't one, or the release isn't a version.
+func laterThanBase(build, release string) (later, ok bool) {
+	base, ok := madeFrom(build)
+	if !ok {
+		return false, false
+	}
+	order, ok := compareReleases(base, release)
+	return order < 0, ok
+}
+
 // packageManagerDirs are where a package manager keeps the binaries it owns.
 // Replacing one leaves the manager believing it installed something else, and
 // its next upgrade puts its own back.
@@ -231,8 +266,10 @@ func (a *app) updateSelfWith(o selfOpts) error {
 	build := selfBuild()
 	installed, clean := buildRelease(build.String())
 	// A development build has no place in the order of releases, so neither
-	// "newer" nor "already at" can be said of it.
-	if !clean && !check && to == "" && !force {
+	// "newer" nor "already at" can be said of it, unless it was made cleanly
+	// from a release, which the latest is then checked against below.
+	_, described := madeFrom(build.String())
+	if !clean && !described && !check && to == "" && !force {
 		return fmt.Errorf("this outpost is a development build (%s), not a release, so there is no telling "+
 			"whether the latest release is newer; nothing was changed. "+
 			"`outpost update --self --to TAG` installs a particular release, and --force the latest", build)
@@ -281,6 +318,14 @@ func (a *app) updateSelfWith(o selfOpts) error {
 	if same && !force {
 		fmt.Fprintf(a.out, "Outpost is already at %s (use --force to reinstall it)\n", rel.Tag)
 		return nil
+	}
+	if described && !clean && to == "" && !force {
+		if later, ok := laterThanBase(build.String(), rel.Tag); !ok || !later {
+			base, _ := madeFrom(build.String())
+			return fmt.Errorf("this outpost is a development build (%s) made from %s, and the latest release, %s, "+
+				"is no later than that; nothing was changed. "+
+				"`outpost update --self --to TAG` installs a particular release, and --force the latest", build, base, rel.Tag)
+		}
 	}
 	if newer {
 		fmt.Fprintf(a.out, "Outpost is at %s, newer than its latest release, %s; nothing to update.\n"+
@@ -480,6 +525,16 @@ func (a *app) checkSelf(build version.Info, installed string, clean bool, tag, t
 		which = "release " + tag + " is available"
 	}
 	if !clean {
+		base, described := madeFrom(build.String())
+		if later, ok := laterThanBase(build.String(), tag); ok && later && to == "" {
+			fmt.Fprintf(a.out, "Outpost: %s installed, a development build made from %s; %s available\n", installed, base, tag)
+			fmt.Fprintln(a.out, "Install it with `outpost update --self`.")
+			return
+		}
+		if described && to == "" {
+			fmt.Fprintf(a.out, "This outpost is a development build (%s) made from %s, no older than the latest release, %s.\n", build, base, tag)
+			return
+		}
 		fmt.Fprintf(a.out, "This outpost is a development build (%s); %s.\n", build, which)
 		return
 	}
