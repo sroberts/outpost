@@ -9,8 +9,8 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	golang.org/x/crypto v0.58.0
 	golang.org/x/term v0.47.0
-	modernc.org/sqlite v1.61.0
-	tailscale.com v1.104.4
+	modernc.org/sqlite v1.61.1
+	tailscale.com v1.104.5
 )
 
 require (
