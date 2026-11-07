@@ -190,7 +190,7 @@ h2 { font-size: 19px; font-weight: 680; }
 .stop:target .name { text-decoration: underline; text-decoration-color: var(--beam); text-decoration-thickness: 2px; text-underline-offset: 4px; }
 .panel > .confirm > .pill.danger { border-color: var(--down-ink); }
 .back { margin: 0 0 0.75rem; font-size: 14px; }
-.back a { display: inline-block; padding: 0.7rem 0; color: var(--beam); }
+.back a { display: inline-flex; align-items: center; min-height: 44px; color: var(--beam); }
 .cmd {
   justify-self: start; margin-top: 4px; font-size: 12px; color: var(--porcelain);
   background: var(--enamel-hi); border: 1px solid var(--rule); border-radius: 4px; padding: 3px 7px;
@@ -473,11 +473,75 @@ button.plain:hover { background: none; border-color: var(--beam); }
   accent-color: var(--lamp);
 }
 
-/* AI models: the two kinds as rows like secrets, each model a radio with
-   its size beside it, and the endpoint's paths listed plainly. */
+/* AI models: each kind a section with its model, one line of where it came
+   from and who may use it, and one row of pills; what each pill opens holds
+   the forms, with one filled button apiece and the way back to config.toml
+   at its foot. Providers and apps are rows like sign-ins. */
+.ai .kind { margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--rule); scroll-margin-top: 1rem; }
+.ai .model { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.6rem; margin: 0.5rem 0 0; }
+.ai .model code { font-size: 15px; overflow-wrap: anywhere; }
+/* Who serves it, beside the model: a name, not a state, so not uppercase. */
+.ai .model .tag { font-size: 12px; font-weight: 550; letter-spacing: 0; text-transform: none; }
+.ai .meta { display: block; margin: 0.35rem 0 0; }
+.ai .kind > .error { margin-top: 0.5rem; }
+.ai .error a { color: inherit; text-decoration-color: currentColor; }
+/* Every control in the row is a pill, the same height, on one centre line. */
+.ai .secret-acts { align-items: center; margin-top: 0.85rem; }
+.ai .secret-acts > form { margin: 0; }
+.ai button.pill { font-weight: 400; }
+.ai .kind > .notice { margin-top: 0.6rem; }
+.ai .pick { margin-top: 0.75rem; border-bottom: 1px solid var(--rule); padding-bottom: 1rem; }
+.ai .pick > form { margin-top: 0; justify-items: start; }
+.ai .pick > form.undo { margin-top: 1rem; }
+.ai .pick .hint { margin: 0; }
+.ai fieldset.models + .hint { margin-top: -0.25rem; }
+/* One source open at a time, Ollama first; a hosted one with no key is a
+   line pointing at where its key goes. */
+.ai .source, .ai .source-off { border-top: 1px solid var(--rule); }
+.ai .source > summary {
+  display: flex; align-items: center; gap: 0.5rem; min-height: 44px;
+  font-size: 15px; font-weight: 600; list-style: none; cursor: pointer;
+}
+.ai .source > summary::-webkit-details-marker { display: none; }
+.ai .source > summary .hint { font-weight: 400; }
+.ai .source > summary::after, .ai .ref > summary::after {
+  content: ""; width: 6px; height: 6px; margin: -3px 0.25rem 0 auto;
+  border-right: 1.5px solid var(--dim); border-bottom: 1.5px solid var(--dim);
+  transform: rotate(45deg); transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.ai .source[open] > summary::after, .ai .ref[open] > summary::after { transform: translateY(3px) rotate(-135deg); }
+.ai .source > form { margin: 0.25rem 0 1rem; justify-items: start; }
+.ai .source > .hint { margin: 0 0 0.5rem; }
+.ai .source-off {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0 0.75rem; min-height: 44px; margin: 0;
+  font-size: 15px; font-weight: 600;
+}
+.ai .source-off a { font-size: 14px; font-weight: 400; color: var(--beam); }
 .ai label.check > span { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 0.5rem; overflow-wrap: anywhere; }
-.ai .secret-acts form { max-width: 34rem; }
-.ai .provider-pick { margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid var(--rule); display: grid; gap: 0.5rem; }
-.ai .provider-pick h3 { margin: 0; font-size: 15px; font-weight: 650; }
-.ai .meta-list { margin: 0.5rem 0 0; padding-left: 1.1rem; display: grid; gap: 0.3rem; font-size: 14px; color: var(--dim); overflow-wrap: anywhere; }
+.ai .confirm form { max-width: 34rem; }
+.ai .confirm form > label { width: 100%; }
+/* Providers and apps: name and what it has on the left, its pill at the
+   end, on one line at phone width; an open pill takes the row beneath. */
+.ai .devices { margin-top: 0.75rem; }
+.ai .device { align-items: flex-start; scroll-margin-top: 1rem; }
+.ai .device .body { flex: 1 1 12rem; gap: 2px; }
+.ai .device .top { margin: 0; }
+.ai .device-meta .addr { color: var(--dim); font-size: 12px; }
+.ai .device-meta code { font-size: 12px; }
+/* "secret openai-api-key" wraps as one, never with its name on the next line. */
+.ai .whole { white-space: nowrap; }
+.ai .device .notice, .ai .device .error { margin-top: 0.4rem; font-size: 14px; }
+.ai .device > .confirm:not([open]) { margin-top: 0.15rem; }
+.ai .panel > .hint { margin: 0.4rem 0 0; }
+/* How apps call these: reference, read once, so it stays folded. */
+.ai .ref > summary { display: flex; align-items: center; min-height: 44px; list-style: none; cursor: pointer; }
+.ai .ref > summary::-webkit-details-marker { display: none; }
+.ai .ref > summary h2 { display: inline; }
+.ai .ref > .hint { margin: 0.6rem 0 0; }
+.ai .calls { list-style: none; margin: 0.75rem 0 0; padding: 0; display: grid; gap: 0.75rem; }
+.ai .calls li { display: grid; gap: 2px; font-size: 14px; color: var(--dim); }
+.ai .calls .cmd { overflow-wrap: anywhere; }
+@media (prefers-reduced-motion: reduce) {
+  .ai .source > summary::after, .ai .ref > summary::after { transition: none; }
+}
 
