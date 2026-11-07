@@ -3,7 +3,7 @@
 <main class="page ai">
 <p class="back"><a href="{{.Home}}">Back to apps</a></p>
 <h1>AI models</h1>
-{{with .AI}}<p class="lede">Apps ask for <code>llm</code> or <code>system1</code> and get the model chosen here, {{if .Hosted}}from Ollama on this machine or a hosted provider{{else}}served by Ollama{{end}}. A change reaches them on their next request, and no app restarts.</p>
+{{with .AI}}<p class="lede">Apps ask for <code>llm</code> or <code>system1</code> and get the model chosen here, from their next request.</p>
 {{if .OllamaError}}<p class="error">Outpost can't list Ollama's models: {{.OllamaError}}. The models below stay in force, but nothing can be changed until Ollama answers.</p>{{end}}
 
 {{range .Kinds}}{{$k := .}}<section class="kind" id="k-{{.Kind}}" aria-labelledby="kt-{{.Kind}}">
@@ -13,7 +13,6 @@
 {{else}}<p class="meta">None chosen. Apps asking for it get an error that says so.</p>{{end}}
 {{if and .Missing (eq .Provider "ollama")}}<p class="error">Ollama doesn't have {{.Model}} any more. Apps asking for the {{.Name}} get an error until you choose another or pull it again with <code>ollama pull {{.Model}}</code>.</p>{{else if .Missing}}<p class="error">{{.ProviderTitle}} doesn't list {{.Model}}. Apps asking for the {{.Name}} get an error until you choose another.</p>{{end}}
 {{if .NoKey}}<p class="error">Outpost has no API key for {{.ProviderTitle}}, so apps asking for the {{.Name}} get an error. <a href="#p-{{.Provider}}">Add {{.ProviderTitle}}'s key</a></p>{{end}}
-{{if .APIsNote}}<p class="meta">{{.APIsNote}}</p>{{end}}
 {{if .Error}}<p class="error" role="alert" id="err-{{.Kind}}">{{.Error}}</p>{{end}}
 <div class="secret-acts">
 {{if or .Options .Hosted}}<details class="confirm" name="ai-{{.Kind}}"{{if .Error}} open{{end}}><summary class="pill"><span>Choose<span class="sr"> the {{.Name}}</span>…</span></summary>
@@ -87,7 +86,7 @@
 {{end}}
 
 {{if .Hosted}}<section class="panel" aria-labelledby="prov-title" id="providers">
-<h2 id="prov-title">Providers</h2>
+<details class="ref"{{if .ProvidersOpen}} open{{end}}><summary><h2 id="prov-title">Providers</h2><span class="count">{{.KeysSet}} of {{len .Providers}} keys set</span></summary>
 <p class="hint">Ollama needs no key. A hosted provider's key is kept as a secret and added to each request by Outpost, so apps never see it.</p>
 <ul class="devices">
 {{range .Providers}}<li class="device" id="p-{{.Name}}">
@@ -111,10 +110,11 @@
 </details>
 </li>
 {{end}}</ul>
+</details>
 </section>{{end}}
 
 <section class="panel" aria-labelledby="apps-title" id="apps">
-<h2 id="apps-title">Apps</h2>
+<details class="ref"{{if .AppsOpen}} open{{end}}><summary><h2 id="apps-title">Apps</h2><span class="count">{{len .Apps}} {{if eq (len .Apps) 1}}app{{else}}apps{{end}}, each with its own token</span></summary>
 <p class="hint">Outpost gives every app its own token when it starts it, so there's nothing to set up. Below is what each has asked for since Outpost last started.</p>
 {{if .Apps}}<ul class="devices">
 {{range .Apps}}<li class="device" id="a-{{.Name}}">
@@ -134,6 +134,7 @@
 </details>
 </li>
 {{end}}</ul>{{else}}<p class="empty">No apps yet.</p>{{end}}
+</details>
 </section>
 
 <section class="panel" aria-labelledby="use-title">
@@ -144,6 +145,7 @@
 <li><span>Anthropic messages, model <code>llm</code></span><code class="cmd">$OUTPOST_AI_URL/anthropic</code></li>
 <li><span>System 1, model <code>system1</code></span><code class="cmd">POST $OUTPOST_AI_URL/systemone/v1/systemone</code></li>
 </ul>
+{{range .Kinds}}{{if .APIsNote}}<p class="hint">{{.APIsNote}}</p>{{end}}{{end}}
 <p class="hint">The LLM generates text. System 1 answers typed questions about an input with probabilities, in one pass.</p>
 <p class="hint">Ollama is at {{.OllamaURL}}. Pulling and removing models stays with <code>ollama pull</code> and <code>ollama rm</code>; this page lists what Ollama has each time it loads{{if .Hosted}}, and each hosted provider's models every ten minutes{{end}}.</p>
 </details>

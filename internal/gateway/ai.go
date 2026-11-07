@@ -50,6 +50,11 @@ type aiView struct {
 	// Hosted says the hosted providers and app access are offered.
 	Hosted    bool
 	Providers []aiProviderRow
+	// KeysSet counts the providers with a key. The Providers and Apps
+	// sections are folded unless something in them wants attention: a
+	// chosen model with no key, or a notice or error from a form there.
+	KeysSet                 int
+	ProvidersOpen, AppsOpen bool
 }
 
 // aiProviderRow is a hosted provider and its key, for the Providers section.
@@ -197,10 +202,22 @@ func (g *Gateway) renderAI(w http.ResponseWriter, r *http.Request, u auth.User, 
 			for _, k := range p.Kinds {
 				kinds = append(kinds, ai.KindName(k))
 			}
-			v.Providers = append(v.Providers, aiProviderRow{
+			row := aiProviderRow{
 				Name: p.Name, Title: p.Title, Serves: strings.Join(kinds, " and "), KeySecret: p.KeySecret,
 				HasKey: p.HasKey, BaseURL: p.BaseURL, Notice: notice["provider:"+p.Name], Error: errs["provider:"+p.Name],
-			})
+			}
+			if row.HasKey {
+				v.KeysSet++
+			}
+			if row.Notice != "" || row.Error != "" {
+				v.ProvidersOpen = true
+			}
+			v.Providers = append(v.Providers, row)
+		}
+		for _, k := range v.Kinds {
+			if k.NoKey {
+				v.ProvidersOpen = true
+			}
 		}
 	}
 	used := map[string][]ai.Usage{}
@@ -209,6 +226,9 @@ func (g *Gateway) renderAI(w http.ResponseWriter, r *http.Request, u auth.User, 
 	}
 	for _, rt := range routes {
 		row := aiAppRow{Name: rt.Name, Title: rt.Title, Notice: notice["app:"+rt.Name]}
+		if row.Notice != "" {
+			v.AppsOpen = true
+		}
 		if row.Title == "" {
 			row.Title = titleCase(rt.Name)
 		}
