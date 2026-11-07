@@ -103,7 +103,7 @@
 <input type="hidden" name="app" value="{{$a.Name}}">
 <input type="hidden" name="name" value="{{.Name}}">
 <label>New value for {{.Env}}
-<input name="value" type="password" autocomplete="off" spellcheck="false" required{{if and (eq $a.Open "secrets") $a.Error}} aria-describedby="err-{{$a.Name}}"{{end}}>
+<input name="value" type="password" autocomplete="off" spellcheck="false" required{{if and (eq $a.Open "secrets") $a.Error (not $a.Secrets.Name)}} aria-describedby="err-{{$a.Name}}"{{end}}>
 </label>
 <button type="submit"><span>Replace {{.Name}}</span></button>
 </form>
@@ -127,13 +127,13 @@
 <input type="hidden" name="action" value="secret-add">
 <input type="hidden" name="app" value="{{$a.Name}}">
 <label for="sec-name-{{$a.Name}}">Name</label>
-<input id="sec-name-{{$a.Name}}" name="name" type="text" value="{{.Name}}" autocomplete="off" autocapitalize="off" spellcheck="false" required aria-describedby="sec-name-hint-{{$a.Name}}{{if and (eq $a.Open "secrets") $a.Error}} err-{{$a.Name}}{{end}}">
+<input id="sec-name-{{$a.Name}}" name="name" type="text" value="{{.Name}}" autocomplete="off" autocapitalize="off" spellcheck="false" required aria-describedby="sec-name-hint-{{$a.Name}}{{if and (eq $a.Open "secrets") $a.Error .Name}} err-{{$a.Name}}{{end}}">
 <p class="hint field-hint" id="sec-name-hint-{{$a.Name}}">Lower case, such as openai-key.</p>
 <label for="sec-env-{{$a.Name}}">Variable</label>
-<input id="sec-env-{{$a.Name}}" name="env" type="text" value="{{.Env}}" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-describedby="sec-env-hint-{{$a.Name}}">
+<input id="sec-env-{{$a.Name}}" name="env" type="text" value="{{.Env}}" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-describedby="sec-env-hint-{{$a.Name}}{{if and (eq $a.Open "secrets") $a.Error .Name}} err-{{$a.Name}}{{end}}">
 <p class="hint field-hint" id="sec-env-hint-{{$a.Name}}">Optional. Left empty, it's the name in upper case.</p>
 <label for="sec-value-{{$a.Name}}">Value</label>
-<input id="sec-value-{{$a.Name}}" name="value" type="password" autocomplete="off" spellcheck="false" required>
+<input id="sec-value-{{$a.Name}}" name="value" type="password" autocomplete="off" spellcheck="false" required{{if and (eq $a.Open "secrets") $a.Error .Name}} aria-describedby="err-{{$a.Name}}"{{end}}>
 <button type="submit"><span>Add<span class="sr"> a secret for {{$a.Title}}</span></span></button>
 </form>
 </details>

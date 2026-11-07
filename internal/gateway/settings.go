@@ -99,17 +99,18 @@ type settingsFlash struct {
 
 // settle gives each station an admin's settings, reading the secrets and AI
 // once for them all.
-func (g *Gateway) settle(ctx context.Context, sts []station, fl *settingsFlash) {
+func (g *Gateway) settle(sts []station, fl *settingsFlash) {
 	_, canAI := g.ai.(AIApps)
 	if g.exposure == nil && g.secrets == nil && !canAI {
 		return
 	}
-	// The apps' names and titles from the routes the gateway already holds,
-	// rather than asking the daemon again on every load.
+	// The apps' names and titles from the stations, already titled from the
+	// routes, rather than asking the daemon again on every load. An admin's
+	// stations are every route.
 	var apps []secretApp
 	if g.secrets != nil {
-		for _, rt := range g.routes.all() {
-			apps = append(apps, secretApp{Name: rt.Name, Title: firstNonEmpty(rt.Title, titleCase(rt.Name))})
+		for _, st := range sts {
+			apps = append(apps, secretApp{Name: st.Name, Title: st.Title})
 		}
 	}
 	var usage map[string][]ai.Usage
@@ -470,7 +471,7 @@ func (g *Gateway) renderHome(w http.ResponseWriter, r *http.Request, u auth.User
 		d.Poll = g.manage(d.Stations)
 	}
 	if u.Admin {
-		g.settle(r.Context(), d.Stations, fl)
+		g.settle(d.Stations, fl)
 	}
 	// A crashed app comes back on its own, with nobody's action to refresh the
 	// row, and whoever is looking wants to see it happen.
