@@ -25,7 +25,7 @@ requirement was added:
   the manifest being the source of truth, limited to these two fields.
 - **One PR, not four.** The implementation plan below was done as one
   change, since the portal settings touch every layer.
-- **The activity feed** records changes made on the Internet access page.
+- **The activity feed** records changes made in an app's Internet access setting in the portal.
   Funnel coming up or going down is logged by the daemon, not put in the
   feed, and refusals aren't aggregated there; each request is a line in the
   daemon log instead.

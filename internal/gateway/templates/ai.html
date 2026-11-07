@@ -115,35 +115,11 @@
 </details>
 </section>{{end}}
 
-<section class="panel fold" aria-labelledby="apps-title" id="apps">
-<h2 id="apps-title">Apps</h2>
-<details class="ref"{{if .AppsOpen}} open{{end}}><summary><span class="count">{{len .Apps}} {{if eq (len .Apps) 1}}app{{else}}apps{{end}}, each with its own token</span></summary>
-<p class="hint">Outpost gives every app its own token when it starts it, so there's nothing to set up. Below is what each has asked for since Outpost last started.</p>
-{{if .Apps}}<ul class="devices">
-{{range .Apps}}<li class="device" id="a-{{.Name}}">
-<div class="body">
-<p class="top"><span class="device-name">{{.Title}}</span></p>
-{{if .Used}}{{range .Used}}<p class="device-meta">{{.}}</p>{{end}}{{else}}<p class="device-meta">No requests yet.</p>{{end}}
-{{if .LastError}}<p class="device-meta">Last error: {{.LastError}}</p>{{end}}
-{{if .Notice}}<p class="notice" role="status">{{.Notice}}</p>{{end}}
-</div>
-<details class="confirm" name="ai-app"><summary class="pill quiet"><span>Replace token<span class="sr"> for {{.Title}}</span><span aria-hidden="true">…</span></span></summary>
-<p>Only needed if {{.Title}}'s token got out. Its current token stops working at once, and {{.Title}} restarts with a new one.</p>
-<form method="post" action="/ai#a-{{.Name}}">
-<input type="hidden" name="action" value="regenerate">
-<input type="hidden" name="app" value="{{.Name}}">
-<button class="plain" type="submit"><span>Replace {{.Title}}'s token</span></button>
-</form>
-</details>
-</li>
-{{end}}</ul>{{else}}<p class="empty">No apps yet.</p>{{end}}
-</details>
-</section>
 
 <section class="panel fold" aria-labelledby="use-title">
 <h2 id="use-title">How apps call these</h2>
 <details class="ref"><summary><span class="count">Endpoints</span></summary>
-<p class="hint">Every app is started with <code>OUTPOST_AI_URL</code> ({{.URL}}) and a token of its own in <code>OUTPOST_AI_TOKEN</code>. Use the SDK the app already has, pointed at Outpost, with the token as its API key.</p>
+<p class="hint">Every app is started with <code>OUTPOST_AI_URL</code> ({{.URL}}) and a token of its own in <code>OUTPOST_AI_TOKEN</code>. Use the SDK the app already has, pointed at Outpost, with the token as its API key. What each app may use, its token and what it has asked for are under its Manage menu on the apps page.</p>
 <ul class="calls">
 <li><span>OpenAI chat, model <code>llm</code></span><code class="cmd">$OUTPOST_AI_URL/openai/v1</code></li>
 <li><span>Anthropic messages, model <code>llm</code></span><code class="cmd">$OUTPOST_AI_URL/anthropic</code></li>

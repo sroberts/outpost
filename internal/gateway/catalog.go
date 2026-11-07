@@ -109,6 +109,9 @@ type station struct {
 	Done   string      // how the last action went, in words
 	Failed bool
 	Alert  bool // a failure new enough to announce
+
+	// Settings are what an admin sets for this app alone, under its menu.
+	Settings *appSettings
 }
 
 // stations lists the apps u may open, running first.

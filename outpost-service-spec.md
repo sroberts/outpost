@@ -238,7 +238,7 @@ and anything else is refused with `401`.
 #### Public paths and webhooks
 
 The operator can let some of your paths skip the login, with `public_paths` in
-your manifest or on the portal's Internet access page: webhooks and feeds that
+your manifest or in your app's Internet access setting in the portal: webhooks and feeds that
 carry credentials of their own. With `funnel` on as well, those paths, and
 only those, are answered from the **public internet** through Tailscale
 Funnel, at your own tailnet address. You can suggest paths in your
@@ -266,7 +266,7 @@ reaches them, is the operator's call. Plan for both.
 
 The manifest is a plaintext TOML file on disk. Anything in `env` is readable by
 anyone who can read `~/.outpost/services/`. Put a credential in an Outpost
-secret instead (`outpost secret set`, or the portal's Secrets page) and it
+secret instead (`outpost secret set`, or your app's Secrets under its Manage menu in the portal) and it
 reaches you as an ordinary environment variable, under whatever name you
 document, without being in the manifest.
 

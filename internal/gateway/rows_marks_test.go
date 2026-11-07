@@ -22,35 +22,6 @@ func listRow(t *testing.T, b, id string) string {
 	return row
 }
 
-// Each app on the Internet access page carries a station saying whether the
-// internet reaches it, and the way back to the manifest sits inside Change.
-func TestPublicPage_MarksEachAppAndFoldsTheReset(t *testing.T) {
-	h, _ := exposureHarness(t)
-	c := h.client(true)
-	h.login(c, "root", "", "/")
-	b := body(t, h.get(c, portal+"/public"))
-
-	for id, want := range map[string]string{
-		"p-tasking": `<span class="smark up"`,
-		"p-notes":   `<span class="smark off"`,
-	} {
-		if row := listRow(t, b, id); !strings.Contains(row, want) {
-			t.Errorf("%s lacks %s:\n%s", id, want, row)
-		}
-	}
-	tasking := listRow(t, b, "p-tasking")
-	reset := strings.Index(tasking, "Use the manifest&#39;s setting")
-	if reset < 0 {
-		reset = strings.Index(tasking, "Use the manifest's setting")
-	}
-	if closes := strings.Index(tasking, "</details>"); reset < 0 || closes < reset {
-		t.Errorf("the reset isn't inside Change:\n%s", tasking)
-	}
-	if !strings.Contains(tasking, `<code class="cmd">https://tasking.tail.ts.net/webhooks/github</code>`) {
-		t.Errorf("tasking's public address isn't copyable whole:\n%s", tasking)
-	}
-}
-
 // A secret no app gets is marked so at a glance, and the add form folds
 // away once there are secrets to look at.
 func TestSecretsPage_MarksUseAndFoldsTheAddForm(t *testing.T) {
@@ -89,35 +60,6 @@ func TestSecretsPage_AFailedReplaceReopensItsForm(t *testing.T) {
 	}
 }
 
-// What's failing comes first, the page says in a line what the internet
-// reaches, and a failing row links to what Funnel needs.
-func TestPublicPage_FailingFirstWithATally(t *testing.T) {
-	h, _ := exposureHarness(t)
-	h.withServices(
-		supervisor.ServiceStatus{Name: "tasking", Status: "running", TailscaleName: "tasking", Funnel: true,
-			PublicPaths: []string{"/webhooks/github"},
-			Tailnet:     &supervisor.TailnetStatus{State: supervisor.TailnetOn, Funnel: supervisor.FunnelOn}},
-		supervisor.ServiceStatus{Name: "yarr", Status: "running", TailscaleName: "yarr", Funnel: true,
-			PublicPaths: []string{"/hooks"},
-			Tailnet:     &supervisor.TailnetStatus{State: supervisor.TailnetOn, Funnel: supervisor.FunnelUnavailable, FunnelError: "no funnel attribute"}},
-	)
-	c := h.client(true)
-	h.login(c, "root", "", "/")
-	b := body(t, h.get(c, portal+"/public"))
-	if !strings.Contains(b, "1 on the internet · 1 failing") {
-		t.Error("no tally of what the internet reaches")
-	}
-	if y, k := strings.Index(b, `id="p-yarr"`), strings.Index(b, `id="p-tasking"`); y < 0 || k < 0 || y > k {
-		t.Error("the failing app isn't first")
-	}
-	if row := listRow(t, b, "p-yarr"); !strings.Contains(row, `<a href="#how">What Funnel needs</a>`) {
-		t.Errorf("the failing row doesn't link to what Funnel needs:\n%s", row)
-	}
-	if strings.Contains(b, `class="tag">Public`) {
-		t.Error("the PUBLIC tag is back")
-	}
-}
-
 // With Ollama not answering, a model it serves is marked down, not chosen.
 func TestAIPage_OllamaDownMarksItsModelsDown(t *testing.T) {
 	h, f := aiHarness(t)
@@ -131,18 +73,34 @@ func TestAIPage_OllamaDownMarksItsModelsDown(t *testing.T) {
 	}
 }
 
-// An app with Funnel on that isn't running is off, not forever starting.
-func TestPublicPage_AStoppedAppIsntStarting(t *testing.T) {
+// Each app's internet access carries a mark: on the internet, failing (with
+// what Funnel needs), or tailnet only, which an app that's stopped is too,
+// rather than forever starting.
+func TestAppSettings_InternetAccessMarks(t *testing.T) {
 	h, _ := exposureHarness(t)
-	h.withServices(supervisor.ServiceStatus{Name: "tasking", Status: "stopped", TailscaleName: "tasking", Funnel: true,
-		PublicPaths: []string{"/webhooks/github"}})
+	h.withServices(
+		supervisor.ServiceStatus{Name: "tasking", Status: "running", TailscaleName: "tasking", Funnel: true,
+			PublicPaths: []string{"/webhooks/github"},
+			Tailnet:     &supervisor.TailnetStatus{State: supervisor.TailnetOn, Funnel: supervisor.FunnelOn}},
+		supervisor.ServiceStatus{Name: "yarr", Status: "running", TailscaleName: "yarr", Funnel: true,
+			PublicPaths: []string{"/hooks"},
+			Tailnet:     &supervisor.TailnetStatus{State: supervisor.TailnetOn, Funnel: supervisor.FunnelUnavailable, FunnelError: "no funnel attribute"}},
+		supervisor.ServiceStatus{Name: "notes", Status: "stopped", TailscaleName: "notes", Funnel: true,
+			PublicPaths: []string{"/in"}},
+	)
 	c := h.client(true)
 	h.login(c, "root", "", "/")
-	b := body(t, h.get(c, portal+"/public"))
-	if row := listRow(t, b, "p-tasking"); !strings.Contains(row, `<span class="smark off"`) {
-		t.Errorf("a stopped app isn't off:\n%s", row)
+	b := body(t, h.get(c, portal+"/"))
+	panel := func(app string) string {
+		p := b[strings.Index(b, `id="set-public-`+app+`"`):]
+		return p[:strings.Index(p, "</details>")]
 	}
-	if strings.Contains(b, "starting") {
-		t.Error("a stopped app is counted as starting")
+	for app, want := range map[string]string{"tasking": `smark up`, "yarr": `smark down`, "notes": `smark off`} {
+		if p := panel(app); !strings.Contains(p, want) {
+			t.Errorf("%s lacks %s:\n%s", app, want, p)
+		}
+	}
+	if p := panel("yarr"); !strings.Contains(p, "Funnel needs the <code>funnel</code> attribute") {
+		t.Errorf("the failing app isn't told what Funnel needs:\n%s", p)
 	}
 }

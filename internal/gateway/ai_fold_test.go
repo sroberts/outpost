@@ -7,7 +7,7 @@ import (
 	"github.com/sroberts/outpost/internal/ai"
 )
 
-// The Providers and Apps sections fold away unless something in them needs
+// The Providers section folds away unless something in it needs
 // the admin: a chosen model with no key, or what a form there just did.
 func TestAIPage_Hosted_FoldsWhatNeedsNothing(t *testing.T) {
 	h, f := hostedHarness(t)
@@ -22,9 +22,6 @@ func TestAIPage_Hosted_FoldsWhatNeedsNothing(t *testing.T) {
 	if !strings.Contains(b, "2 of 4 keys set") {
 		t.Error("Providers' summary doesn't count the keys")
 	}
-	if !strings.Contains(b, `<h2 id="apps-title">Apps</h2>`+"\n"+`<details class="ref">`) {
-		t.Error("Apps is open with nothing to show")
-	}
 
 	f.hmu.Lock()
 	llm := f.choices[ai.LLM]
@@ -36,14 +33,10 @@ func TestAIPage_Hosted_FoldsWhatNeedsNothing(t *testing.T) {
 		t.Error("Providers is open with nothing wanting a key")
 	}
 
-	// Coming back from a form there opens its section.
+	// Coming back from a form there opens it.
 	b = body(t, h.get(c, portal+"/ai?done=key&provider=openrouter"))
 	if !strings.Contains(b, `<h2 id="prov-title">Providers</h2>`+"\n"+`<details class="ref" open>`) {
 		t.Error("Providers is folded over the key just saved")
-	}
-	b = body(t, h.get(c, portal+"/ai?done=regenerated&app=sous"))
-	if !strings.Contains(b, `<h2 id="apps-title">Apps</h2>`+"\n"+`<details class="ref" open>`) {
-		t.Error("Apps is folded over the token just replaced")
 	}
 }
 

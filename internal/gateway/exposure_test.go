@@ -55,50 +55,55 @@ func exposureHarness(t *testing.T) (*harness, *fakeExposure) {
 	return h, f
 }
 
-func TestPublicPage_ShowsWhatTheInternetReaches(t *testing.T) {
+// What the internet reaches of an app is under that app's Manage menu, and
+// the catalog's badge for a public app opens it there.
+func TestAppSettings_ShowWhatTheInternetReaches(t *testing.T) {
 	h, _ := exposureHarness(t)
 	c := h.client(true)
 	h.login(c, "root", "", "/")
 
 	b := body(t, h.get(c, portal+"/"))
-	if !strings.Contains(b, `href="/public"`) || !strings.Contains(b, `href="/public#p-tasking"`) {
-		t.Errorf("the catalog doesn't link an admin to internet access, or badge tasking:\n%s", b)
+	if !strings.Contains(b, `href="#set-public-tasking"`) || !strings.Contains(b, `id="set-public-tasking"`) {
+		t.Errorf("the catalog doesn't badge tasking, or give it an internet access panel:\n%s", b)
 	}
-	b = body(t, h.get(c, portal+"/public"))
+	tasking := b[strings.Index(b, `id="set-public-tasking"`):]
+	tasking = tasking[:strings.Index(tasking, "</details>")]
 	for _, want := range []string{
 		"https://tasking.tail.ts.net/webhooks/github",
 		"On: the internet reaches these paths",
 		"Set here, over the manifest, which has Funnel off and public paths /old.",
 		"Use the manifest's setting for Tasking",
-		"Funnel needs the app on the tailnet",
 	} {
-		if !strings.Contains(b, want) {
-			t.Errorf("page lacks %q:\n%s", want, b)
+		if !strings.Contains(tasking, want) {
+			t.Errorf("tasking's panel lacks %q:\n%s", want, tasking)
 		}
+	}
+	if notes := b[strings.Index(b, `id="set-public-notes"`):]; !strings.Contains(notes, "Funnel needs the app on the tailnet") {
+		t.Error("an app with no node isn't told what Funnel needs")
 	}
 }
 
-func TestPublicPage_SavesAndResets(t *testing.T) {
+func TestAppSettings_SavesAndResetsWhatTheInternetReaches(t *testing.T) {
 	h, f := exposureHarness(t)
 	c := h.client(true)
 	h.login(c, "root", "", "/")
 
-	b := body(t, h.post(c, portal+"/public", portal, url.Values{
-		"action": {"save"}, "app": {"yarr"}, "paths": {"/hooks/*\n\n/hooks/*\n /stripe \n"}, "funnel": {"1"},
+	b := body(t, h.post(c, portal+"/settings", portal, url.Values{
+		"action": {"public-save"}, "app": {"yarr"}, "paths": {"/hooks/*\n\n/hooks/*\n /stripe \n"}, "funnel": {"1"},
 	}))
-	if !strings.Contains(b, "Saved.") {
-		t.Errorf("after saving:\n%s", b)
+	if !strings.Contains(b, "Saved.") || !strings.Contains(b, `id="set-public-yarr" open`) {
+		t.Errorf("after saving, the catalog isn't open on yarr's panel with the outcome:\n%s", b)
 	}
 	if strings.Join(f.set, "|") != "yarr /hooks/*,/stripe on by root" {
 		t.Errorf("set = %v", f.set)
 	}
 
-	resp := h.post(c, portal+"/public", portal, url.Values{"action": {"save"}, "app": {"yarr"}, "funnel": {"1"}})
-	if b := body(t, resp); resp.StatusCode != 400 || !strings.Contains(b, "there are none") {
+	resp := h.post(c, portal+"/settings", portal, url.Values{"action": {"public-save"}, "app": {"yarr"}, "paths": {""}, "funnel": {"1"}})
+	if b := body(t, resp); resp.StatusCode != 400 || !strings.Contains(b, "there are none") || !strings.Contains(b, `id="set-public-yarr" open`) {
 		t.Errorf("a refused setting: %d\n%s", resp.StatusCode, b)
 	}
 
-	if b := body(t, h.post(c, portal+"/public", portal, url.Values{"action": {"reset"}, "app": {"tasking"}})); !strings.Contains(b, "Back to what the manifest says.") {
+	if b := body(t, h.post(c, portal+"/settings", portal, url.Values{"action": {"public-reset"}, "app": {"tasking"}})); !strings.Contains(b, "Back to what the manifest says.") {
 		t.Errorf("after resetting:\n%s", b)
 	}
 	if strings.Join(f.resets, "|") != "tasking by root" {
@@ -106,23 +111,20 @@ func TestPublicPage_SavesAndResets(t *testing.T) {
 	}
 }
 
-func TestPublicPage_OnlyAnAdmin(t *testing.T) {
+func TestAppSettings_InternetAccessOnlyForAnAdmin(t *testing.T) {
 	h, f := exposureHarness(t)
 	plain := h.client(true)
 	h.login(plain, "alice", "", "/")
-	if b := body(t, h.get(plain, portal+"/")); strings.Contains(b, `href="/public`) {
-		t.Error("a plain user is linked to internet access, or shown the badge")
+	if b := body(t, h.get(plain, portal+"/")); strings.Contains(b, "set-public-") || strings.Contains(b, `action="/settings"`) {
+		t.Error("a plain user is shown an app's internet access, or the badge")
 	}
-	if resp := h.get(plain, portal+"/public"); resp.StatusCode != 403 {
-		t.Errorf("GET as a plain user = %d", resp.StatusCode)
-	}
-	save := url.Values{"action": {"save"}, "app": {"yarr"}, "paths": {"/x"}, "funnel": {"1"}}
-	if resp := h.post(plain, portal+"/public", portal, save); resp.StatusCode != 403 {
+	save := url.Values{"action": {"public-save"}, "app": {"yarr"}, "paths": {"/x"}, "funnel": {"1"}}
+	if resp := h.post(plain, portal+"/settings", portal, save); resp.StatusCode != 403 {
 		t.Errorf("POST as a plain user = %d", resp.StatusCode)
 	}
 	admin := h.client(true)
 	h.login(admin, "root", "", "/")
-	if resp := h.post(admin, portal+"/public", "http://evil.test", save); resp.StatusCode != 403 {
+	if resp := h.post(admin, portal+"/settings", "http://evil.test", save); resp.StatusCode != 403 {
 		t.Errorf("POST from another site = %d", resp.StatusCode)
 	}
 	if len(f.set) != 0 {
@@ -130,12 +132,16 @@ func TestPublicPage_OnlyAnAdmin(t *testing.T) {
 	}
 }
 
-func TestNoPublicPageWithoutAStore(t *testing.T) {
+func TestNoInternetAccessWithoutAStore(t *testing.T) {
 	h := newHarness(t)
 	h.addUser(auth.User{Username: "root", Admin: true})
+	h.withServices(supervisor.ServiceStatus{Name: "yarr", Status: "running"})
 	c := h.client(true)
 	h.login(c, "root", "", "/")
-	if resp := h.get(c, portal+"/public"); resp.StatusCode != 404 {
-		t.Errorf("GET /public with no store = %d", resp.StatusCode)
+	if b := body(t, h.get(c, portal+"/")); strings.Contains(b, "set-public-") {
+		t.Error("an app offers internet access with nothing to set it")
+	}
+	if resp := h.post(c, portal+"/settings", portal, url.Values{"action": {"public-save"}, "app": {"yarr"}}); resp.StatusCode != 400 {
+		t.Errorf("a save with nothing to set it = %d", resp.StatusCode)
 	}
 }

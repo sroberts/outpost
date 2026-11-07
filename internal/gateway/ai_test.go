@@ -130,9 +130,6 @@ func TestAIPage_ShowsTheModelsAndWhatOllamaHas(t *testing.T) {
 		`value="qwen3:4b"`,
 		`value="laya:latest"`,
 		"8.0B",
-		"LLM: 3 requests, 1 failed, 40 tokens in, 9 out",
-		"Last error: Ollama can&#39;t serve qwen",
-		"No requests yet.",
 		"http://127.0.0.1:47901",
 		"/openai/v1",
 	} {
@@ -147,6 +144,17 @@ func TestAIPage_ShowsTheModelsAndWhatOllamaHas(t *testing.T) {
 	}
 	if sys := b[strings.Index(b, `id="k-system1"`):]; strings.Contains(sys, `value="gemma4:e4b"`) {
 		t.Error("Gemma is offered as a System 1 model")
+	}
+	// What each app has asked for is under its own menu now.
+	b = body(t, h.get(c, portal+"/"))
+	for _, want := range []string{
+		"LLM: 3 requests, 1 failed, 40 tokens in, 9 out",
+		"Last error: Ollama can&#39;t serve qwen",
+		"No requests yet.",
+	} {
+		if !strings.Contains(b, want) {
+			t.Errorf("the catalog lacks %q", want)
+		}
 	}
 }
 
@@ -193,14 +201,14 @@ func TestAIPage_RegeneratesAnAppsToken(t *testing.T) {
 	h, f := aiHarness(t)
 	c := h.client(true)
 	h.login(c, "root", "", "/")
-	b := body(t, h.post(c, portal+"/ai", portal, url.Values{"action": {"regenerate"}, "app": {"sous"}}))
+	b := body(t, h.post(c, portal+"/settings", portal, url.Values{"action": {"ai-token"}, "app": {"sous"}}))
 	if !strings.Contains(b, "New token made.") {
 		t.Errorf("after regenerating:\n%s", b)
 	}
 	if strings.Join(f.regenerated, "|") != "sous by root" {
 		t.Errorf("regenerated = %v", f.regenerated)
 	}
-	if resp := h.post(c, portal+"/ai", portal, url.Values{"action": {"regenerate"}, "app": {"nope"}}); resp.StatusCode != 400 {
+	if resp := h.post(c, portal+"/settings", portal, url.Values{"action": {"ai-token"}, "app": {"nope"}}); resp.StatusCode != 400 {
 		t.Errorf("an unknown app: %d", resp.StatusCode)
 	}
 }

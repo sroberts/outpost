@@ -353,7 +353,7 @@ start_grace_seconds = 30
 | `restart_policy` | `on-failure` | See below |
 | `backoff_seconds` | `5` | Doubles per consecutive restart, capped at 300s |
 | `start_grace_seconds` | `30` | Healthcheck failures do not count during this window |
-| `funnel` | `false` | `true` answers `public_paths`, and only those, from the internet through Tailscale Funnel. Needs the gateway, a `tailscale_name` and at least one public path. The portal's Internet access page overrides it; see [Funnel](#funnel-webhooks-from-the-internet) |
+| `funnel` | `false` | `true` answers `public_paths`, and only those, from the internet through Tailscale Funnel. Needs the gateway, a `tailscale_name` and at least one public path. An app's Internet access setting in the portal overrides it; see [Funnel](#funnel-webhooks-from-the-internet) |
 | `source` | — | GitHub `owner/repo` the binary came from; what `outpost update` fetches |
 | `release` | — | Release tag installed. Neither field changes what runs, so editing them restarts nothing |
 | `mcp_path` | — | Where the service serves MCP (Streamable HTTP). Lets MCP clients with an access token reach it at `https://<portal>/mcp/<name>`; see [MCP clients](#mcp-clients) |
@@ -633,9 +633,11 @@ unbinding and removing restart the services they affect the same way; a service
 you stopped stays stopped and picks the change up when it next starts.
 
 **From the portal.** With the [login gateway](#the-login-gateway) on, an admin
-gets a Secrets page, linked from the catalog: add a secret, choose which apps
-get it, rotate it by pasting a new value, or remove it. Each change goes in the
-gateway's activity feed with who made it, never with a value.
+sets an app's own secrets under that app's **Manage** menu in the catalog: add
+one for it, replace a value by pasting a new one, or take one away. Secrets
+given to every app are on the **Secrets** page, linked from the catalog, which
+also lists any no app gets. Each change goes in the gateway's activity feed
+with who made it, never with a value.
 
 **Values go in, never out.** Nothing reads a value back: not the page, not
 `outpost secret list`, not the control socket. To check one, look at what the
@@ -716,8 +718,9 @@ system1          = "laya:latest"
 ```
 
 or, with the [login gateway](#the-login-gateway) on, on the admin-only **AI
-models** page, which wins over the file, the same as Internet access does for
-Funnel. For each kind it offers:
+models** page, which wins over the file, the same as an app's Internet access
+setting does for Funnel. What each app may use, its token and what it has asked
+for are under the app's **Manage** menu in the catalog. For each kind it offers:
 
 - **Ollama's models** each time the page loads, sorted by what Ollama says
   each can do: `completion` for an LLM and `decision` for System 1, so Laya
@@ -981,8 +984,8 @@ public_paths = ["/webhook/*", "/feed.xml"] # served without a login
 - **`public_paths`** are for webhooks and feeds that carry their own
   credentials. A pattern is an exact path or a prefix ending in `/*`. With
   [`funnel = true`](#funnel-webhooks-from-the-internet) the internet reaches
-  them too. The portal's Internet access page can set them instead, and
-  then wins over the manifest.
+  them too. An app's Internet access setting, under its **Manage** menu in
+  the portal, can set them instead, and then wins over the manifest.
   Requests there still have every `X-Outpost-*` header and Outpost's cookie
   removed, and only a path already in its simplest form matches, so
   `/webhook/../admin` gets no exemption.
@@ -1619,7 +1622,7 @@ Funnel needs, in Tailscale:
   or narrow `target` to your own user.
 
 Until then, the node serves the tailnet as usual and `outpost status <name>`
-and the Internet access page say Funnel is unavailable, with Tailscale's
+and the app's Internet access setting in the portal say Funnel is unavailable, with Tailscale's
 reason. The node keeps trying, so granting the attribute is enough; no
 restart is needed. Admins see a **Public** mark on an app in the catalog
 while the internet can reach it.
@@ -1725,8 +1728,8 @@ app's `public_paths`, and nothing else, from the internet; see
 `docs/design/funnel-webhooks.md`. `/mcp/<name>` is not exposed that way.
 
 **The portal can override a manifest.** For `funnel` and `public_paths`
-only, a setting made on the Internet access page is kept in `exposure.db`
-and wins over the manifest, which stays the default. Like `auth.db` and
+only, what an admin sets under an app's Manage menu in the portal is kept in
+`exposure.db` and wins over the manifest, which stays the default. Like `auth.db` and
 `secrets.db`, that file is authoritative rather than a cache.
 
 **Outpost gives apps AI models.** The spec has nothing like it. `ai.db`

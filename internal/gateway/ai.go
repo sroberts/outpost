@@ -46,15 +46,14 @@ type aiView struct {
 	URL, OllamaURL string
 	OllamaError    string
 	Kinds          []aiKindRow
-	Apps           []aiAppRow
 	// Hosted says the hosted providers and app access are offered.
 	Hosted    bool
 	Providers []aiProviderRow
-	// KeysSet counts the providers with a key. The Providers and Apps
-	// sections are folded unless something in them wants attention: a
-	// chosen model with no key, or a notice or error from a form there.
-	KeysSet                 int
-	ProvidersOpen, AppsOpen bool
+	// KeysSet counts the providers with a key. The Providers section is
+	// folded unless something in it wants attention: a chosen model with no
+	// key, or a notice or error from a form there.
+	KeysSet       int
+	ProvidersOpen bool
 }
 
 // aiProviderRow is a hosted provider and its key, for the Providers section.
@@ -127,13 +126,6 @@ type aiOption struct {
 	Checked      bool
 }
 
-type aiAppRow struct {
-	Name, Title string
-	Used        []string // per kind, in words
-	LastError   string
-	Notice      string
-}
-
 func (g *Gateway) aiUser(w http.ResponseWriter, r *http.Request) (auth.User, bool) {
 	return g.adminUser(w, r, "/ai", "Only an admin can choose the models apps are given.")
 }
@@ -153,10 +145,6 @@ func (g *Gateway) aiPage(w http.ResponseWriter, r *http.Request) {
 	case "reset":
 		if k := q.Get("kind"); ai.ValidKind(k) {
 			notice[k] = "Back to what config.toml says."
-		}
-	case "regenerated":
-		if app := q.Get("app"); app != "" {
-			notice["app:"+app] = "New token made. The app restarts with it, and the old one no longer works."
 		}
 	case "apps":
 		if k := q.Get("kind"); ai.ValidKind(k) {
@@ -272,27 +260,6 @@ func (g *Gateway) renderAI(w http.ResponseWriter, r *http.Request, u auth.User, 
 			}
 			v.Providers = append(v.Providers, row)
 		}
-	}
-	used := map[string][]ai.Usage{}
-	for _, us := range o.Usage {
-		used[us.Service] = append(used[us.Service], us)
-	}
-	for _, rt := range routes {
-		row := aiAppRow{Name: rt.Name, Title: rt.Title, Notice: notice["app:"+rt.Name]}
-		if row.Notice != "" {
-			v.AppsOpen = true
-		}
-		if row.Title == "" {
-			row.Title = titleCase(rt.Name)
-		}
-		var lastErrAt time.Time
-		for _, us := range used[rt.Name] {
-			row.Used = append(row.Used, usageWords(us))
-			if us.LastError != "" && us.LastErrorAt.After(lastErrAt) {
-				row.LastError, lastErrAt = us.LastError, us.LastErrorAt
-			}
-		}
-		v.Apps = append(v.Apps, row)
 	}
 	g.render(w, r, status, "ai", pageData{
 		Title: "AI models",
@@ -474,10 +441,6 @@ func (g *Gateway) aiSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	f := r.PostForm
 	action, kind := f.Get("action"), f.Get("kind")
-	if action == "regenerate" {
-		g.aiRegenerate(w, r, u, f.Get("app"))
-		return
-	}
 	controls, hosted := g.ai.(AIControls)
 	if action == "key" && hosted {
 		g.aiKey(w, r, u, controls, f.Get("provider"), f.Get("key"))
@@ -577,19 +540,4 @@ func orQuote(s string) string {
 		return "an empty reply"
 	}
 	return "“" + s + "”"
-}
-
-func (g *Gateway) aiRegenerate(w http.ResponseWriter, r *http.Request, u auth.User, app string) {
-	rt, ok := g.routes.get(app)
-	if !ok {
-		g.message(w, r, http.StatusBadRequest, "That app isn't there", "It may have been removed.", "/ai", "Back to AI models")
-		return
-	}
-	if err := g.ai.Regenerate(rt.Name, u.Username); err != nil {
-		g.message(w, r, http.StatusInternalServerError, "That didn't go through", err.Error(), "/ai", "Back to AI models")
-		return
-	}
-	g.activity.record(EventAI, "%s regenerated %s's AI token from %s", u.Username, rt.Name, g.clientIP(r))
-	g.logf("gateway: %s regenerated %s's AI token", u.Username, rt.Name)
-	http.Redirect(w, r, "/ai?done=regenerated&app="+url.QueryEscape(rt.Name)+"#a-"+url.QueryEscape(rt.Name), http.StatusSeeOther)
 }

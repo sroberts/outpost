@@ -146,7 +146,14 @@ func (g *Gateway) renderSecrets(w http.ResponseWriter, r *http.Request, u auth.U
 		return listWords(out)
 	}
 	now := g.now()
+	shown := false // whether the notice found its row
 	for _, sec := range g.secrets.List() {
+		// One given to apps by name is theirs, set under each app's menu;
+		// this page has what's given to every app, and what no app has, so it
+		// can go.
+		if !sec.Global && len(sec.Services) > 0 {
+			continue
+		}
 		reach := g.secrets.Reaches(sec.Name, names)
 		row := secretRow{
 			Name: sec.Name, Env: sec.Env, Global: sec.Global,
@@ -179,13 +186,14 @@ func (g *Gateway) renderSecrets(w http.ResponseWriter, r *http.Request, u auth.U
 		}
 		if v.NoticeFor == sec.Name {
 			row.Notice = v.Notice
+			shown = true
 		}
 		v.Rows = append(v.Rows, row)
 	}
 	if v.ErrorFor != "" {
 		v.Error = "" // shown on its row instead
 	}
-	if v.NoticeFor != "" {
+	if v.NoticeFor != "" && shown {
 		v.Notice = ""
 	}
 	v.Apps = apps

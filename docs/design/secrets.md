@@ -35,8 +35,9 @@ secret either to particular services or to all of them.
   service when they change.
 - **IPC commands and the CLI.** `secret.list`, `set`, `rm`, `bind` and `unbind`
   over the control socket, and `outpost secret …` to use them.
-- **The portal.** An admin-only Secrets page in the gateway, with add, rotate,
-  choose apps and remove.
+- **The portal.** An app's own secrets under its Manage menu in the catalog
+  (add, replace, take away), and an admin-only Secrets page for those given to
+  every app, with add, rotate and remove.
 
 ## Decisions
 

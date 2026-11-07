@@ -5,7 +5,7 @@
 <div class="hub">
 <span class="lamp" aria-hidden="true"></span>
 <h1>{{.Portal}}</h1>
-<p class="tally">{{with .Counts}}{{.Up}} running{{if .Starting}} · {{.Starting}} starting{{end}}{{if .Down}} · {{.Down}} down{{end}}{{if .Stopped}} · {{.Stopped}} stopped{{end}}{{end}}{{if .Waiting}} · <a href="/updates">{{.Waiting}} {{if eq .Waiting 1}}update{{else}}updates{{end}} available</a>{{else if .UpdatesLink}} · <a href="/updates">Updates</a>{{end}}{{if .AddLink}} · <a href="/add">Add an app</a>{{end}}{{if .SecretsLink}} · <a href="/secrets">Secrets</a>{{end}}{{if .PublicLink}} · <a href="/public">Internet access</a>{{end}}{{if .AILink}} · <a href="/ai">AI models</a>{{end}}</p>
+<p class="tally">{{with .Counts}}{{.Up}} running{{if .Starting}} · {{.Starting}} starting{{end}}{{if .Down}} · {{.Down}} down{{end}}{{if .Stopped}} · {{.Stopped}} stopped{{end}}{{end}}{{if .Waiting}} · <a href="/updates">{{.Waiting}} {{if eq .Waiting 1}}update{{else}}updates{{end}} available</a>{{else if .UpdatesLink}} · <a href="/updates">Updates</a>{{end}}{{if .AddLink}} · <a href="/add">Add an app</a>{{end}}{{if .SecretsLink}} · <a href="/secrets">Secrets</a>{{end}}{{if .AILink}} · <a href="/ai">AI models</a>{{end}}</p>
 </div>
 {{if .Search}}<label class="filter" hidden>Filter apps
 <input id="filter" type="search" autocomplete="off" spellcheck="false" hidden>
@@ -13,13 +13,13 @@
 {{if .Stations}}
 {{if .Icons}}{{template "icons"}}
 {{end}}<ol class="line" id="line">
-{{range .Stations}}<li class="stop {{.State}}{{if .Busy}} busy{{end}}{{if .Acts}} managed{{end}}" id="app-{{.Name}}" data-find="{{lower .Title}} {{lower .Name}} {{lower .Description}}">
+{{range .Stations}}<li class="stop {{.State}}{{if .Busy}} busy{{end}}{{if or .Acts .Settings}} managed{{end}}" id="app-{{.Name}}" data-find="{{lower .Title}} {{lower .Name}} {{lower .Description}}">
 <div class="row">
 <span class="mark" aria-hidden="true"></span>
 <div class="body">
-{{if eq .State "up"}}<div class="top"><a class="name go" href="{{.URL}}">{{.Title}}</a>{{if .Hidden}}<span class="tag">Hidden</span>{{end}}{{if .Public}}<a class="tag" href="/public#p-{{.Name}}" title="The internet reaches its public paths, through Funnel">Public</a>{{end}}{{if .Busy}}<span class="state">{{.Label}}</span>{{else}}<span class="sr">, {{.Label}}</span>{{end}}</div>
+{{if eq .State "up"}}<div class="top"><a class="name go" href="{{.URL}}">{{.Title}}</a>{{if .Hidden}}<span class="tag">Hidden</span>{{end}}{{if .Public}}<a class="tag" href="#set-public-{{.Name}}" title="The internet reaches its public paths, through Funnel">Public</a>{{end}}{{if .Busy}}<span class="state">{{.Label}}</span>{{else}}<span class="sr">, {{.Label}}</span>{{end}}</div>
 <span class="meta">{{if .Description}}<span class="desc">{{.Description}}</span>{{end}}<span class="addr">{{.Addr}}</span></span>
-{{else}}<div class="top"><span class="name">{{.Title}}</span>{{if .Hidden}}<span class="tag">Hidden</span>{{end}}{{if .Public}}<a class="tag" href="/public#p-{{.Name}}" title="The internet reaches its public paths, through Funnel">Public</a>{{end}}<span class="state">{{.Label}}</span></div>
+{{else}}<div class="top"><span class="name">{{.Title}}</span>{{if .Hidden}}<span class="tag">Hidden</span>{{end}}{{if .Public}}<a class="tag" href="#set-public-{{.Name}}" title="The internet reaches its public paths, through Funnel">Public</a>{{end}}<span class="state">{{.Label}}</span></div>
 {{if not .Busy}}<span class="why">{{.Reason}}</span>
 {{template "quick" .}}
 {{if .Command}}<code class="cmd">{{.Command}}</code>{{end}}{{end}}
@@ -44,8 +44,8 @@
 <input type="hidden" name="service" value="{{$s.Name}}">
 <button class="plain" type="submit">{{template "icon" .Action}}<span>{{.Verb}}<span class="sr"> {{$s.Title}}</span></span></button>
 </form>{{end}}{{end}}
-{{define "acts"}}{{if .Acts}}{{$s := .}}<details class="acts" name="manage"><summary class="pill"><span>Manage<span class="sr"> {{.Title}}</span></span></summary>
-<div class="act-list">
+{{define "acts"}}{{if or .Acts .Settings}}{{$s := .}}<details class="acts" name="manage"{{with .Settings}}{{if .Open}} open{{end}}{{end}}><summary class="pill"><span>Manage<span class="sr"> {{.Title}}</span></span></summary>
+{{if .Acts}}<div class="act-list">
 {{range .Acts}}{{if .Confirm}}<details class="confirm" name="confirm-{{$s.Name}}"><summary class="pill{{if .Danger}} danger{{end}}">{{template "icon" .Action}}<span>{{.Verb}}<span class="sr"> {{$s.Title}}</span>{{.Suffix}}…</span></summary>
 <p>{{.Confirm}}</p>
 <form method="post" action="{{.Path}}">
@@ -60,8 +60,113 @@
 <input type="hidden" name="service" value="{{$s.Name}}">
 <button class="plain" type="submit">{{template "icon" .Action}}<span>{{.Verb}}<span class="sr"> {{$s.Title}}</span>{{.Suffix}}</span></button>
 </form>
-{{end}}{{end}}</div>
+{{end}}{{end}}</div>{{end}}
+{{with .Settings}}{{template "settings" .}}{{end}}
 </details>{{end}}{{end}}
+{{define "settings"}}{{$a := .}}<div class="app-set">
+{{with .Public}}<details class="setting" name="set-{{$a.Name}}" id="set-public-{{$a.Name}}"{{if eq $a.Open "public"}} open{{end}}><summary><span class="smark {{.Health}}" aria-hidden="true"></span><span class="set-name">Internet access</span><span class="count">{{.HealthWords}}</span></summary>
+<div class="set-body">
+{{if eq $a.Open "public"}}{{template "flash" $a}}{{end}}
+{{if .PathList}}<p class="meta">Public paths: {{range $i, $p := .PathList}}{{if $i}}, {{end}}<code>{{$p}}</code>{{end}}</p>{{end}}
+<p class="meta{{if eq .Health "down"}} why{{end}}">{{.State}}</p>
+{{if eq .Health "down"}}<p class="hint">Funnel needs the <code>funnel</code> attribute for this app's node in your tailnet policy, and HTTPS turned on for the tailnet.</p>{{end}}
+{{if .URLs}}<ul class="urls">{{range .URLs}}<li><code class="cmd">{{.}}</code></li>{{end}}</ul>{{end}}
+{{if .Manifest}}<p class="meta">{{.Manifest}}</p>{{end}}
+<form method="post" action="/settings">
+<input type="hidden" name="action" value="public-save">
+<input type="hidden" name="app" value="{{$a.Name}}">
+<label for="paths-{{$a.Name}}">Public paths</label>
+<textarea id="paths-{{$a.Name}}" name="paths" rows="3" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="paths-hint-{{$a.Name}}{{if and (eq $a.Open "public") $a.Error}} err-{{$a.Name}}{{end}}">{{.Paths}}</textarea>
+<p class="hint field-hint" id="paths-hint-{{$a.Name}}">They skip the login. One per line, such as <code>/webhooks/github</code> or <code>/hooks/*</code>.</p>
+{{if .CanFunnel}}<label class="check"><input type="checkbox" name="funnel" value="1"{{if .Funnel}} checked{{end}}> Answer them from the internet, through Funnel</label>
+<p class="hint">With Funnel on, anyone on the internet can reach these paths at {{$a.Title}}'s address, and nothing else of it. {{$a.Title}} still has to check each webhook's signature.</p>
+{{else}}<p class="hint">Funnel needs the app on the tailnet, with a <code>tailscale_name</code>.</p>{{end}}
+<button type="submit"><span>Save<span class="sr"> {{$a.Title}}'s internet access</span></span></button>
+</form>
+{{if .FromPortal}}<form class="undo" method="post" action="/settings">
+<input type="hidden" name="action" value="public-reset">
+<input type="hidden" name="app" value="{{$a.Name}}">
+<button class="plain" type="submit"><span>Use the manifest's setting for {{$a.Title}}</span></button>
+</form>{{end}}
+</div>
+</details>{{end}}
+{{with .Secrets}}<details class="setting" name="set-{{$a.Name}}" id="set-secrets-{{$a.Name}}"{{if eq $a.Open "secrets"}} open{{end}}><summary><span class="set-name">Secrets</span><span class="count">{{if .Count}}{{.Count}} {{if eq .Count 1}}variable{{else}}variables{{end}}{{else}}none{{end}}</span></summary>
+<div class="set-body">
+{{if eq $a.Open "secrets"}}{{template "flash" $a}}{{end}}
+{{if .Own}}<ul class="set-list">
+{{range .Own}}<li><p class="set-item"><code>{{.Env}}</code> <span class="hint">{{.Name}}</span></p>
+{{if .Others}}<p class="meta">Also given to {{.Others}}; replacing it restarts them too.</p>{{end}}
+{{if not .Gets}}<p class="meta">{{$a.Title}} isn't declared, so it doesn't get it yet.</p>{{end}}
+<div class="secret-acts">
+<details class="confirm" name="sec-{{$a.Name}}"><summary class="pill"><span>Replace<span class="sr"> {{.Name}}</span><span aria-hidden="true">…</span></span></summary>
+<form method="post" action="/settings">
+<input type="hidden" name="action" value="secret-replace">
+<input type="hidden" name="app" value="{{$a.Name}}">
+<input type="hidden" name="name" value="{{.Name}}">
+<label>New value for {{.Env}}
+<input name="value" type="password" autocomplete="off" spellcheck="false" required>
+</label>
+<button type="submit"><span>Replace {{.Name}}</span></button>
+</form>
+</details>
+<details class="confirm" name="sec-{{$a.Name}}"><summary class="pill danger"><span>Remove<span class="sr"> {{.Name}} from {{$a.Title}}</span><span aria-hidden="true">…</span></span></summary>
+<p>{{$a.Title}} restarts without {{.Env}}.{{if not .Others}} The value is gone for good.{{end}}</p>
+<form method="post" action="/settings">
+<input type="hidden" name="action" value="secret-remove">
+<input type="hidden" name="app" value="{{$a.Name}}">
+<input type="hidden" name="name" value="{{.Name}}">
+<button class="ghost" type="submit"><span>Remove {{.Name}}</span></button>
+</form>
+</details>
+</div>
+</li>
+{{end}}</ul>{{end}}
+{{if .Shared}}<p class="set-sub">Shared with every app, on the <a href="/secrets">Secrets</a> page:</p>
+<ul class="set-shared">{{range .Shared}}<li><code>{{.Env}}</code> <a class="hint" href="/secrets#s-{{.Name}}">{{.Name}}</a>{{if not .Gets}} <span class="hint">· {{$a.Title}}'s own wins</span>{{end}}</li>{{end}}</ul>{{end}}
+<details class="confirm set-add" name="sec-{{$a.Name}}"{{if .Name}} open{{end}}><summary class="pill"><span>Add a secret<span class="sr"> for {{$a.Title}}</span><span aria-hidden="true">…</span></span></summary>
+<form method="post" action="/settings">
+<input type="hidden" name="action" value="secret-add">
+<input type="hidden" name="app" value="{{$a.Name}}">
+<label for="sec-name-{{$a.Name}}">Name</label>
+<input id="sec-name-{{$a.Name}}" name="name" type="text" value="{{.Name}}" autocomplete="off" autocapitalize="off" spellcheck="false" required aria-describedby="sec-name-hint-{{$a.Name}}">
+<p class="hint field-hint" id="sec-name-hint-{{$a.Name}}">Lower case, such as openai-key.</p>
+<label for="sec-env-{{$a.Name}}">Variable</label>
+<input id="sec-env-{{$a.Name}}" name="env" type="text" value="{{.Env}}" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-describedby="sec-env-hint-{{$a.Name}}">
+<p class="hint field-hint" id="sec-env-hint-{{$a.Name}}">Optional. Left empty, it's the name in upper case.</p>
+<label for="sec-value-{{$a.Name}}">Value</label>
+<input id="sec-value-{{$a.Name}}" name="value" type="password" autocomplete="off" spellcheck="false" required>
+<button type="submit"><span>Add<span class="sr"> a secret for {{$a.Title}}</span></span></button>
+</form>
+</details>
+<p class="hint">{{$a.Title}} restarts with each change. A value can be replaced, never read back.</p>
+</div>
+</details>{{end}}
+{{with .AI}}<details class="setting" name="set-{{$a.Name}}" id="set-ai-{{$a.Name}}"{{if eq $a.Open "ai"}} open{{end}}><summary><span class="set-name">AI</span><span class="count">{{.Words}}</span></summary>
+<div class="set-body">
+{{if eq $a.Open "ai"}}{{template "flash" $a}}{{end}}
+{{range .Used}}<p class="meta">{{.}}</p>{{else}}<p class="meta">No requests yet.</p>{{end}}
+{{if .LastError}}<p class="meta">Last error: {{.LastError}}</p>{{end}}
+{{if .Hosted}}<form method="post" action="/settings">
+<input type="hidden" name="action" value="ai-access">
+<input type="hidden" name="app" value="{{$a.Name}}">
+<fieldset class="models"><legend>What {{$a.Title}} may use</legend>
+{{range .Kinds}}<label class="check"><input type="checkbox" name="kind" value="{{.Kind}}"{{if .Allowed}} checked{{end}}> <span>The {{.Name}}{{if .Model}} <code class="hint">{{.Model}}</code>{{else}} <span class="hint">none chosen</span>{{end}}</span></label>
+{{end}}</fieldset>
+<button type="submit"><span>Save<span class="sr"> what {{$a.Title}} may use</span></span></button>
+</form>{{end}}
+<p class="hint">Outpost gives {{$a.Title}} its own token when it starts it, so there's nothing to set up. The models are chosen on the <a href="/ai">AI models</a> page.</p>
+<details class="confirm" name="tok-{{$a.Name}}"><summary class="pill quiet"><span>Replace token<span class="sr"> for {{$a.Title}}</span><span aria-hidden="true">…</span></span></summary>
+<p>Only needed if {{$a.Title}}'s token got out. Its current token stops working at once, and {{$a.Title}} restarts with a new one.</p>
+<form method="post" action="/settings">
+<input type="hidden" name="action" value="ai-token">
+<input type="hidden" name="app" value="{{$a.Name}}">
+<button class="plain" type="submit"><span>Replace {{$a.Title}}'s token</span></button>
+</form>
+</details>
+</div>
+</details>{{end}}
+</div>{{end}}
+{{define "flash"}}{{if .Error}}<p class="error" role="alert" id="err-{{.Name}}">{{.Error}}</p>{{else if .Notice}}<p class="notice" role="status">{{.Notice}}</p>{{end}}{{end}}
 {{define "usage"}}{{if .Tiles}}<details class="stats"><summary class="usage">{{template "figures" .}}{{if not .Line}}Usage{{end}}<span class="sr"> for {{.Title}}</span></summary>
 <div class="stats-panel">
 <p class="when">{{.When}}</p>
