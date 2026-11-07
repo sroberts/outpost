@@ -16,13 +16,13 @@ func TestAIPage_Hosted_FoldsWhatNeedsNothing(t *testing.T) {
 
 	// The fake's LLM is OpenAI's, with no key: Providers opens to add one.
 	b := body(t, h.get(c, portal+"/ai"))
-	if !strings.Contains(b, `<details class="ref" open><summary><h2 id="prov-title">`) {
+	if !strings.Contains(b, `<h2 id="prov-title">Providers</h2>`+"\n"+`<details class="ref" open>`) {
 		t.Error("Providers is folded while the LLM has no key")
 	}
 	if !strings.Contains(b, "2 of 4 keys set") {
 		t.Error("Providers' summary doesn't count the keys")
 	}
-	if !strings.Contains(b, `<details class="ref"><summary><h2 id="apps-title">`) {
+	if !strings.Contains(b, `<h2 id="apps-title">Apps</h2>`+"\n"+`<details class="ref">`) {
 		t.Error("Apps is open with nothing to show")
 	}
 
@@ -32,17 +32,43 @@ func TestAIPage_Hosted_FoldsWhatNeedsNothing(t *testing.T) {
 	f.choices[ai.LLM] = llm
 	f.hmu.Unlock()
 	b = body(t, h.get(c, portal+"/ai"))
-	if !strings.Contains(b, `<details class="ref"><summary><h2 id="prov-title">`) {
+	if !strings.Contains(b, `<h2 id="prov-title">Providers</h2>`+"\n"+`<details class="ref">`) {
 		t.Error("Providers is open with nothing wanting a key")
 	}
 
 	// Coming back from a form there opens its section.
 	b = body(t, h.get(c, portal+"/ai?done=key&provider=openrouter"))
-	if !strings.Contains(b, `<details class="ref" open><summary><h2 id="prov-title">`) {
+	if !strings.Contains(b, `<h2 id="prov-title">Providers</h2>`+"\n"+`<details class="ref" open>`) {
 		t.Error("Providers is folded over the key just saved")
 	}
 	b = body(t, h.get(c, portal+"/ai?done=regenerated&app=sous"))
-	if !strings.Contains(b, `<details class="ref" open><summary><h2 id="apps-title">`) {
+	if !strings.Contains(b, `<h2 id="apps-title">Apps</h2>`+"\n"+`<details class="ref" open>`) {
 		t.Error("Apps is folded over the token just replaced")
+	}
+}
+
+// A model that can only fail says so at a glance, offers no Test, and its
+// link to the missing key lands on that provider's key form, which says
+// what it's holding up.
+func TestAIPage_Hosted_ABrokenModelPointsAtItsFix(t *testing.T) {
+	h, _ := hostedHarness(t)
+	c := h.client(true)
+	h.login(c, "root", "", "/")
+	b := body(t, h.get(c, portal+"/ai"))
+	llm := b[strings.Index(b, `id="k-llm"`):strings.Index(b, `id="k-system1"`)]
+	sys := b[strings.Index(b, `id="k-system1"`):strings.Index(b, `id="providers"`)]
+	for _, want := range []string{`<span class="smark down"`, "(not working)", `href="#key-openai"`} {
+		if !strings.Contains(llm, want) {
+			t.Errorf("the keyless LLM lacks %q", want)
+		}
+	}
+	if strings.Contains(llm, `value="test"`) {
+		t.Error("the keyless LLM offers a Test that can only fail")
+	}
+	if !strings.Contains(sys, `<span class="smark up"`) || !strings.Contains(sys, `value="test"`) {
+		t.Error("the working System 1 isn't marked up, or has no Test")
+	}
+	if !strings.Contains(b, `id="key-openai"`) || !strings.Contains(b, "The LLM is waiting for this key.") {
+		t.Error("OpenAI's row doesn't say the LLM is waiting on it")
 	}
 }

@@ -66,6 +66,8 @@ type aiProviderRow struct {
 	BaseURL     string
 	Notice      string
 	Error       string
+	// Waiting names the chosen models this provider's missing key stops.
+	Waiting string
 }
 
 // aiHosted is one hosted provider's models for one kind, offered as a list to
@@ -99,6 +101,9 @@ type aiKindRow struct {
 	Error      string
 	// Test is a Test button's result, shown once.
 	Test string
+	// Health is its station's state: up, down (apps asking get an error,
+	// a missing model or key) or unset; HealthWords says it for a reader.
+	Health, HealthWords string
 
 	// With hosted providers: who serves it, what reaches it, and who may.
 	Provider, ProviderTitle string
@@ -183,6 +188,14 @@ func (g *Gateway) renderAI(w http.ResponseWriter, r *http.Request, u auth.User, 
 			Provider: provider, ProviderTitle: ai.ProviderTitle(provider), NoKey: c.NoKey,
 		}
 		row.Source = choiceWords(c)
+		switch {
+		case row.Model == "":
+			row.Health, row.HealthWords = "unset", "none chosen"
+		case row.Missing || row.NoKey:
+			row.Health, row.HealthWords = "down", "not working"
+		default:
+			row.Health, row.HealthWords = "up", "chosen"
+		}
 		for _, m := range o.Models {
 			if m.Serves(c.Kind) {
 				row.Options = append(row.Options, aiOption{Name: m.Name, Detail: modelDetail(m), Checked: provider == ai.ProviderOllama && m.Name == c.Model})
@@ -194,6 +207,15 @@ func (g *Gateway) renderAI(w http.ResponseWriter, r *http.Request, u auth.User, 
 		v.Kinds = append(v.Kinds, row)
 	}
 	if hosted {
+		// The kinds a provider's missing key is holding up, so its row can
+		// say so: the link from a kind's error lands there.
+		waiting := map[string][]string{}
+		for _, k := range v.Kinds {
+			if k.NoKey {
+				waiting[k.Provider] = append(waiting[k.Provider], k.Name)
+				v.ProvidersOpen = true
+			}
+		}
 		for _, p := range o.Providers {
 			if !p.Keyed {
 				continue
@@ -212,12 +234,14 @@ func (g *Gateway) renderAI(w http.ResponseWriter, r *http.Request, u auth.User, 
 			if row.Notice != "" || row.Error != "" {
 				v.ProvidersOpen = true
 			}
-			v.Providers = append(v.Providers, row)
-		}
-		for _, k := range v.Kinds {
-			if k.NoKey {
-				v.ProvidersOpen = true
+			if names := waiting[p.Name]; len(names) > 0 {
+				verb := "is"
+				if len(names) > 1 {
+					verb = "are"
+				}
+				row.Waiting = fmt.Sprintf("The %s %s waiting for this key.", andList(names), verb)
 			}
+			v.Providers = append(v.Providers, row)
 		}
 	}
 	used := map[string][]ai.Usage{}

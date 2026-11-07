@@ -6,16 +6,16 @@
 {{with .AI}}<p class="lede">Apps ask for <code>llm</code> or <code>system1</code> and get the model chosen here, from their next request.</p>
 {{if .OllamaError}}<p class="error">Outpost can't list Ollama's models: {{.OllamaError}}. The models below stay in force, but nothing can be changed until Ollama answers.</p>{{end}}
 
-{{range .Kinds}}{{$k := .}}<section class="kind" id="k-{{.Kind}}" aria-labelledby="kt-{{.Kind}}">
-<h2 id="kt-{{.Kind}}">{{.Name}}</h2>
+{{range .Kinds}}{{$k := .}}<section class="kind {{.Health}}" id="k-{{.Kind}}" aria-labelledby="kt-{{.Kind}}">
+<h2 id="kt-{{.Kind}}"><span class="smark {{.Health}}" aria-hidden="true"></span>{{.Name}}<span class="sr"> ({{.HealthWords}})</span></h2>
 {{if .Model}}<p class="model"><code>{{.Model}}</code>{{if $.AI.Hosted}}<span class="tag">{{.ProviderTitle}}</span>{{end}}</p>
 <p class="meta">{{.Source}}{{if $.AI.Hosted}} {{.AppsWords}}{{end}}</p>
 {{else}}<p class="meta">None chosen. Apps asking for it get an error that says so.</p>{{end}}
 {{if and .Missing (eq .Provider "ollama")}}<p class="error">Ollama doesn't have {{.Model}} any more. Apps asking for the {{.Name}} get an error until you choose another or pull it again with <code>ollama pull {{.Model}}</code>.</p>{{else if .Missing}}<p class="error">{{.ProviderTitle}} doesn't list {{.Model}}. Apps asking for the {{.Name}} get an error until you choose another.</p>{{end}}
-{{if .NoKey}}<p class="error">Outpost has no API key for {{.ProviderTitle}}, so apps asking for the {{.Name}} get an error. <a href="#p-{{.Provider}}">Add {{.ProviderTitle}}'s key</a></p>{{end}}
+{{if .NoKey}}<p class="error">Outpost has no API key for {{.ProviderTitle}}, so apps asking for the {{.Name}} get an error. <a href="#key-{{.Provider}}">Add {{.ProviderTitle}}'s key</a></p>{{end}}
 {{if .Error}}<p class="error" role="alert" id="err-{{.Kind}}">{{.Error}}</p>{{end}}
 <div class="secret-acts">
-{{if or .Options .Hosted}}<details class="confirm" name="ai-{{.Kind}}"{{if .Error}} open{{end}}><summary class="pill"><span>Choose<span class="sr"> the {{.Name}}</span>…</span></summary>
+{{if or .Options .Hosted}}<details class="confirm" name="ai-{{.Kind}}"{{if .Error}} open{{end}}><summary class="pill"><span>Choose<span class="sr"> the {{.Name}}</span><span aria-hidden="true">…</span></span></summary>
 <div class="pick">
 {{if .Options}}{{if $.AI.Hosted}}<details class="source" name="src-{{.Kind}}"{{if eq .Provider "ollama"}} open{{end}}><summary>Ollama <span class="hint">on this machine</span></summary>{{end}}
 <form method="post" action="/ai#k-{{.Kind}}">
@@ -28,7 +28,7 @@
 <button type="submit"><span>Use this model<span class="sr"> for the {{.Name}}</span></span></button>
 </form>
 {{if $.AI.Hosted}}</details>{{end}}{{else if and $.AI.Hosted (not $.AI.OllamaError)}}<p class="source-off">Ollama has no {{.Name}} models.</p>{{end}}
-{{range .Hosted}}{{if .NeedsKey}}<p class="source-off">{{.Title}} <a href="#p-{{.Provider}}">Add {{.Title}}'s API key under Providers</a></p>
+{{range .Hosted}}{{if .NeedsKey}}<p class="source-off">{{.Title}} <a href="#key-{{.Provider}}">Add {{.Title}}'s API key under Providers</a></p>
 {{else}}<details class="source" name="src-{{$k.Kind}}"{{if .Current}} open{{end}}><summary>{{.Title}}</summary>
 {{if .Error}}<p class="hint">{{.Error}}</p>{{end}}
 <form method="post" action="/ai#k-{{$k.Kind}}">
@@ -49,7 +49,7 @@
 </form>{{end}}
 </div>
 </details>
-{{if $.AI.Hosted}}<details class="confirm" name="ai-{{.Kind}}"><summary class="pill"><span>Apps<span class="sr"> for the {{.Name}}</span>…</span></summary>
+{{if $.AI.Hosted}}<details class="confirm" name="ai-{{.Kind}}"><summary class="pill"><span>Apps<span class="sr"> for the {{.Name}}</span><span aria-hidden="true">…</span></span></summary>
 <div class="pick">
 <form method="post" action="/ai#k-{{.Kind}}">
 <input type="hidden" name="action" value="apps">
@@ -74,7 +74,7 @@
 <input type="hidden" name="kind" value="{{.Kind}}">
 <button class="pill" type="submit"><span>Use config.toml's model<span class="sr"> for the {{.Name}}</span></span></button>
 </form>{{end}}{{end}}
-{{if .Model}}<form method="post" action="/ai#k-{{.Kind}}">
+{{if and .Model (not .NoKey) (not .Missing)}}<form method="post" action="/ai#k-{{.Kind}}">
 <input type="hidden" name="action" value="test">
 <input type="hidden" name="kind" value="{{.Kind}}">
 <button class="pill" type="submit"><span>Test<span class="sr"> the {{.Name}}</span></span></button>
@@ -85,19 +85,21 @@
 </section>
 {{end}}
 
-{{if .Hosted}}<section class="panel" aria-labelledby="prov-title" id="providers">
-<details class="ref"{{if .ProvidersOpen}} open{{end}}><summary><h2 id="prov-title">Providers</h2><span class="count">{{.KeysSet}} of {{len .Providers}} keys set</span></summary>
+{{if .Hosted}}<section class="panel fold" aria-labelledby="prov-title" id="providers">
+<h2 id="prov-title">Providers</h2>
+<details class="ref"{{if .ProvidersOpen}} open{{end}}><summary><span class="count">{{.KeysSet}} of {{len .Providers}} keys set</span></summary>
 <p class="hint">Ollama needs no key. A hosted provider's key is kept as a secret and added to each request by Outpost, so apps never see it.</p>
 <ul class="devices">
-{{range .Providers}}<li class="device" id="p-{{.Name}}">
+{{range .Providers}}<li class="device{{if .Waiting}} waiting{{end}}" id="p-{{.Name}}">
 <div class="body">
 <p class="top"><span class="device-name">{{.Title}}</span>{{if .HasKey}}<span class="tag">Key set</span>{{end}}</p>
 <p class="device-meta">Serves the {{.Serves}}</p>
-<p class="device-meta"><span class="addr">{{.BaseURL}}</span> · <span class="whole">secret <code>{{.KeySecret}}</code></span></p>
+{{if .Waiting}}<p class="device-why">{{.Waiting}}</p>{{end}}
+<p class="device-meta"><span class="addr">{{.BaseURL}}</span> <span class="whole">· secret <code>{{.KeySecret}}</code></span></p>
 {{if .Notice}}<p class="notice" role="status">{{.Notice}}</p>{{end}}
 {{if .Error}}<p class="error" role="alert" id="err-p-{{.Name}}">{{.Error}}</p>{{end}}
 </div>
-<details class="confirm" name="ai-key"{{if .Error}} open{{end}}><summary class="pill"><span>{{if .HasKey}}Replace key{{else}}Add key{{end}}<span class="sr"> for {{.Title}}</span>…</span></summary>
+<details class="confirm" name="ai-key" id="key-{{.Name}}"{{if .Error}} open{{end}}><summary class="pill"><span>{{if .HasKey}}Replace key{{else}}Add key{{end}}<span class="sr"> for {{.Title}}</span><span aria-hidden="true">…</span></span></summary>
 <form method="post" action="/ai#p-{{.Name}}">
 <input type="hidden" name="action" value="key">
 <input type="hidden" name="provider" value="{{.Name}}">
@@ -113,8 +115,9 @@
 </details>
 </section>{{end}}
 
-<section class="panel" aria-labelledby="apps-title" id="apps">
-<details class="ref"{{if .AppsOpen}} open{{end}}><summary><h2 id="apps-title">Apps</h2><span class="count">{{len .Apps}} {{if eq (len .Apps) 1}}app{{else}}apps{{end}}, each with its own token</span></summary>
+<section class="panel fold" aria-labelledby="apps-title" id="apps">
+<h2 id="apps-title">Apps</h2>
+<details class="ref"{{if .AppsOpen}} open{{end}}><summary><span class="count">{{len .Apps}} {{if eq (len .Apps) 1}}app{{else}}apps{{end}}, each with its own token</span></summary>
 <p class="hint">Outpost gives every app its own token when it starts it, so there's nothing to set up. Below is what each has asked for since Outpost last started.</p>
 {{if .Apps}}<ul class="devices">
 {{range .Apps}}<li class="device" id="a-{{.Name}}">
@@ -124,7 +127,7 @@
 {{if .LastError}}<p class="device-meta">Last error: {{.LastError}}</p>{{end}}
 {{if .Notice}}<p class="notice" role="status">{{.Notice}}</p>{{end}}
 </div>
-<details class="confirm" name="ai-app"><summary class="pill quiet"><span>Replace token<span class="sr"> for {{.Title}}</span>…</span></summary>
+<details class="confirm" name="ai-app"><summary class="pill quiet"><span>Replace token<span class="sr"> for {{.Title}}</span><span aria-hidden="true">…</span></span></summary>
 <p>Only needed if {{.Title}}'s token got out. Its current token stops working at once, and {{.Title}} restarts with a new one.</p>
 <form method="post" action="/ai#a-{{.Name}}">
 <input type="hidden" name="action" value="regenerate">
@@ -137,8 +140,9 @@
 </details>
 </section>
 
-<section class="panel" aria-labelledby="use-title">
-<details class="ref"><summary><h2 id="use-title">How apps call these</h2></summary>
+<section class="panel fold" aria-labelledby="use-title">
+<h2 id="use-title">How apps call these</h2>
+<details class="ref"><summary><span class="count">Endpoints</span></summary>
 <p class="hint">Every app is started with <code>OUTPOST_AI_URL</code> ({{.URL}}) and a token of its own in <code>OUTPOST_AI_TOKEN</code>. Use the SDK the app already has, pointed at Outpost, with the token as its API key.</p>
 <ul class="calls">
 <li><span>OpenAI chat, model <code>llm</code></span><code class="cmd">$OUTPOST_AI_URL/openai/v1</code></li>

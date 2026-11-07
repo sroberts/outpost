@@ -477,13 +477,21 @@ button.plain:hover { background: none; border-color: var(--beam); }
    from and who may use it, and one row of pills; what each pill opens holds
    the forms, with one filled button apiece and the way back to config.toml
    at its foot. Providers and apps are rows like sign-ins. */
+/* Each model is a station: porcelain in a beam ring when it's chosen and
+   nothing's known wrong, a hollow red ring when apps asking get an error,
+   an empty field-edge ring when none is chosen. */
+.ai .kind h2 { display: flex; align-items: center; gap: 0.55rem; }
+.ai .smark { flex: none; width: 16px; height: 16px; border-radius: 50%; border: 4px solid var(--beam); background: var(--porcelain); }
+.ai .smark.down { border-color: var(--down); background: var(--night); }
+.ai .smark.unset { border-color: var(--field-edge); background: var(--night); }
 .ai .kind { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--rule); scroll-margin-top: 1rem; }
 .ai .model { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.6rem; margin: 0.5rem 0 0; }
-.ai .model code { font-size: 15px; overflow-wrap: anywhere; }
+.ai .model code { font-size: 17px; overflow-wrap: anywhere; }
 /* Who serves it, beside the model: a name, not a state, so not uppercase. */
 .ai .model .tag { font-size: 12px; font-weight: 550; letter-spacing: 0; text-transform: none; }
 .ai .meta { display: block; margin: 0.35rem 0 0; }
-.ai .kind > .error { margin-top: 0.5rem; font-size: 14px; }
+.ai .kind > .error { margin-top: 0.5rem; font-size: 14px; font-weight: 400; }
+.ai .kind > .error a { font-weight: 550; }
 .ai .error a { color: inherit; text-decoration-color: currentColor; }
 /* Every control in the row is a pill, the same height, on one centre line. */
 .ai .secret-acts { align-items: center; margin-top: 0.85rem; }
@@ -516,7 +524,7 @@ button.plain:hover { background: none; border-color: var(--beam); }
   display: flex; flex-wrap: wrap; align-items: center; gap: 0 0.75rem; min-height: 44px; margin: 0;
   font-size: 15px; font-weight: 600;
 }
-.ai .source-off a { font-size: 14px; font-weight: 400; color: var(--beam); }
+.ai .source-off a { display: inline-flex; align-items: center; min-height: 44px; font-size: 14px; font-weight: 400; color: var(--beam); }
 .ai label.check > span { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 0.5rem; overflow-wrap: anywhere; }
 .ai .confirm form { max-width: 34rem; }
 .ai .confirm form > label { width: 100%; }
@@ -532,13 +540,25 @@ button.plain:hover { background: none; border-color: var(--beam); }
 .ai .whole { white-space: nowrap; }
 .ai .device .notice, .ai .device .error { margin-top: 0.4rem; font-size: 14px; }
 .ai .device > .confirm:not([open]) { margin-top: 0.15rem; }
+.ai .device .pill { border-color: var(--field-edge); }
+.ai .device .pill:hover, .ai .device .confirm[open] > .pill { border-color: var(--beam); }
+/* The provider a chosen model is waiting on says so, and is marked when a
+   model's "add its key" link lands on it. */
+.ai .device-why { margin: 0.2rem 0 0; font-size: 14px; color: var(--down-ink); }
+.ai .device:has(> .confirm:target) .device-name { text-decoration: underline; text-decoration-color: var(--beam); text-decoration-thickness: 2px; text-underline-offset: 4px; }
 .ai .panel > .hint { margin: 0.4rem 0 0; }
 /* How apps call these: reference, read once, so it stays folded. */
 .ai .ref > summary { display: flex; align-items: center; min-height: 44px; list-style: none; cursor: pointer; }
 .ai .ref > summary::-webkit-details-marker { display: none; }
-.ai .ref > summary h2 { display: inline; }
-/* What's folded, in a few words beside its heading. */
-.ai .ref > summary .count { margin-left: 0.6rem; font-size: 14px; color: var(--dim); }
+/* A folded section keeps a real heading, outside its summary so readers
+   list it; it's laid over the summary's line, which carries what's folded
+   in a few words and the chevron at the end. A tap on the heading falls
+   through to the summary. */
+.ai .fold { position: relative; }
+.ai .fold > h2 { position: absolute; top: 0.5rem; left: 0; line-height: 44px; pointer-events: none; }
+.ai .fold .ref > summary { justify-content: flex-end; }
+.ai .fold .ref > summary::after { margin-left: 0.6rem; }
+.ai .ref > summary .count { font-size: 14px; color: var(--dim); text-align: right; }
 /* Folded sections are a heading line each, so they sit closer together. */
 .page.ai .panel { margin-top: 1rem; padding-top: 0.5rem; }
 .ai .ref[open] { padding-bottom: 0.5rem; }

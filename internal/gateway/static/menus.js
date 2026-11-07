@@ -31,10 +31,14 @@
     var t = location.hash && document.getElementById(location.hash.slice(1));
     if (!t) return null;
     var folded = false;
-    for (var d = t.parentElement; d; d = d.parentElement) {
+    for (var d = t; d; d = d.parentElement) {
       if (d.tagName === "DETAILS" && !d.open) { d.open = true; folded = true; }
     }
     if (folded) t.scrollIntoView();
+    // A link straight to a form, such as a provider's key, is a link to
+    // fill it in.
+    var field = t.tagName === "DETAILS" && t.querySelector("input:not([type=hidden])");
+    if (field) field.focus({ preventScroll: true });
     return t;
   }
   window.addEventListener("hashchange", reveal);
