@@ -3,36 +3,34 @@
 <main class="page ai">
 <p class="back"><a href="{{.Home}}">Back to apps</a></p>
 <h1>AI models</h1>
-{{with .AI}}{{if .Hosted}}<p class="lede">The two models your apps can use through Outpost, each from Ollama on this machine or a hosted provider. Apps ask for <code>llm</code> or <code>system1</code> and get whichever model is chosen here. A change reaches them on their next request, and no app restarts. What you choose here wins over <code>config.toml</code>.</p>
-{{else}}<p class="lede">The two models every app can use through Outpost, both served by Ollama. Apps ask for <code>llm</code> or <code>system1</code> and get whichever model is chosen here. A change reaches them on their next request, and no app restarts. What you choose here wins over <code>config.toml</code>.</p>{{end}}
-{{if .OllamaError}}<p class="error" role="alert">Outpost can't list Ollama's models: {{.OllamaError}}. The models below stay in force, but nothing can be changed until Ollama answers.</p>{{end}}
-<ul class="secret-list">
-{{range .Kinds}}<li id="k-{{.Kind}}">
-<span class="top"><span class="name">{{.Name}}</span>{{if .Model}}<code>{{.Model}}</code>{{if $.AI.Hosted}}<span class="tag">{{.ProviderTitle}}</span>{{end}}{{end}}</span>
-<p class="meta">{{if eq .Kind "llm"}}Generates text. Apps call it with the OpenAI or Anthropic chat API.{{else}}Answers typed questions about an input with probabilities, in one pass. Apps call it with the System 1 API.{{end}}</p>
-{{if .Model}}<p class="meta">{{.Source}}</p>{{else}}<p class="meta">None chosen. Apps asking for it get an error that says so.</p>{{end}}
-{{if and .Missing (eq .Provider "ollama")}}<p class="error" role="alert">Ollama doesn't have {{.Model}} any more. Apps asking for the {{.Name}} get an error until you choose another or pull it again with <code>ollama pull {{.Model}}</code>.</p>{{else if .Missing}}<p class="error" role="alert">{{.ProviderTitle}} doesn't list {{.Model}}. Apps asking for the {{.Name}} get an error until you choose another.</p>{{end}}
-{{if .NoKey}}<p class="error" role="alert">Outpost has no API key for {{.ProviderTitle}}, so apps asking for the {{.Name}} get an error. Add one under Providers below.</p>{{end}}
-{{if .APIsNote}}<p class="meta">{{.APIsNote}}</p>{{end}}
-{{if $.AI.Hosted}}<p class="meta">{{.AppsWords}}</p>{{end}}
-{{if .Notice}}<p class="notice" role="status">{{.Notice}}</p>{{end}}
-{{if .Test}}<p class="notice" role="status">{{.Test}}</p>{{end}}
+{{with .AI}}<p class="lede">Apps ask for <code>llm</code> or <code>system1</code> and get the model chosen here, from their next request.</p>
+{{if .OllamaError}}<p class="error">Outpost can't list Ollama's models: {{.OllamaError}}. The models below stay in force, but nothing can be changed until Ollama answers.</p>{{end}}
+
+{{range .Kinds}}{{$k := .}}<section class="kind {{.Health}}" id="k-{{.Kind}}" aria-labelledby="kt-{{.Kind}}">
+<h2 id="kt-{{.Kind}}"><span class="smark {{.Health}}" aria-hidden="true"></span>{{.Name}}<span class="sr"> ({{.HealthWords}})</span></h2>
+{{if .Model}}<p class="model"><code>{{.Model}}</code>{{if $.AI.Hosted}}<span class="tag">{{.ProviderTitle}}</span>{{end}}</p>
+<p class="meta">{{.Source}}{{if $.AI.Hosted}} {{.AppsWords}}{{end}}</p>
+{{else}}<p class="meta">None chosen. Apps asking for it get an error that says so.</p>{{end}}
+{{if and .Missing (eq .Provider "ollama")}}<p class="error">Ollama doesn't have {{.Model}} any more. Apps asking for the {{.Name}} get an error until you choose another or pull it again with <code>ollama pull {{.Model}}</code>.</p>{{else if .Missing}}<p class="error">{{.ProviderTitle}} doesn't list {{.Model}}. Apps asking for the {{.Name}} get an error until you choose another.</p>{{end}}
+{{if .NoKey}}<p class="error">Outpost has no API key for {{.ProviderTitle}}, so apps asking for the {{.Name}} get an error. <a href="#key-{{.Provider}}">Add {{.ProviderTitle}}'s key</a></p>{{end}}
 {{if .Error}}<p class="error" role="alert" id="err-{{.Kind}}">{{.Error}}</p>{{end}}
 <div class="secret-acts">
-{{if or .Options .Hosted}}{{$k := .}}<details class="confirm" name="ai-{{.Kind}}"{{if .Error}} open{{end}}><summary class="pill"><span>Choose<span class="sr"> the {{.Name}}</span>…</span></summary>
-{{if .Options}}<form method="post" action="/ai#k-{{.Kind}}">
+{{if or .Options .Hosted}}<details class="confirm" name="ai-{{.Kind}}"{{if eq .ErrorIn "choose"}} open{{end}}><summary class="pill"><span>Choose<span class="sr"> the {{.Name}}</span><span aria-hidden="true">…</span></span></summary>
+<div class="pick">
+{{if .Options}}{{if $.AI.Hosted}}<details class="source" name="src-{{.Kind}}"{{if eq .SourceOpen "ollama"}} open{{end}}><summary>Ollama <span class="hint">on this machine</span></summary>{{end}}
+<form method="post" action="/ai#k-{{.Kind}}">
 <input type="hidden" name="action" value="save">
 <input type="hidden" name="kind" value="{{.Kind}}">
 {{if $.AI.Hosted}}<input type="hidden" name="provider" value="ollama">{{end}}
 <fieldset class="models"{{if .Error}} aria-describedby="err-{{.Kind}}"{{end}}><legend>{{.Name}} models Ollama has</legend>
 {{range .Options}}<label class="check"><input type="radio" name="model" value="{{.Name}}"{{if .Checked}} checked{{end}} required> <span><code>{{.Name}}</code>{{if .Detail}} <span class="hint">{{.Detail}}</span>{{end}}</span></label>
 {{end}}</fieldset>
-<button type="submit"><span>Use it for the {{.Name}}</span></button>
-</form>{{else if and $.AI.Hosted (not $.AI.OllamaError)}}<p class="hint">Ollama has no {{.Name}} models.</p>{{end}}
-{{range .Hosted}}<div class="provider-pick">
-<h3>{{.Title}}</h3>
-{{if .NeedsKey}}<p class="hint">Add {{.Title}}'s API key under Providers to use its models.</p>
-{{else}}{{if .Error}}<p class="hint">{{.Error}}</p>{{end}}
+<button type="submit"><span>Use this model<span class="sr"> for the {{.Name}}</span></span></button>
+</form>
+{{if $.AI.Hosted}}</details>{{end}}{{else if and $.AI.Hosted (not $.AI.OllamaError)}}<p class="source-off">Ollama has no {{.Name}} models.</p>{{end}}
+{{range .Hosted}}{{if .NeedsKey}}<p class="source-off">{{.Title}} <a href="#key-{{.Provider}}">Add {{.Title}}'s API key under Providers</a></p>
+{{else}}<details class="source" name="src-{{$k.Kind}}"{{if eq .Provider $k.SourceOpen}} open{{end}}><summary>{{.Title}}</summary>
+{{if .Error}}<p class="hint">{{.Error}}</p>{{end}}
 <form method="post" action="/ai#k-{{$k.Kind}}">
 <input type="hidden" name="action" value="save">
 <input type="hidden" name="kind" value="{{$k.Kind}}">
@@ -41,11 +39,18 @@
 <input name="model" type="text" list="dl-{{$k.Kind}}-{{.Provider}}" value="{{.Current}}" autocomplete="off" autocapitalize="off" spellcheck="false" required>
 </label>
 {{if .Options}}<datalist id="dl-{{$k.Kind}}-{{.Provider}}">{{range .Options}}<option value="{{.Name}}">{{.Detail}}</option>{{end}}</datalist>{{end}}
-<button class="plain" type="submit"><span>Use {{.Title}}'s for the {{$k.Name}}</span></button>
+<button type="submit"><span>Use this model<span class="sr"> from {{.Title}} for the {{$k.Name}}</span></span></button>
+</form>
+</details>{{end}}
+{{end}}{{if .FromPortal}}<form class="undo" method="post" action="/ai#k-{{.Kind}}">
+<input type="hidden" name="action" value="reset">
+<input type="hidden" name="kind" value="{{.Kind}}">
+<button class="plain" type="submit"><span>Use config.toml's model<span class="sr"> for the {{.Name}}</span></span></button>
 </form>{{end}}
 </div>
-{{end}}</details>
-{{if $.AI.Hosted}}<details class="confirm" name="ai-{{.Kind}}-apps"><summary class="pill"><span>Apps<span class="sr"> for the {{.Name}}</span>…</span></summary>
+</details>
+{{if $.AI.Hosted}}<details class="confirm" name="ai-{{.Kind}}"{{if eq .ErrorIn "apps"}} open{{end}}><summary class="pill"><span>Apps<span class="sr"> for the {{.Name}}</span><span aria-hidden="true">…</span></span></summary>
+<div class="pick">
 <form method="post" action="/ai#k-{{.Kind}}">
 <input type="hidden" name="action" value="apps">
 <input type="hidden" name="kind" value="{{.Kind}}">
@@ -53,41 +58,48 @@
 <label class="check"><input type="checkbox" name="every" value="1"{{if .Every}} checked{{end}}> Every app, including ones added later</label>
 {{range .AppChoices}}<label class="check"><input type="checkbox" name="app" value="{{.Name}}"{{if .Checked}} checked{{end}}> {{.Title}}</label>
 {{end}}</fieldset>
-<button class="plain" type="submit"><span>Save who may use the {{.Name}}</span></button>
-</form>
 <p class="hint">An app left out gets a 403 when it asks. Hosted models cost money per request, so give them to the apps that need them.</p>
-</details>{{end}}
-{{else if not $.AI.OllamaError}}<p class="hint">Ollama has no {{.Name}} models. {{if eq .Kind "llm"}}Pull one, such as <code>ollama pull gemma4</code>{{else}}Pull one, such as <code>ollama pull laya</code>{{end}}, then come back.</p>{{end}}
-{{if .Model}}<form method="post" action="/ai#k-{{.Kind}}">
-<input type="hidden" name="action" value="test">
+<button type="submit"><span>Save<span class="sr"> who may use the {{.Name}}</span></span></button>
+</form>
+{{if .AppsFromPortal}}<form class="undo" method="post" action="/ai#k-{{.Kind}}">
+<input type="hidden" name="action" value="appsreset">
 <input type="hidden" name="kind" value="{{.Kind}}">
-<button class="plain" type="submit"><span>Test<span class="sr"> the {{.Name}}</span></span></button>
+<button class="plain" type="submit"><span>Use config.toml's apps<span class="sr"> for the {{.Name}}</span></span></button>
 </form>{{end}}
+</div>
+</details>{{end}}
+{{else}}{{if not $.AI.OllamaError}}<p class="hint">Ollama has no {{.Name}} models. {{if eq .Kind "llm"}}Pull one, such as <code>ollama pull gemma4</code>{{else}}Pull one, such as <code>ollama pull laya</code>{{end}}, then come back.</p>{{end}}
 {{if .FromPortal}}<form method="post" action="/ai#k-{{.Kind}}">
 <input type="hidden" name="action" value="reset">
 <input type="hidden" name="kind" value="{{.Kind}}">
-<button class="ghost" type="submit"><span>Use config.toml's<span class="sr"> {{.Name}}</span></span></button>
-</form>{{end}}
-{{if .AppsFromPortal}}<form method="post" action="/ai#k-{{.Kind}}">
-<input type="hidden" name="action" value="appsreset">
+<button class="pill" type="submit"><span>Use config.toml's model<span class="sr"> for the {{.Name}}</span></span></button>
+</form>{{end}}{{end}}
+{{if and .Model (not .NoKey) (not .Missing)}}<form method="post" action="/ai#k-{{.Kind}}">
+<input type="hidden" name="action" value="test">
 <input type="hidden" name="kind" value="{{.Kind}}">
-<button class="ghost" type="submit"><span>Use config.toml's apps<span class="sr"> for the {{.Name}}</span></span></button>
+<button class="pill" type="submit"><span>Test<span class="sr"> the {{.Name}}</span></span></button>
 </form>{{end}}
 </div>
-</li>
-{{end}}</ul>
+{{if .Notice}}<p class="notice" role="status">{{.Notice}}</p>{{end}}
+{{if .Test}}<p class="notice" role="status">{{.Test}}</p>{{end}}
+</section>
+{{end}}
 
-{{if .Hosted}}<section class="panel" aria-labelledby="prov-title" id="providers">
+{{if .Hosted}}<section class="panel fold" aria-labelledby="prov-title" id="providers">
 <h2 id="prov-title">Providers</h2>
-<p class="hint">Ollama needs no key. Each hosted provider's key is kept as a secret, shown on the Secrets page and given to no app: Outpost adds it to each request itself, so apps never see it.</p>
-<ul class="secret-list">
-{{range .Providers}}<li id="p-{{.Name}}">
-<span class="top"><span class="name">{{.Title}}</span>{{if .HasKey}}<span class="tag">Key set</span>{{end}}</span>
-<p class="meta">Serves the {{.Serves}} · {{.BaseURL}} · secret <code>{{.KeySecret}}</code></p>
+<details class="ref"{{if .ProvidersOpen}} open{{end}}><summary><span class="count">{{.KeysSet}} of {{len .Providers}} keys set</span></summary>
+<p class="hint">Ollama needs no key. A hosted provider's key is kept as a secret and added to each request by Outpost, so apps never see it.</p>
+<ul class="devices">
+{{range .Providers}}<li class="device{{if .Waiting}} waiting{{end}}" id="p-{{.Name}}">
+<div class="body">
+<p class="top"><span class="device-name">{{.Title}}</span>{{if .HasKey}}<span class="tag">Key set</span>{{end}}</p>
+<p class="device-meta">Serves the {{.Serves}}</p>
+{{if .Waiting}}<p class="device-why">{{.Waiting}}</p>{{end}}
+<p class="device-meta"><span class="addr">{{.BaseURL}}</span> <span class="whole">· secret <code>{{.KeySecret}}</code></span></p>
 {{if .Notice}}<p class="notice" role="status">{{.Notice}}</p>{{end}}
 {{if .Error}}<p class="error" role="alert" id="err-p-{{.Name}}">{{.Error}}</p>{{end}}
-<div class="secret-acts">
-<details class="confirm" name="ai-key"{{if .Error}} open{{end}}><summary class="pill"><span>{{if .HasKey}}Replace key{{else}}Add key{{end}}<span class="sr"> for {{.Title}}</span>…</span></summary>
+</div>
+<details class="confirm" name="ai-key" id="key-{{.Name}}"{{if .Error}} open{{end}}><summary class="pill"><span>{{if .HasKey}}Replace key{{else}}Add key{{end}}<span class="sr"> for {{.Title}}</span><span aria-hidden="true">…</span></span></summary>
 <form method="post" action="/ai#p-{{.Name}}">
 <input type="hidden" name="action" value="key">
 <input type="hidden" name="provider" value="{{.Name}}">
@@ -98,43 +110,49 @@
 </form>
 <p class="hint">It can be replaced, never read back.</p>
 </details>
-</div>
 </li>
 {{end}}</ul>
+</details>
 </section>{{end}}
 
-<section class="panel" aria-labelledby="apps-title" id="apps">
+<section class="panel fold" aria-labelledby="apps-title" id="apps">
 <h2 id="apps-title">Apps</h2>
-<p class="hint">Every app is started with <code>OUTPOST_AI_URL</code> ({{.URL}}) and a token of its own in <code>OUTPOST_AI_TOKEN</code>. Counts are since Outpost last started.</p>
-{{if .Apps}}<ul class="secret-list">
-{{range .Apps}}<li id="a-{{.Name}}">
-<span class="top"><span class="name">{{.Title}}</span></span>
-{{if .Used}}{{range .Used}}<p class="meta">{{.}}</p>{{end}}{{else}}<p class="meta">No requests yet.</p>{{end}}
-{{if .LastError}}<p class="meta">Last error: {{.LastError}}</p>{{end}}
+<details class="ref"{{if .AppsOpen}} open{{end}}><summary><span class="count">{{len .Apps}} {{if eq (len .Apps) 1}}app{{else}}apps{{end}}, each with its own token</span></summary>
+<p class="hint">Outpost gives every app its own token when it starts it, so there's nothing to set up. Below is what each has asked for since Outpost last started.</p>
+{{if .Apps}}<ul class="devices">
+{{range .Apps}}<li class="device" id="a-{{.Name}}">
+<div class="body">
+<p class="top"><span class="device-name">{{.Title}}</span></p>
+{{if .Used}}{{range .Used}}<p class="device-meta">{{.}}</p>{{end}}{{else}}<p class="device-meta">No requests yet.</p>{{end}}
+{{if .LastError}}<p class="device-meta">Last error: {{.LastError}}</p>{{end}}
 {{if .Notice}}<p class="notice" role="status">{{.Notice}}</p>{{end}}
-<div class="secret-acts">
-<details class="confirm" name="ai-app"><summary class="pill"><span>New token<span class="sr"> for {{.Title}}</span>…</span></summary>
-<p>{{.Title}} restarts with a new token, and the one it has stops working.</p>
+</div>
+<details class="confirm" name="ai-app"><summary class="pill quiet"><span>Replace token<span class="sr"> for {{.Title}}</span><span aria-hidden="true">…</span></span></summary>
+<p>Only needed if {{.Title}}'s token got out. Its current token stops working at once, and {{.Title}} restarts with a new one.</p>
 <form method="post" action="/ai#a-{{.Name}}">
 <input type="hidden" name="action" value="regenerate">
 <input type="hidden" name="app" value="{{.Name}}">
-<button class="plain" type="submit"><span>Make a new token for {{.Title}}</span></button>
+<button class="plain" type="submit"><span>Replace {{.Title}}'s token</span></button>
 </form>
 </details>
-</div>
 </li>
 {{end}}</ul>{{else}}<p class="empty">No apps yet.</p>{{end}}
+</details>
 </section>
 
-<section class="panel" aria-labelledby="use-title">
-<h2 id="use-title">Calling them from an app</h2>
-<p class="hint">Use the SDK the app already has, pointed at Outpost, with the token as its API key:</p>
-<ul class="meta-list">
-<li>OpenAI chat: base URL <code>$OUTPOST_AI_URL/openai/v1</code>, model <code>llm</code></li>
-<li>Anthropic messages: base URL <code>$OUTPOST_AI_URL/anthropic</code>, model <code>llm</code></li>
-<li>System 1: <code>POST $OUTPOST_AI_URL/systemone/v1/systemone</code>, model <code>system1</code></li>
+<section class="panel fold" aria-labelledby="use-title">
+<h2 id="use-title">How apps call these</h2>
+<details class="ref"><summary><span class="count">Endpoints</span></summary>
+<p class="hint">Every app is started with <code>OUTPOST_AI_URL</code> ({{.URL}}) and a token of its own in <code>OUTPOST_AI_TOKEN</code>. Use the SDK the app already has, pointed at Outpost, with the token as its API key.</p>
+<ul class="calls">
+<li><span>OpenAI chat, model <code>llm</code></span><code class="cmd">$OUTPOST_AI_URL/openai/v1</code></li>
+<li><span>Anthropic messages, model <code>llm</code></span><code class="cmd">$OUTPOST_AI_URL/anthropic</code></li>
+<li><span>System 1, model <code>system1</code></span><code class="cmd">POST $OUTPOST_AI_URL/systemone/v1/systemone</code></li>
 </ul>
+{{range .Kinds}}{{if .APIsNote}}<p class="hint">{{.APIsNote}}</p>{{end}}{{end}}
+<p class="hint">The LLM generates text. System 1 answers typed questions about an input with probabilities, in one pass.</p>
 <p class="hint">Ollama is at {{.OllamaURL}}. Pulling and removing models stays with <code>ollama pull</code> and <code>ollama rm</code>; this page lists what Ollama has each time it loads{{if .Hosted}}, and each hosted provider's models every ten minutes{{end}}.</p>
+</details>
 </section>{{end}}
 </main>
 {{end}}

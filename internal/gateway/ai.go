@@ -50,6 +50,11 @@ type aiView struct {
 	// Hosted says the hosted providers and app access are offered.
 	Hosted    bool
 	Providers []aiProviderRow
+	// KeysSet counts the providers with a key. The Providers and Apps
+	// sections are folded unless something in them wants attention: a
+	// chosen model with no key, or a notice or error from a form there.
+	KeysSet                 int
+	ProvidersOpen, AppsOpen bool
 }
 
 // aiProviderRow is a hosted provider and its key, for the Providers section.
@@ -61,6 +66,8 @@ type aiProviderRow struct {
 	BaseURL     string
 	Notice      string
 	Error       string
+	// Waiting names the chosen models this provider's missing key stops.
+	Waiting string
 }
 
 // aiHosted is one hosted provider's models for one kind, offered as a list to
@@ -94,6 +101,15 @@ type aiKindRow struct {
 	Error      string
 	// Test is a Test button's result, shown once.
 	Test string
+	// ErrorIn is the pill whose form Error came from, choose or apps, so
+	// that one opens again; a failed Test opens neither.
+	ErrorIn string
+	// SourceOpen is the provider whose source is open under Choose: the
+	// one a failed save was for, else the chosen model's.
+	SourceOpen string
+	// Health is its station's state: up, down (apps asking get an error,
+	// a missing model or key) or unset; HealthWords says it for a reader.
+	Health, HealthWords string
 
 	// With hosted providers: who serves it, what reaches it, and who may.
 	Provider, ProviderTitle string
@@ -178,6 +194,31 @@ func (g *Gateway) renderAI(w http.ResponseWriter, r *http.Request, u auth.User, 
 			Provider: provider, ProviderTitle: ai.ProviderTitle(provider), NoKey: c.NoKey,
 		}
 		row.Source = choiceWords(c)
+		row.SourceOpen = provider
+		// A failed form renders this page in place of the redirect, with
+		// what was posted still to hand: reopen the form it came from.
+		failedSave := row.Error != "" && r.PostForm.Get("kind") == c.Kind && r.PostForm.Get("action") == "save"
+		if row.Error != "" && r.PostForm.Get("kind") == c.Kind {
+			switch r.PostForm.Get("action") {
+			case "save", "reset":
+				row.ErrorIn = "choose"
+			case "apps", "appsreset":
+				row.ErrorIn = "apps"
+			}
+		}
+		if p := r.PostForm.Get("provider"); failedSave && p != "" {
+			row.SourceOpen = p
+		}
+		switch {
+		case row.Model == "":
+			row.Health, row.HealthWords = "unset", "none chosen"
+		case row.Missing || row.NoKey:
+			row.Health, row.HealthWords = "down", "not working"
+		case provider == ai.ProviderOllama && o.ModelsError != "":
+			row.Health, row.HealthWords = "down", "Ollama isn't answering"
+		default:
+			row.Health, row.HealthWords = "up", "chosen"
+		}
 		for _, m := range o.Models {
 			if m.Serves(c.Kind) {
 				row.Options = append(row.Options, aiOption{Name: m.Name, Detail: modelDetail(m), Checked: provider == ai.ProviderOllama && m.Name == c.Model})
@@ -185,10 +226,25 @@ func (g *Gateway) renderAI(w http.ResponseWriter, r *http.Request, u auth.User, 
 		}
 		if hosted {
 			fillHosted(&row, c, o, routes)
+			// Keep what was typed into a hosted save that failed.
+			for i := range row.Hosted {
+				if failedSave && row.Hosted[i].Provider == row.SourceOpen {
+					row.Hosted[i].Current = r.PostForm.Get("model")
+				}
+			}
 		}
 		v.Kinds = append(v.Kinds, row)
 	}
 	if hosted {
+		// The kinds a provider's missing key is holding up, so its row can
+		// say so: the link from a kind's error lands there.
+		waiting := map[string][]string{}
+		for _, k := range v.Kinds {
+			if k.NoKey {
+				waiting[k.Provider] = append(waiting[k.Provider], k.Name)
+				v.ProvidersOpen = true
+			}
+		}
 		for _, p := range o.Providers {
 			if !p.Keyed {
 				continue
@@ -197,10 +253,24 @@ func (g *Gateway) renderAI(w http.ResponseWriter, r *http.Request, u auth.User, 
 			for _, k := range p.Kinds {
 				kinds = append(kinds, ai.KindName(k))
 			}
-			v.Providers = append(v.Providers, aiProviderRow{
+			row := aiProviderRow{
 				Name: p.Name, Title: p.Title, Serves: strings.Join(kinds, " and "), KeySecret: p.KeySecret,
 				HasKey: p.HasKey, BaseURL: p.BaseURL, Notice: notice["provider:"+p.Name], Error: errs["provider:"+p.Name],
-			})
+			}
+			if row.HasKey {
+				v.KeysSet++
+			}
+			if row.Notice != "" || row.Error != "" {
+				v.ProvidersOpen = true
+			}
+			if names := waiting[p.Name]; len(names) > 0 {
+				verb := "is"
+				if len(names) > 1 {
+					verb = "are"
+				}
+				row.Waiting = fmt.Sprintf("The %s %s waiting for this key.", andList(names), verb)
+			}
+			v.Providers = append(v.Providers, row)
 		}
 	}
 	used := map[string][]ai.Usage{}
@@ -209,6 +279,9 @@ func (g *Gateway) renderAI(w http.ResponseWriter, r *http.Request, u auth.User, 
 	}
 	for _, rt := range routes {
 		row := aiAppRow{Name: rt.Name, Title: rt.Title, Notice: notice["app:"+rt.Name]}
+		if row.Notice != "" {
+			v.AppsOpen = true
+		}
 		if row.Title == "" {
 			row.Title = titleCase(rt.Name)
 		}

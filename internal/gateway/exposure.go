@@ -2,8 +2,10 @@ package gateway
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -25,7 +27,14 @@ type Exposure interface {
 // publicView is the Internet access page's state, for the template.
 type publicView struct {
 	Rows []publicRow
+	// Tally is what the internet reaches, in a line: "1 on the internet ·
+	// 1 failing".
+	Tally string
 }
+
+// healthRank orders the rows as the line orders stations: what's failing
+// first, then what's on its way, then what's on the internet, then the rest.
+var healthRank = map[string]int{"down": 0, "starting": 1, "up": 2, "off": 3}
 
 type publicRow struct {
 	Name, Title string
@@ -45,6 +54,10 @@ type publicRow struct {
 	Manifest   string
 	Notice     string
 	Error      string
+	// Health is its station's state: up when the internet reaches it, down
+	// when Funnel is on and failing, starting on the way, off when only the
+	// tailnet can; HealthWords says it for a reader.
+	Health, HealthWords string
 }
 
 func (g *Gateway) publicUser(w http.ResponseWriter, r *http.Request) (auth.User, bool) {
@@ -87,6 +100,19 @@ func (g *Gateway) renderPublic(w http.ResponseWriter, r *http.Request, u auth.Us
 		}
 		row.Paths = strings.Join(rt.PublicPaths, "\n")
 		row.State, row.Live = funnelWords(rt)
+		switch {
+		case !rt.Funnel:
+			row.Health, row.HealthWords = "off", "tailnet only"
+		case row.Live:
+			row.Health, row.HealthWords = "up", "on the internet"
+		case rt.FunnelState == "unavailable":
+			row.Health, row.HealthWords = "down", "Funnel isn't working"
+		case rt.Status != "running":
+			// Not on its way: it waits on the app, which may stay stopped.
+			row.Health, row.HealthWords = "off", "app not running"
+		default:
+			row.Health, row.HealthWords = "starting", "Funnel starting"
+		}
 		if row.Live {
 			for _, p := range rt.PublicPaths {
 				row.URLs = append(row.URLs, "https://"+rt.Host+p)
@@ -99,6 +125,25 @@ func (g *Gateway) renderPublic(w http.ResponseWriter, r *http.Request, u auth.Us
 			row.Paths, row.Funnel = t.Paths, t.Funnel
 		}
 		v.Rows = append(v.Rows, row)
+	}
+	sort.SliceStable(v.Rows, func(i, j int) bool { return healthRank[v.Rows[i].Health] < healthRank[v.Rows[j].Health] })
+	n := map[string]int{}
+	for _, row := range v.Rows {
+		n[row.Health]++
+	}
+	var tally []string
+	if n["up"] > 0 {
+		tally = append(tally, fmt.Sprintf("%d on the internet", n["up"]))
+	}
+	if n["starting"] > 0 {
+		tally = append(tally, fmt.Sprintf("%d starting", n["starting"]))
+	}
+	if n["down"] > 0 {
+		tally = append(tally, fmt.Sprintf("%d failing", n["down"]))
+	}
+	v.Tally = strings.Join(tally, " · ")
+	if v.Tally == "" {
+		v.Tally = "Nothing is on the internet"
 	}
 	g.render(w, r, status, "public", pageData{
 		Title:  "Internet access",

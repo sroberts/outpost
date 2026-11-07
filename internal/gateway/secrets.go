@@ -44,6 +44,11 @@ type secretsView struct {
 	// ErrorFor is the secret a failed form was about, so its row shows the
 	// error; "" is the add form.
 	ErrorFor string
+	// ErrorAction is the form on that row that failed, rotate or apps, so
+	// it opens again with the error beside what was typed.
+	ErrorAction string
+	// Unused counts the secrets no app gets now, for the add form's summary.
+	Unused int
 	// What the add form had, less the value, when it's shown again.
 	Name, Env string
 	Global    bool
@@ -63,6 +68,8 @@ type secretRow struct {
 	Apps      []secretApp // checked where bound by name
 	Notice    string
 	Error     string
+	// ErrorAction is the form Error came from: rotate or apps.
+	ErrorAction string
 }
 
 type secretApp struct {
@@ -165,7 +172,10 @@ func (g *Gateway) renderSecrets(w http.ResponseWriter, r *http.Request, u auth.U
 		}
 		row.Shadowed, row.ShadowedN = listWords(shadowed), len(shadowed)
 		if v.ErrorFor == sec.Name {
-			row.Error = v.Error
+			row.Error, row.ErrorAction = v.Error, v.ErrorAction
+		}
+		if row.ReachN == 0 {
+			v.Unused++
 		}
 		if v.NoticeFor == sec.Name {
 			row.Notice = v.Notice
@@ -258,7 +268,10 @@ func (g *Gateway) secretsSubmit(w http.ResponseWriter, r *http.Request) {
 	f := r.PostForm
 	name := strings.TrimSpace(f.Get("name"))
 	fail := func(about string, err error) {
-		v := secretsView{Error: secretError(err), ErrorFor: about}
+		v := secretsView{Error: secretError(err), ErrorFor: about, ErrorAction: "apps"}
+		if f.Get("action") == "rotate" {
+			v.ErrorAction = "rotate"
+		}
 		if about == "" {
 			v.Name, v.Env, v.Global = name, strings.TrimSpace(f.Get("env")), f.Get("global") != ""
 		}
