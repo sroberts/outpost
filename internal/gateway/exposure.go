@@ -45,6 +45,10 @@ type publicRow struct {
 	Manifest   string
 	Notice     string
 	Error      string
+	// Health is its station's state: up when the internet reaches it, down
+	// when Funnel is on and failing, starting on the way, off when only the
+	// tailnet can; HealthWords says it for a reader.
+	Health, HealthWords string
 }
 
 func (g *Gateway) publicUser(w http.ResponseWriter, r *http.Request) (auth.User, bool) {
@@ -87,6 +91,16 @@ func (g *Gateway) renderPublic(w http.ResponseWriter, r *http.Request, u auth.Us
 		}
 		row.Paths = strings.Join(rt.PublicPaths, "\n")
 		row.State, row.Live = funnelWords(rt)
+		switch {
+		case !rt.Funnel:
+			row.Health, row.HealthWords = "off", "tailnet only"
+		case row.Live:
+			row.Health, row.HealthWords = "up", "on the internet"
+		case rt.FunnelState == "unavailable":
+			row.Health, row.HealthWords = "down", "Funnel isn't working"
+		default:
+			row.Health, row.HealthWords = "starting", "Funnel starting"
+		}
 		if row.Live {
 			for _, p := range rt.PublicPaths {
 				row.URLs = append(row.URLs, "https://"+rt.Host+p)

@@ -455,7 +455,14 @@ button.plain:hover { background: none; border-color: var(--beam); }
 .secret-list > li + li { border-top: 1px solid var(--rule); }
 .secret-list .top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.6rem; }
 .secret-list .name { font-size: 17px; font-weight: 650; overflow-wrap: anywhere; }
-.secret-list .meta { margin: 0; font-size: 14px; color: var(--dim); overflow-wrap: anywhere; }
+/* A sentence, not the station's description-and-address row: the paths in
+   a public row would otherwise be thrown apart. */
+.secret-list .meta { display: block; margin: 0; font-size: 14px; color: var(--dim); overflow-wrap: anywhere; }
+.secret-list .meta.why { color: var(--down-ink); }
+/* Where the internet reaches an app, each whole and copyable in one tap. */
+.secret-list .urls { list-style: none; margin: 0.35rem 0 0; padding: 0; display: grid; gap: 4px; justify-items: start; }
+.secret-list .urls .cmd { margin-top: 0; overflow-wrap: anywhere; }
+.secret-list > li > .notice { margin-top: 0.6rem; }
 .secret-list .error { margin-top: 0.4rem; }
 .secret-acts { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0.5rem; margin-top: 0.6rem; }
 .secret-acts .pill { border-color: var(--field-edge); min-height: 44px; font-size: 14px; }
@@ -481,9 +488,13 @@ button.plain:hover { background: none; border-color: var(--beam); }
    nothing's known wrong, a hollow red ring when apps asking get an error,
    an empty field-edge ring when none is chosen. */
 .ai .kind h2 { display: flex; align-items: center; gap: 0.55rem; }
-.ai .smark { flex: none; width: 16px; height: 16px; border-radius: 50%; border: 4px solid var(--beam); background: var(--porcelain); }
-.ai .smark.down { border-color: var(--down); background: var(--night); }
-.ai .smark.unset { border-color: var(--field-edge); background: var(--night); }
+.smark { flex: none; width: 16px; height: 16px; border-radius: 50%; border: 4px solid var(--beam); background: var(--porcelain); }
+.smark.down { border-color: var(--down); background: var(--night); }
+.smark.unset, .smark.off { border-color: var(--field-edge); background: var(--night); }
+/* On its way: the ring lit and the centre not yet, as a starting station. */
+.smark.starting { background: var(--night); }
+/* Beside a row's name, which sits on a baseline the mark hasn't got. */
+.top > .smark { align-self: center; }
 .ai .kind { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--rule); scroll-margin-top: 1rem; }
 .ai .model { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.6rem; margin: 0.5rem 0 0; }
 .ai .model code { font-size: 17px; overflow-wrap: anywhere; }
@@ -512,12 +523,12 @@ button.plain:hover { background: none; border-color: var(--beam); }
 }
 .ai .source > summary::-webkit-details-marker { display: none; }
 .ai .source > summary .hint { font-weight: 400; }
-.ai .source > summary::after, .ai .ref > summary::after {
+.ai .source > summary::after, .ref > summary::after {
   content: ""; width: 6px; height: 6px; margin: -3px 0.25rem 0 auto;
   border-right: 1.5px solid var(--dim); border-bottom: 1.5px solid var(--dim);
   transform: rotate(45deg); transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
-.ai .source[open] > summary::after, .ai .ref[open] > summary::after { transform: translateY(3px) rotate(-135deg); }
+.ai .source[open] > summary::after, .ref[open] > summary::after { transform: translateY(3px) rotate(-135deg); }
 .ai .source > form { margin: 0.25rem 0 1rem; justify-items: start; }
 .ai .source > .hint { margin: 0 0 0.5rem; }
 .ai .source-off {
@@ -537,7 +548,7 @@ button.plain:hover { background: none; border-color: var(--beam); }
 .ai .device-meta .addr { color: var(--dim); font-size: 12px; }
 .ai .device-meta code { font-size: 12px; }
 /* "secret openai-api-key" wraps as one, never with its name on the next line. */
-.ai .whole { white-space: nowrap; }
+.whole { white-space: nowrap; }
 .ai .device .notice, .ai .device .error { margin-top: 0.4rem; font-size: 14px; }
 .ai .device > .confirm:not([open]) { margin-top: 0.15rem; }
 .ai .device .pill { border-color: var(--field-edge); }
@@ -548,25 +559,25 @@ button.plain:hover { background: none; border-color: var(--beam); }
 .ai .device:has(> .confirm:target) .device-name { text-decoration: underline; text-decoration-color: var(--beam); text-decoration-thickness: 2px; text-underline-offset: 4px; }
 .ai .panel > .hint { margin: 0.4rem 0 0; }
 /* How apps call these: reference, read once, so it stays folded. */
-.ai .ref > summary { display: flex; align-items: center; min-height: 44px; list-style: none; cursor: pointer; }
-.ai .ref > summary::-webkit-details-marker { display: none; }
+.ref > summary { display: flex; align-items: center; min-height: 44px; list-style: none; cursor: pointer; }
+.ref > summary::-webkit-details-marker { display: none; }
 /* A folded section keeps a real heading, outside its summary so readers
    list it; it's laid over the summary's line, which carries what's folded
    in a few words and the chevron at the end. A tap on the heading falls
    through to the summary. */
-.ai .fold { position: relative; }
-.ai .fold > h2 { position: absolute; top: 0.5rem; left: 0; line-height: 44px; pointer-events: none; }
-.ai .fold .ref > summary { justify-content: flex-end; }
-.ai .fold .ref > summary::after { margin-left: 0.6rem; }
-.ai .ref > summary .count { font-size: 14px; color: var(--dim); text-align: right; }
+.fold { position: relative; }
+.fold > h2 { position: absolute; top: 0.5rem; left: 0; line-height: 44px; pointer-events: none; }
+.fold .ref > summary { justify-content: flex-end; }
+.fold .ref > summary::after { margin-left: 0.6rem; }
+.ref > summary .count { font-size: 14px; color: var(--dim); text-align: right; }
 /* Folded sections are a heading line each, so they sit closer together. */
-.page.ai .panel { margin-top: 1rem; padding-top: 0.5rem; }
-.ai .ref[open] { padding-bottom: 0.5rem; }
-.ai .ref > .hint { margin: 0.6rem 0 0; }
+.page .panel.fold { margin-top: 1rem; padding-top: 0.5rem; }
+.ref[open] { padding-bottom: 0.5rem; }
+.ref > .hint { margin: 0.6rem 0 0; }
 .ai .calls { list-style: none; margin: 0.75rem 0 0; padding: 0; display: grid; gap: 0.75rem; }
 .ai .calls li { display: grid; gap: 2px; font-size: 14px; color: var(--dim); }
 .ai .calls .cmd { overflow-wrap: anywhere; }
 @media (prefers-reduced-motion: reduce) {
-  .ai .source > summary::after, .ai .ref > summary::after { transition: none; }
+  .ai .source > summary::after, .ref > summary::after { transition: none; }
 }
 
