@@ -7,14 +7,15 @@
     d.open = false;
     d.querySelector("summary").focus();
   }
-  document.querySelectorAll("details.confirm > form").forEach(function (form) {
-    var d = form.parentElement;
+  // One Cancel a confirmation, at its foot, however many forms it holds.
+  document.querySelectorAll("details.confirm").forEach(function (d) {
+    if (!d.querySelector("form")) return;
     var cancel = document.createElement("button");
     cancel.type = "button";
     cancel.className = "plain cancel";
     cancel.textContent = "Cancel";
     cancel.addEventListener("click", function () { close(d); });
-    form.after(cancel);
+    d.append(cancel);
   });
   document.addEventListener("keydown", function (e) {
     if (e.key !== "Escape") return;

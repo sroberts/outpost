@@ -4,23 +4,26 @@
 <p class="back"><a href="{{.Home}}">Back to apps</a></p>
 <h1>Internet access</h1>
 {{with .Public}}<p class="lede">An app's public paths skip the login. With Funnel on, Tailscale also answers them from the internet, for webhooks. What you set here wins over the app's manifest.</p>
-{{if .Rows}}<ul class="secret-list">
+{{if .Rows}}<p class="tally">{{.Tally}}</p>
+<ul class="secret-list">
 {{range .Rows}}<li id="p-{{.Name}}">
-<span class="top"><span class="smark {{.Health}}" aria-hidden="true"></span><span class="name">{{.Title}}</span>{{if .Live}}<span class="tag">Public</span>{{end}}<span class="sr"> ({{.HealthWords}})</span></span>
-<p class="meta">{{if .PathList}}Public paths: {{range $i, $p := .PathList}}{{if $i}}, {{end}}<code>{{$p}}</code>{{end}}{{else}}No public paths{{end}}</p>
-<p class="meta{{if eq .Health "down"}} why{{end}}">{{.State}}</p>
+<div class="top"><span class="smark {{.Health}}" aria-hidden="true"></span><h2 class="name">{{.Title}}<span class="sr"> ({{.HealthWords}})</span></h2></div>
+{{if .PathList}}<p class="meta">Public paths: {{range $i, $p := .PathList}}{{if $i}}, {{end}}<code>{{$p}}</code>{{end}}</p>{{else if .Funnel}}<p class="meta">No public paths</p>{{end}}
+<p class="meta{{if eq .Health "down"}} why{{end}}">{{.State}}{{if eq .Health "down"}} <a href="#how">What Funnel needs</a>{{end}}</p>
 {{if .URLs}}<ul class="urls">{{range .URLs}}<li><code class="cmd">{{.}}</code></li>{{end}}</ul>{{end}}
 {{if .FromPortal}}<p class="meta">{{.Manifest}}</p>{{end}}
-{{if .Error}}<p class="error" role="alert" id="err-{{.Name}}">{{.Error}}</p>{{end}}
 <div class="secret-acts">
 <details class="confirm"{{if .Error}} open{{end}}><summary class="pill"><span>Change<span class="sr"> {{.Title}}</span><span aria-hidden="true">…</span></span></summary>
+<div class="pick">
+{{if .Error}}<p class="error" role="alert" id="err-{{.Name}}">{{.Error}}</p>{{end}}
 <form method="post" action="/public#p-{{.Name}}">
 <input type="hidden" name="action" value="save">
 <input type="hidden" name="app" value="{{.Name}}">
-<label>Public paths <span class="hint">one per line, such as /webhooks/github or /hooks/*</span>
-<textarea name="paths" rows="3" autocomplete="off" autocapitalize="off" spellcheck="false"{{if .Error}} aria-describedby="err-{{.Name}}"{{end}}>{{.Paths}}</textarea>
-</label>
+<label for="paths-{{.Name}}">Public paths</label>
+<textarea id="paths-{{.Name}}" name="paths" rows="4" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="paths-hint-{{.Name}}{{if .Error}} err-{{.Name}}{{end}}">{{.Paths}}</textarea>
+<p class="hint field-hint" id="paths-hint-{{.Name}}">One per line, such as <code>/webhooks/github</code> or <code>/hooks/*</code>.</p>
 {{if .CanFunnel}}<label class="check"><input type="checkbox" name="funnel" value="1"{{if .Funnel}} checked{{end}}> Answer them from the internet, through Funnel</label>
+<p class="hint">With Funnel on, anyone on the internet can reach these paths at {{.Title}}'s address, and nothing else of it.</p>
 {{else}}<p class="hint">Funnel needs the app on the tailnet, with a <code>tailscale_name</code>.</p>{{end}}
 <button type="submit"><span>Save {{.Title}}</span></button>
 </form>
@@ -29,6 +32,7 @@
 <input type="hidden" name="app" value="{{.Name}}">
 <button class="plain" type="submit"><span>Use the manifest's setting for {{.Title}}</span></button>
 </form>{{end}}
+</div>
 </details>
 </div>
 {{if .Notice}}<p class="notice" role="status">{{.Notice}}</p>{{end}}
@@ -37,7 +41,7 @@
 {{else}}<p class="empty">No apps yet.</p>{{end}}
 <section class="panel fold" aria-labelledby="how-title">
 <h2 id="how-title">How Funnel works</h2>
-<details class="ref"><summary><span class="count">What's reachable</span></summary>
+<details class="ref" id="how"><summary><span class="count">What's reachable</span></summary>
 <p class="hint">Only an app's public paths are reachable from the internet, at the app's own address; nothing else of the app, and nothing of the portal. The app still has to check each webhook's signature.</p>
 <p class="hint">Funnel needs the <code>funnel</code> attribute for the app's node in your tailnet policy, and HTTPS turned on for the tailnet. Without them it shows as unavailable, with Tailscale's reason.</p>
 </details>

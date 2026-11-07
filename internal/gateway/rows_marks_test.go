@@ -3,6 +3,8 @@ package gateway
 import (
 	"strings"
 	"testing"
+
+	"github.com/sroberts/outpost/internal/supervisor"
 )
 
 // listRow is the markup of the list row with id, up to its end.
@@ -67,5 +69,51 @@ func TestSecretsPage_MarksUseAndFoldsTheAddForm(t *testing.T) {
 	}
 	if strings.Contains(b, `<details class="ref" open>`) {
 		t.Error("with a secret to show, the add form is still open")
+	}
+}
+
+// A failed replace opens its form again, with the error tied to the field,
+// rather than leaving it above closed pills.
+func TestSecretsPage_AFailedReplaceReopensItsForm(t *testing.T) {
+	h, _ := secretsHarness(t)
+	c := h.client(true)
+	h.login(c, "root", "", "/")
+	h.post(c, portal+"/secrets", portal, map[string][]string{"action": {"create"}, "name": {"k"}, "value": {"x"}})
+	b := body(t, h.post(c, portal+"/secrets", portal, map[string][]string{"action": {"rotate"}, "name": {"k"}, "value": {""}}))
+	row := listRow(t, b, "s-k")
+	if !strings.Contains(row, `name="secret-k" open><summary class="pill"><span>Replace value`) {
+		t.Errorf("the failed replace isn't open:\n%s", row)
+	}
+	if !strings.Contains(row, `aria-describedby="err-s-k"`) || !strings.Contains(row, `id="err-s-k"`) {
+		t.Errorf("the error isn't tied to the field:\n%s", row)
+	}
+}
+
+// What's failing comes first, the page says in a line what the internet
+// reaches, and a failing row links to what Funnel needs.
+func TestPublicPage_FailingFirstWithATally(t *testing.T) {
+	h, _ := exposureHarness(t)
+	h.withServices(
+		supervisor.ServiceStatus{Name: "tasking", Status: "running", TailscaleName: "tasking", Funnel: true,
+			PublicPaths: []string{"/webhooks/github"},
+			Tailnet:     &supervisor.TailnetStatus{State: supervisor.TailnetOn, Funnel: supervisor.FunnelOn}},
+		supervisor.ServiceStatus{Name: "yarr", Status: "running", TailscaleName: "yarr", Funnel: true,
+			PublicPaths: []string{"/hooks"},
+			Tailnet:     &supervisor.TailnetStatus{State: supervisor.TailnetOn, Funnel: supervisor.FunnelUnavailable, FunnelError: "no funnel attribute"}},
+	)
+	c := h.client(true)
+	h.login(c, "root", "", "/")
+	b := body(t, h.get(c, portal+"/public"))
+	if !strings.Contains(b, "1 on the internet · 1 failing") {
+		t.Error("no tally of what the internet reaches")
+	}
+	if y, k := strings.Index(b, `id="p-yarr"`), strings.Index(b, `id="p-tasking"`); y < 0 || k < 0 || y > k {
+		t.Error("the failing app isn't first")
+	}
+	if row := listRow(t, b, "p-yarr"); !strings.Contains(row, `<a href="#how">What Funnel needs</a>`) {
+		t.Errorf("the failing row doesn't link to what Funnel needs:\n%s", row)
+	}
+	if strings.Contains(b, `class="tag">Public`) {
+		t.Error("the PUBLIC tag is back")
 	}
 }

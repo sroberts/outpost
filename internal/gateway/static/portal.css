@@ -346,6 +346,8 @@ button.plain:hover { background: none; border-color: var(--beam); }
 .confirm p { margin: 0.6rem 0 0; font-size: 14px; color: var(--dim); }
 .confirm form { margin-top: 0.6rem; justify-items: start; }
 .confirm .hint { margin-top: 0.5rem; font-size: 13px; }
+/* An error inside a confirmation is still an error, not its quiet prose. */
+.confirm p.error { color: var(--down-ink); font-weight: 550; }
 .pill.danger { color: var(--down-ink); }
 .act-note { margin: 0.25rem 0 0; font-size: 14px; color: var(--porcelain); }
 .act-note.failed { color: var(--down-ink); overflow-wrap: anywhere; }
@@ -463,19 +465,31 @@ button.plain:hover { background: none; border-color: var(--beam); }
 .secret-list .urls { list-style: none; margin: 0.35rem 0 0; padding: 0; display: grid; gap: 4px; justify-items: start; }
 .secret-list .urls .cmd { margin-top: 0; overflow-wrap: anywhere; }
 .secret-list > li > .notice { margin-top: 0.6rem; }
+/* The row's own rule closes an open panel; a second one would double it. */
+.secret-list .pick { border-bottom: 0; padding-bottom: 0; }
 .secret-list .error { margin-top: 0.4rem; }
 .secret-acts { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0.5rem; margin-top: 0.6rem; }
 .secret-acts .pill { border-color: var(--field-edge); min-height: 44px; font-size: 14px; }
 .secret-acts .pill:hover { border-color: var(--beam); }
-.secret-acts form { max-width: 26rem; }
+.secret-acts form { max-width: 34rem; }
+/* A confirmation's fields take the column, up to a readable width. */
+.secret-acts .confirm form > label, .secret-acts .confirm form > input, .secret-acts .confirm form > textarea { width: 100%; }
+/* A label set apart from its field, so the hint beneath can describe it
+   without becoming part of its name, keeps the label's own spacing. */
+form > label[for] + input, form > label[for] + textarea { margin-top: -0.65rem; }
+form > .hint.field-hint { margin: -0.65rem 0 0; }
+.secret-list .top { display: flex; }
+.secret-list h2.name { margin: 0; letter-spacing: 0; line-height: 1.2; }
+.public .tally { margin: 0.75rem 0 0; }
+.secret-list .meta.why a { color: inherit; text-decoration-color: currentColor; font-weight: 550; }
 #add { scroll-margin-top: 1rem; }
-.secrets fieldset.apps, .ai fieldset.models { display: grid; gap: 0; margin: 0; padding: 0; border: 0; min-width: 0; }
-.secrets fieldset.apps legend, .ai fieldset.models legend { padding: 0; margin-bottom: 0.25rem; font-weight: 550; font-size: 15px; }
-.secrets label.check, .ai label.check {
+fieldset.apps, fieldset.models { display: grid; gap: 0; margin: 0; padding: 0; border: 0; min-width: 0; }
+fieldset.apps legend, fieldset.models legend { padding: 0; margin-bottom: 0.25rem; font-weight: 550; font-size: 15px; }
+label.check {
   display: flex; align-items: center; gap: 0.65rem; min-height: 44px;
   font-weight: 400; cursor: pointer;
 }
-.secrets label.check input, .ai label.check input {
+label.check input {
   flex: none; width: 20px; height: 20px; min-height: 0; padding: 0; margin: 0;
   accent-color: var(--lamp);
 }
@@ -509,10 +523,10 @@ button.plain:hover { background: none; border-color: var(--beam); }
 .ai .secret-acts > form { margin: 0; }
 .ai button.pill { font-weight: 400; }
 .ai .kind > .notice { margin-top: 0.6rem; }
-.ai .pick { margin-top: 0.75rem; border-bottom: 1px solid var(--rule); padding-bottom: 1rem; }
-.ai .pick > form { margin-top: 0; justify-items: start; }
-.ai .pick > form.undo { margin-top: 1rem; }
-.ai .pick .hint { margin: 0; }
+.pick { margin-top: 0.75rem; border-bottom: 1px solid var(--rule); padding-bottom: 1rem; }
+.pick > form { margin-top: 0; justify-items: start; }
+.pick > form.undo { margin-top: 1rem; }
+.pick .hint { margin: 0; }
 .ai fieldset.models + .hint { margin-top: -0.25rem; }
 /* One source open at a time, Ollama first; a hosted one with no key is a
    line pointing at where its key goes. */
