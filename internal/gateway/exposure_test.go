@@ -72,7 +72,7 @@ func TestAppSettings_ShowWhatTheInternetReaches(t *testing.T) {
 		"https://tasking.tail.ts.net/webhooks/github",
 		"On: the internet reaches these paths",
 		"Set here, over the manifest, which has Funnel off and public paths /old.",
-		"Use the manifest's setting for Tasking",
+		"Use the manifest's setting<span class=\"sr\"> for Tasking",
 	} {
 		if !strings.Contains(tasking, want) {
 			t.Errorf("tasking's panel lacks %q:\n%s", want, tasking)

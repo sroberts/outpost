@@ -73,9 +73,9 @@ func TestAIPage_OllamaDownMarksItsModelsDown(t *testing.T) {
 	}
 }
 
-// Each app's internet access carries a mark: on the internet, failing (with
-// what Funnel needs), or tailnet only, which an app that's stopped is too,
-// rather than forever starting.
+// Each app's internet access says how it stands on its line: on the
+// internet, failing in red (with what Funnel needs), or not running, rather
+// than forever starting.
 func TestAppSettings_InternetAccessMarks(t *testing.T) {
 	h, _ := exposureHarness(t)
 	h.withServices(
@@ -95,7 +95,11 @@ func TestAppSettings_InternetAccessMarks(t *testing.T) {
 		p := b[strings.Index(b, `id="set-public-`+app+`"`):]
 		return p[:strings.Index(p, "</details>")]
 	}
-	for app, want := range map[string]string{"tasking": `smark up`, "yarr": `smark down`, "notes": `smark off`} {
+	for app, want := range map[string]string{
+		"tasking": `<span class="count">on the internet</span>`,
+		"yarr":    `<span class="count why">Funnel isn&#39;t working</span>`,
+		"notes":   `<span class="count">app not running</span>`,
+	} {
 		if p := panel(app); !strings.Contains(p, want) {
 			t.Errorf("%s lacks %s:\n%s", app, want, p)
 		}

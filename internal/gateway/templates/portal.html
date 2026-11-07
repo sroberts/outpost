@@ -64,10 +64,9 @@
 {{with .Settings}}{{template "settings" .}}{{end}}
 </details>{{end}}{{end}}
 {{define "settings"}}{{$a := .}}<div class="app-set">
-{{with .Public}}<details class="setting" name="set-{{$a.Name}}" id="set-public-{{$a.Name}}"{{if eq $a.Open "public"}} open{{end}}><summary><span class="smark {{.Health}}" aria-hidden="true"></span><span class="set-name">Internet access</span><span class="count">{{.HealthWords}}</span></summary>
+{{with .Public}}<details class="setting" name="set-{{$a.Name}}" id="set-public-{{$a.Name}}"{{if eq $a.Open "public"}} open{{end}}><summary><span class="set-name">Internet access</span><span class="count{{if eq .Health "down"}} why{{end}}">{{.HealthWords}}</span></summary>
 <div class="set-body">
 {{if eq $a.Open "public"}}{{template "flash" $a}}{{end}}
-{{if .PathList}}<p class="meta">Public paths: {{range $i, $p := .PathList}}{{if $i}}, {{end}}<code>{{$p}}</code>{{end}}</p>{{end}}
 <p class="meta{{if eq .Health "down"}} why{{end}}">{{.State}}</p>
 {{if eq .Health "down"}}<p class="hint">Funnel needs the <code>funnel</code> attribute for this app's node in your tailnet policy, and HTTPS turned on for the tailnet.</p>{{end}}
 {{if .URLs}}<ul class="urls">{{range .URLs}}<li><code class="cmd">{{.}}</code></li>{{end}}</ul>{{end}}
@@ -86,7 +85,7 @@
 {{if .FromPortal}}<form class="undo" method="post" action="/settings">
 <input type="hidden" name="action" value="public-reset">
 <input type="hidden" name="app" value="{{$a.Name}}">
-<button class="plain" type="submit"><span>Use the manifest's setting for {{$a.Title}}</span></button>
+<button class="plain" type="submit"><span>Use the manifest's setting<span class="sr"> for {{$a.Title}}</span></span></button>
 </form>{{end}}
 </div>
 </details>{{end}}
@@ -150,7 +149,7 @@
 <input type="hidden" name="action" value="ai-access">
 <input type="hidden" name="app" value="{{$a.Name}}">
 <fieldset class="models"><legend>What {{$a.Title}} may use</legend>
-{{range .Kinds}}<label class="check"><input type="checkbox" name="kind" value="{{.Kind}}"{{if .Allowed}} checked{{end}}> <span>The {{.Name}}{{if .Model}} <code class="hint">{{.Model}}</code>{{else}} <span class="hint">none chosen</span>{{end}}</span></label>
+{{range .Kinds}}<label class="check"><input type="checkbox" name="kind" value="{{.Kind}}"{{if .Allowed}} checked{{end}}> <span>{{.Name}}{{if .Model}} <code class="hint">{{.Model}}</code>{{else}} <span class="hint">none chosen</span>{{end}}</span></label>
 {{end}}</fieldset>
 <button type="submit"><span>Save<span class="sr"> what {{$a.Title}} may use</span></span></button>
 </form>{{end}}
