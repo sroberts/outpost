@@ -478,7 +478,6 @@ button.plain:hover { background: none; border-color: var(--beam); }
    without becoming part of its name, keeps the label's own spacing. */
 form > label[for] + input, form > label[for] + textarea { margin-top: -0.65rem; }
 form > .hint.field-hint { margin: -0.65rem 0 0; }
-.secret-list .top { display: flex; }
 .secret-list h2.name { margin: 0; letter-spacing: 0; line-height: 1.2; }
 .public .tally { margin: 0.75rem 0 0; }
 .secret-list .meta.why a { color: inherit; text-decoration-color: currentColor; font-weight: 550; }

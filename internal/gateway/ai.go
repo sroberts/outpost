@@ -101,6 +101,12 @@ type aiKindRow struct {
 	Error      string
 	// Test is a Test button's result, shown once.
 	Test string
+	// ErrorIn is the pill whose form Error came from, choose or apps, so
+	// that one opens again; a failed Test opens neither.
+	ErrorIn string
+	// SourceOpen is the provider whose source is open under Choose: the
+	// one a failed save was for, else the chosen model's.
+	SourceOpen string
 	// Health is its station's state: up, down (apps asking get an error,
 	// a missing model or key) or unset; HealthWords says it for a reader.
 	Health, HealthWords string
@@ -188,11 +194,28 @@ func (g *Gateway) renderAI(w http.ResponseWriter, r *http.Request, u auth.User, 
 			Provider: provider, ProviderTitle: ai.ProviderTitle(provider), NoKey: c.NoKey,
 		}
 		row.Source = choiceWords(c)
+		row.SourceOpen = provider
+		// A failed form renders this page in place of the redirect, with
+		// what was posted still to hand: reopen the form it came from.
+		failedSave := row.Error != "" && r.PostForm.Get("kind") == c.Kind && r.PostForm.Get("action") == "save"
+		if row.Error != "" && r.PostForm.Get("kind") == c.Kind {
+			switch r.PostForm.Get("action") {
+			case "save", "reset":
+				row.ErrorIn = "choose"
+			case "apps", "appsreset":
+				row.ErrorIn = "apps"
+			}
+		}
+		if p := r.PostForm.Get("provider"); failedSave && p != "" {
+			row.SourceOpen = p
+		}
 		switch {
 		case row.Model == "":
 			row.Health, row.HealthWords = "unset", "none chosen"
 		case row.Missing || row.NoKey:
 			row.Health, row.HealthWords = "down", "not working"
+		case provider == ai.ProviderOllama && o.ModelsError != "":
+			row.Health, row.HealthWords = "down", "Ollama isn't answering"
 		default:
 			row.Health, row.HealthWords = "up", "chosen"
 		}
@@ -203,6 +226,12 @@ func (g *Gateway) renderAI(w http.ResponseWriter, r *http.Request, u auth.User, 
 		}
 		if hosted {
 			fillHosted(&row, c, o, routes)
+			// Keep what was typed into a hosted save that failed.
+			for i := range row.Hosted {
+				if failedSave && row.Hosted[i].Provider == row.SourceOpen {
+					row.Hosted[i].Current = r.PostForm.Get("model")
+				}
+			}
 		}
 		v.Kinds = append(v.Kinds, row)
 	}

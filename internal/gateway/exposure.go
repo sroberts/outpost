@@ -107,6 +107,9 @@ func (g *Gateway) renderPublic(w http.ResponseWriter, r *http.Request, u auth.Us
 			row.Health, row.HealthWords = "up", "on the internet"
 		case rt.FunnelState == "unavailable":
 			row.Health, row.HealthWords = "down", "Funnel isn't working"
+		case rt.Status != "running":
+			// Not on its way: it waits on the app, which may stay stopped.
+			row.Health, row.HealthWords = "off", "app not running"
 		default:
 			row.Health, row.HealthWords = "starting", "Funnel starting"
 		}

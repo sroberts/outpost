@@ -117,3 +117,32 @@ func TestPublicPage_FailingFirstWithATally(t *testing.T) {
 		t.Error("the PUBLIC tag is back")
 	}
 }
+
+// With Ollama not answering, a model it serves is marked down, not chosen.
+func TestAIPage_OllamaDownMarksItsModelsDown(t *testing.T) {
+	h, f := aiHarness(t)
+	f.unreachable = true
+	c := h.client(true)
+	h.login(c, "root", "", "/")
+	b := body(t, h.get(c, portal+"/ai"))
+	llm := b[strings.Index(b, `id="k-llm"`):strings.Index(b, `id="k-system1"`)]
+	if !strings.Contains(llm, `<span class="smark down"`) || !strings.Contains(llm, "(Ollama isn&#39;t answering)") {
+		t.Errorf("the LLM looks fine while Ollama is down:\n%s", llm)
+	}
+}
+
+// An app with Funnel on that isn't running is off, not forever starting.
+func TestPublicPage_AStoppedAppIsntStarting(t *testing.T) {
+	h, _ := exposureHarness(t)
+	h.withServices(supervisor.ServiceStatus{Name: "tasking", Status: "stopped", TailscaleName: "tasking", Funnel: true,
+		PublicPaths: []string{"/webhooks/github"}})
+	c := h.client(true)
+	h.login(c, "root", "", "/")
+	b := body(t, h.get(c, portal+"/public"))
+	if row := listRow(t, b, "p-tasking"); !strings.Contains(row, `<span class="smark off"`) {
+		t.Errorf("a stopped app isn't off:\n%s", row)
+	}
+	if strings.Contains(b, "starting") {
+		t.Error("a stopped app is counted as starting")
+	}
+}

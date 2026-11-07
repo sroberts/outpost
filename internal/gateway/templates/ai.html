@@ -15,9 +15,9 @@
 {{if .NoKey}}<p class="error">Outpost has no API key for {{.ProviderTitle}}, so apps asking for the {{.Name}} get an error. <a href="#key-{{.Provider}}">Add {{.ProviderTitle}}'s key</a></p>{{end}}
 {{if .Error}}<p class="error" role="alert" id="err-{{.Kind}}">{{.Error}}</p>{{end}}
 <div class="secret-acts">
-{{if or .Options .Hosted}}<details class="confirm" name="ai-{{.Kind}}"{{if .Error}} open{{end}}><summary class="pill"><span>Choose<span class="sr"> the {{.Name}}</span><span aria-hidden="true">…</span></span></summary>
+{{if or .Options .Hosted}}<details class="confirm" name="ai-{{.Kind}}"{{if eq .ErrorIn "choose"}} open{{end}}><summary class="pill"><span>Choose<span class="sr"> the {{.Name}}</span><span aria-hidden="true">…</span></span></summary>
 <div class="pick">
-{{if .Options}}{{if $.AI.Hosted}}<details class="source" name="src-{{.Kind}}"{{if eq .Provider "ollama"}} open{{end}}><summary>Ollama <span class="hint">on this machine</span></summary>{{end}}
+{{if .Options}}{{if $.AI.Hosted}}<details class="source" name="src-{{.Kind}}"{{if eq .SourceOpen "ollama"}} open{{end}}><summary>Ollama <span class="hint">on this machine</span></summary>{{end}}
 <form method="post" action="/ai#k-{{.Kind}}">
 <input type="hidden" name="action" value="save">
 <input type="hidden" name="kind" value="{{.Kind}}">
@@ -29,7 +29,7 @@
 </form>
 {{if $.AI.Hosted}}</details>{{end}}{{else if and $.AI.Hosted (not $.AI.OllamaError)}}<p class="source-off">Ollama has no {{.Name}} models.</p>{{end}}
 {{range .Hosted}}{{if .NeedsKey}}<p class="source-off">{{.Title}} <a href="#key-{{.Provider}}">Add {{.Title}}'s API key under Providers</a></p>
-{{else}}<details class="source" name="src-{{$k.Kind}}"{{if .Current}} open{{end}}><summary>{{.Title}}</summary>
+{{else}}<details class="source" name="src-{{$k.Kind}}"{{if eq .Provider $k.SourceOpen}} open{{end}}><summary>{{.Title}}</summary>
 {{if .Error}}<p class="hint">{{.Error}}</p>{{end}}
 <form method="post" action="/ai#k-{{$k.Kind}}">
 <input type="hidden" name="action" value="save">
@@ -49,7 +49,7 @@
 </form>{{end}}
 </div>
 </details>
-{{if $.AI.Hosted}}<details class="confirm" name="ai-{{.Kind}}"><summary class="pill"><span>Apps<span class="sr"> for the {{.Name}}</span><span aria-hidden="true">…</span></span></summary>
+{{if $.AI.Hosted}}<details class="confirm" name="ai-{{.Kind}}"{{if eq .ErrorIn "apps"}} open{{end}}><summary class="pill"><span>Apps<span class="sr"> for the {{.Name}}</span><span aria-hidden="true">…</span></span></summary>
 <div class="pick">
 <form method="post" action="/ai#k-{{.Kind}}">
 <input type="hidden" name="action" value="apps">
