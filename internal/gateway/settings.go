@@ -104,9 +104,13 @@ func (g *Gateway) settle(ctx context.Context, sts []station, fl *settingsFlash) 
 	if g.exposure == nil && g.secrets == nil && !canAI {
 		return
 	}
+	// The apps' names and titles from the routes the gateway already holds,
+	// rather than asking the daemon again on every load.
 	var apps []secretApp
 	if g.secrets != nil {
-		apps = g.secretApps(ctx)
+		for _, rt := range g.routes.all() {
+			apps = append(apps, secretApp{Name: rt.Name, Title: firstNonEmpty(rt.Title, titleCase(rt.Name))})
+		}
 	}
 	var usage map[string][]ai.Usage
 	var choices []ai.Choice
@@ -286,7 +290,8 @@ func (g *Gateway) settingsSubmit(w http.ResponseWriter, r *http.Request) {
 		}
 		// So the page it lands on shows what was just set.
 		g.refreshRoutes(r.Context())
-		http.Redirect(w, r, "/?"+q.Encode()+"#app-"+url.QueryEscape(app), http.StatusSeeOther)
+		// Onto the outcome, which takes focus, as an action lands on its note.
+		http.Redirect(w, r, "/?"+q.Encode()+"#set-note-"+url.QueryEscape(app), http.StatusSeeOther)
 	}
 	record := func(kind, format string, v ...any) {
 		what := fmt.Sprintf(format, v...)
