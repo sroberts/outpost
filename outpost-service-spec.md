@@ -268,9 +268,11 @@ The manifest is a plaintext TOML file on disk. Anything in `env` is readable by
 anyone who can read `~/.outpost/services/`. Put a credential in an Outpost
 secret instead (`outpost secret set`, or your app's Secrets under its Manage menu in the portal) and it
 reaches you as an ordinary environment variable, under whatever name you
-document, without being in the manifest.
+document, without being in the manifest. The operator can give a secret to your
+app alone, or share one with every app; when both set the same variable, the
+one given to your app wins.
 
-Read it once at startup. When the operator rotates a secret, Outpost restarts
+Read it once at startup. When the operator replaces a secret's value, Outpost restarts
 you with the new value rather than changing anything under a running process,
 so you don't need to watch for it; you do need to start cleanly when that
 happens, which section 6 already asks. Like anything else in your environment,
@@ -1129,5 +1131,5 @@ more context than the answer needs, and prefer the System 1 model, which is
 far cheaper, wherever a typed answer will do. Each request is one line in the
 daemon's log: your service, the kind, the provider and model, the status, the
 time taken and the token counts. Prompts and replies are never logged. The
-operator sees your request counts on the portal's AI models page, and decides
-which apps may use each kind.
+operator sees your request counts under your app's Manage menu in the portal,
+and decides there, or on the AI models page, which apps may use each kind.
