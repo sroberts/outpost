@@ -157,6 +157,10 @@ h2 { font-size: 19px; font-weight: 680; }
   border-radius: 3px; padding: 2px 6px; align-self: center;
 }
 .tag { color: var(--dim); border: 1px solid var(--rule); }
+/* A badge that's a link sits above the row's stretched link, so a tap on it
+   lands on it; its target reaches past the 44px floor as the tally's do. */
+.top > a.tag { position: relative; z-index: 2; text-decoration-color: var(--beam); }
+.top > a.tag::before { content: ""; position: absolute; inset: -14px -8px; }
 
 /* Starting: the station half lit, on its way back. */
 .starting .mark { background: var(--night); }
@@ -457,35 +461,35 @@ button.plain:hover { background: none; border-color: var(--beam); }
 
 /* Secrets: a row a secret, its variable beside its name, and its three
    actions opening beneath it. Values are only ever typed in here. */
-.secret-list { list-style: none; margin: 1.25rem 0 0; padding: 0; }
-.secret-list > li { display: grid; gap: 3px; padding: 1rem 0; scroll-margin-top: 1rem; }
-.secret-list > li + li { border-top: 1px solid var(--rule); }
-.secret-list .top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.6rem; }
-.secret-list .name { font-size: 17px; font-weight: 650; overflow-wrap: anywhere; }
+.rows { list-style: none; margin: 1.25rem 0 0; padding: 0; }
+.rows > li { display: grid; gap: 3px; padding: 1rem 0; scroll-margin-top: 1rem; }
+.rows > li + li { border-top: 1px solid var(--rule); }
+.rows .top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.6rem; }
+.rows .name { font-size: 17px; font-weight: 650; overflow-wrap: anywhere; }
 /* A sentence, not the station's description-and-address row: the paths in
    a public row would otherwise be thrown apart. */
-.secret-list .meta { display: block; margin: 0; font-size: 14px; color: var(--dim); overflow-wrap: anywhere; }
-.secret-list .meta.why { color: var(--down-ink); }
+.rows .meta { display: block; margin: 0; font-size: 14px; color: var(--dim); overflow-wrap: anywhere; }
+.rows .meta.why { color: var(--down-ink); }
 /* Where the internet reaches an app, each whole and copyable in one tap. */
-.secret-list .urls { list-style: none; margin: 0.35rem 0 0; padding: 0; display: grid; gap: 4px; justify-items: start; }
-.secret-list .urls .cmd { margin-top: 0; overflow-wrap: anywhere; }
-.secret-list > li > .notice { margin-top: 0.6rem; }
+.rows .urls { list-style: none; margin: 0.35rem 0 0; padding: 0; display: grid; gap: 4px; justify-items: start; }
+.rows .urls .cmd { margin-top: 0; overflow-wrap: anywhere; }
+.rows > li > .notice { margin-top: 0.6rem; }
 /* The row's own rule closes an open panel; a second one would double it. */
-.secret-list .pick { border-bottom: 0; padding-bottom: 0; }
-.secret-list .error { margin-top: 0.4rem; }
-.secret-acts { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0.5rem; margin-top: 0.6rem; }
-.secret-acts .pill { border-color: var(--field-edge); min-height: 44px; font-size: 14px; }
-.secret-acts .pill:hover { border-color: var(--beam); }
-.secret-acts form { max-width: 34rem; }
+.rows .pick { border-bottom: 0; padding-bottom: 0; }
+.rows .error { margin-top: 0.4rem; }
+.row-acts { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0.5rem; margin-top: 0.6rem; }
+.row-acts .pill { border-color: var(--field-edge); min-height: 44px; font-size: 14px; }
+.row-acts .pill:hover { border-color: var(--beam); }
+.row-acts form { max-width: 34rem; }
 /* A confirmation's fields take the column, up to a readable width. */
-.secret-acts .confirm form > label, .secret-acts .confirm form > input, .secret-acts .confirm form > textarea { width: 100%; }
+.row-acts .confirm form > label, .row-acts .confirm form > input, .row-acts .confirm form > textarea { width: 100%; }
 /* A label set apart from its field, so the hint beneath can describe it
    without becoming part of its name, keeps the label's own spacing. */
 form > label[for] + input, form > label[for] + textarea { margin-top: -0.65rem; }
 form > .hint.field-hint { margin: -0.65rem 0 0; }
-.secret-list h2.name { margin: 0; letter-spacing: 0; line-height: 1.2; }
+.rows h2.name { margin: 0; letter-spacing: 0; line-height: 1.2; }
 .public .tally { margin: 0.75rem 0 0; }
-.secret-list .meta.why a { color: inherit; text-decoration-color: currentColor; font-weight: 550; }
+.rows .meta.why a { color: inherit; text-decoration-color: currentColor; font-weight: 550; }
 #add { scroll-margin-top: 1rem; }
 fieldset.apps, fieldset.models { display: grid; gap: 0; margin: 0; padding: 0; border: 0; min-width: 0; }
 fieldset.apps legend, fieldset.models legend { padding: 0; margin-bottom: 0.25rem; font-weight: 550; font-size: 15px; }
@@ -523,8 +527,8 @@ label.check input {
 .ai .kind > .error a { font-weight: 550; }
 .ai .error a { color: inherit; text-decoration-color: currentColor; }
 /* Every control in the row is a pill, the same height, on one centre line. */
-.ai .secret-acts { align-items: center; margin-top: 0.85rem; }
-.ai .secret-acts > form { margin: 0; }
+.ai .row-acts { align-items: center; margin-top: 0.85rem; }
+.ai .row-acts > form { margin: 0; }
 .ai button.pill { font-weight: 400; }
 .ai .kind > .notice { margin-top: 0.6rem; }
 .pick { margin-top: 0.75rem; border-bottom: 1px solid var(--rule); padding-bottom: 1rem; }
@@ -641,8 +645,10 @@ label.check input {
 .set-list > li + li { border-top: 1px solid var(--rule); }
 .set-item { margin: 0; }
 .set-item code { font-size: 14px; }
-.set-list .secret-acts { margin-top: 0.4rem; }
+.set-list .row-acts { margin-top: 0.4rem; }
 .set-shared { display: grid; gap: 0.25rem; margin-top: 0.3rem; font-size: 14px; }
+.set-shared li { display: flex; flex-wrap: wrap; align-items: center; gap: 0 0.4rem; min-height: 28px; }
+.set-shared a.hint { display: inline-flex; align-items: center; min-height: 28px; }
 .set-shared code { font-size: 13px; }
 .set-shared a.hint { color: var(--dim); text-decoration-color: var(--rule); }
 .set-body > .set-add { justify-self: start; margin-top: 0.5rem; }

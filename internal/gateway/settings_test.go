@@ -164,3 +164,26 @@ func TestAppSettings_Secrets(t *testing.T) {
 		t.Error("a secret no app has any more was kept")
 	}
 }
+
+// A save lands on its outcome, which can take focus as an action's note
+// can, and a refusal is tied to the field that caused it.
+func TestAppSettings_OutcomesAreReachable(t *testing.T) {
+	h, _ := secretsHarness(t)
+	c := h.client(true)
+	h.login(c, "root", "", "/")
+
+	b := body(t, h.post(c, portal+"/settings", portal, url.Values{
+		"action": {"secret-add"}, "app": {"yarr"}, "name": {"yarr-key"}, "value": {"v"},
+	}))
+	if !strings.Contains(b, `id="set-note-yarr" tabindex="-1">Added yarr-key.`) {
+		t.Errorf("the outcome can't take focus:\n%s", settingsPanel(t, b, "set-secrets-yarr"))
+	}
+
+	resp := h.post(c, portal+"/settings", portal, url.Values{
+		"action": {"secret-add"}, "app": {"yarr"}, "name": {"x"}, "env": {"OUTPOST_PORT"}, "value": {"v"},
+	})
+	b = body(t, resp)
+	if !strings.Contains(b, `aria-describedby="sec-name-hint-yarr err-yarr"`) || !strings.Contains(b, `id="err-yarr" tabindex="-1"`) {
+		t.Errorf("the refusal isn't tied to the field:\n%s", settingsPanel(t, b, "set-secrets-yarr"))
+	}
+}

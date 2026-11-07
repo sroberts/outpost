@@ -44,7 +44,7 @@
     if (folded) t.scrollIntoView();
     // A link straight to a form, such as a provider's key, is a link to
     // fill it in.
-    var field = t.tagName === "DETAILS" && t.querySelector("input:not([type=hidden])");
+    var field = t.matches("details.confirm") && t.querySelector("input:not([type=hidden])");
     if (field) field.focus({ preventScroll: true });
     return t;
   }
