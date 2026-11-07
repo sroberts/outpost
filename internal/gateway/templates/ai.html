@@ -14,7 +14,7 @@
 {{if and .Missing (eq .Provider "ollama")}}<p class="error">Ollama doesn't have {{.Model}} any more. Apps asking for the {{.Name}} get an error until you choose another or pull it again with <code>ollama pull {{.Model}}</code>.</p>{{else if .Missing}}<p class="error">{{.ProviderTitle}} doesn't list {{.Model}}. Apps asking for the {{.Name}} get an error until you choose another.</p>{{end}}
 {{if .NoKey}}<p class="error">Outpost has no API key for {{.ProviderTitle}}, so apps asking for the {{.Name}} get an error. <a href="#key-{{.Provider}}">Add {{.ProviderTitle}}'s key</a></p>{{end}}
 {{if .Error}}<p class="error" role="alert" id="err-{{.Kind}}">{{.Error}}</p>{{end}}
-<div class="secret-acts">
+<div class="row-acts">
 {{if or .Options .Hosted}}<details class="confirm" name="ai-{{.Kind}}"{{if eq .ErrorIn "choose"}} open{{end}}><summary class="pill"><span>Choose<span class="sr"> the {{.Name}}</span><span aria-hidden="true">…</span></span></summary>
 <div class="pick">
 {{if .Options}}{{if $.AI.Hosted}}<details class="source" name="src-{{.Kind}}"{{if eq .SourceOpen "ollama"}} open{{end}}><summary>Ollama <span class="hint">on this machine</span></summary>{{end}}

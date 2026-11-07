@@ -96,14 +96,14 @@
 {{range .Own}}<li><p class="set-item"><code>{{.Env}}</code> <span class="hint">{{.Name}}</span></p>
 {{if .Others}}<p class="meta">Also given to {{.Others}}; replacing it restarts them too.</p>{{end}}
 {{if not .Gets}}<p class="meta">{{$a.Title}} isn't declared, so it doesn't get it yet.</p>{{end}}
-<div class="secret-acts">
+<div class="row-acts">
 <details class="confirm" name="sec-{{$a.Name}}"><summary class="pill"><span>Replace<span class="sr"> {{.Name}}</span><span aria-hidden="true">…</span></span></summary>
 <form method="post" action="/settings">
 <input type="hidden" name="action" value="secret-replace">
 <input type="hidden" name="app" value="{{$a.Name}}">
 <input type="hidden" name="name" value="{{.Name}}">
 <label>New value for {{.Env}}
-<input name="value" type="password" autocomplete="off" spellcheck="false" required>
+<input name="value" type="password" autocomplete="off" spellcheck="false" required{{if and (eq $a.Open "secrets") $a.Error}} aria-describedby="err-{{$a.Name}}"{{end}}>
 </label>
 <button type="submit"><span>Replace {{.Name}}</span></button>
 </form>
@@ -127,7 +127,7 @@
 <input type="hidden" name="action" value="secret-add">
 <input type="hidden" name="app" value="{{$a.Name}}">
 <label for="sec-name-{{$a.Name}}">Name</label>
-<input id="sec-name-{{$a.Name}}" name="name" type="text" value="{{.Name}}" autocomplete="off" autocapitalize="off" spellcheck="false" required aria-describedby="sec-name-hint-{{$a.Name}}">
+<input id="sec-name-{{$a.Name}}" name="name" type="text" value="{{.Name}}" autocomplete="off" autocapitalize="off" spellcheck="false" required aria-describedby="sec-name-hint-{{$a.Name}}{{if and (eq $a.Open "secrets") $a.Error}} err-{{$a.Name}}{{end}}">
 <p class="hint field-hint" id="sec-name-hint-{{$a.Name}}">Lower case, such as openai-key.</p>
 <label for="sec-env-{{$a.Name}}">Variable</label>
 <input id="sec-env-{{$a.Name}}" name="env" type="text" value="{{.Env}}" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-describedby="sec-env-hint-{{$a.Name}}">
@@ -148,7 +148,7 @@
 {{if .Hosted}}<form method="post" action="/settings">
 <input type="hidden" name="action" value="ai-access">
 <input type="hidden" name="app" value="{{$a.Name}}">
-<fieldset class="models"><legend>What {{$a.Title}} may use</legend>
+<fieldset class="models"{{if and (eq $a.Open "ai") $a.Error}} aria-describedby="err-{{$a.Name}}"{{end}}><legend>What {{$a.Title}} may use</legend>
 {{range .Kinds}}<label class="check"><input type="checkbox" name="kind" value="{{.Kind}}"{{if .Allowed}} checked{{end}}> <span>{{.Name}}{{if .Model}} <code class="hint">{{.Model}}</code>{{else}} <span class="hint">none chosen</span>{{end}}</span></label>
 {{end}}</fieldset>
 <button type="submit"><span>Save<span class="sr"> what {{$a.Title}} may use</span></span></button>
@@ -165,7 +165,7 @@
 </div>
 </details>{{end}}
 </div>{{end}}
-{{define "flash"}}{{if .Error}}<p class="error" role="alert" id="err-{{.Name}}">{{.Error}}</p>{{else if .Notice}}<p class="notice" role="status">{{.Notice}}</p>{{end}}{{end}}
+{{define "flash"}}{{if .Error}}<p class="error" role="alert" id="err-{{.Name}}" tabindex="-1">{{.Error}}</p>{{else if .Notice}}<p class="notice" role="status" id="set-note-{{.Name}}" tabindex="-1">{{.Notice}}</p>{{end}}{{end}}
 {{define "usage"}}{{if .Tiles}}<details class="stats"><summary class="usage">{{template "figures" .}}{{if not .Line}}Usage{{end}}<span class="sr"> for {{.Title}}</span></summary>
 <div class="stats-panel">
 <p class="when">{{.When}}</p>
