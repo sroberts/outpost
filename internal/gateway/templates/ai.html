@@ -115,7 +115,7 @@
 
 <section class="panel" aria-labelledby="apps-title" id="apps">
 <h2 id="apps-title">Apps</h2>
-<p class="hint">What each app has asked for since Outpost last started.</p>
+<p class="hint">Outpost gives every app its own token when it starts it, so there's nothing to set up. Below is what each has asked for since Outpost last started.</p>
 {{if .Apps}}<ul class="devices">
 {{range .Apps}}<li class="device" id="a-{{.Name}}">
 <div class="body">
@@ -124,12 +124,12 @@
 {{if .LastError}}<p class="device-meta">Last error: {{.LastError}}</p>{{end}}
 {{if .Notice}}<p class="notice" role="status">{{.Notice}}</p>{{end}}
 </div>
-<details class="confirm" name="ai-app"><summary class="pill"><span>New token<span class="sr"> for {{.Title}}</span>…</span></summary>
-<p>{{.Title}} restarts with a new token, and the one it has stops working.</p>
+<details class="confirm" name="ai-app"><summary class="pill quiet"><span>Replace token<span class="sr"> for {{.Title}}</span>…</span></summary>
+<p>Only needed if {{.Title}}'s token got out. Its current token stops working at once, and {{.Title}} restarts with a new one.</p>
 <form method="post" action="/ai#a-{{.Name}}">
 <input type="hidden" name="action" value="regenerate">
 <input type="hidden" name="app" value="{{.Name}}">
-<button class="plain" type="submit"><span>Make a new token for {{.Title}}</span></button>
+<button class="plain" type="submit"><span>Replace {{.Title}}'s token</span></button>
 </form>
 </details>
 </li>
