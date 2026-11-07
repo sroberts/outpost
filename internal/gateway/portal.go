@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"slices"
 	"strings"
 
 	"github.com/sroberts/outpost/internal/auth"
@@ -81,16 +80,18 @@ func (g *Gateway) servePortal(w http.ResponseWriter, r *http.Request) {
 		default:
 			g.secretsPage(w, r)
 		}
-	case "/public":
-		switch {
-		case g.exposure == nil:
-			g.message(w, r, http.StatusNotFound, "Nothing here",
-				"There's no page at this address.", g.portalLink(), "Back to apps")
-		case r.Method == http.MethodPost:
-			g.publicSubmit(w, r)
-		default:
-			g.publicPage(w, r)
+	case "/settings":
+		// An app's own settings are set from its Manage menu; this takes
+		// their forms.
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			http.Redirect(w, r, "/", http.StatusSeeOther)
+			return
 		}
+		g.settingsSubmit(w, r)
+	case "/public":
+		// What the internet reaches moved to each app's Manage menu.
+		http.Redirect(w, r, "/", http.StatusSeeOther)
 	case "/ai":
 		switch {
 		case g.ai == nil:
@@ -144,36 +145,11 @@ func (g *Gateway) home(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	g.touch(tok, s)
-
-	sts := g.stations(u)
-	counts := tally(sts)
-	d := pageData{
-		Title:    "Apps",
-		Who:      displayName(u),
-		Admin:    u.Admin,
-		Stations: sts,
-		Counts:   counts,
-		Search:   len(sts) >= searchFrom,
+	var fl *settingsFlash
+	if u.Admin {
+		fl = g.settingsNotice(r)
 	}
-	if u.Admin && g.updater != nil {
-		g.checkIfStale()
-		d.Waiting = g.waiting()
-		d.UpdatesLink = true
-	}
-	d.AddLink = u.Admin && g.adder != nil
-	d.SecretsLink = u.Admin && g.secrets != nil
-	d.PublicLink = u.Admin && g.exposure != nil
-	d.AILink = u.Admin && g.ai != nil
-	if u.Admin && g.control != nil {
-		d.Poll = g.manage(d.Stations)
-	}
-	// A crashed app comes back on its own, with nobody's action to refresh the
-	// row, and whoever is looking wants to see it happen.
-	d.Poll = d.Poll || slices.ContainsFunc(d.Stations, func(s station) bool { return s.State == stateStarting })
-	d.Icons = slices.ContainsFunc(d.Stations, func(s station) bool {
-		return s.Usage != nil || s.Quick != nil || len(s.Acts) > 0
-	})
-	g.render(w, r, http.StatusOK, "portal", d)
+	g.renderHome(w, r, u, http.StatusOK, fl)
 }
 
 func displayName(u auth.User) string {

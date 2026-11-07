@@ -2,18 +2,8 @@ package gateway
 
 import (
 	"context"
-	"fmt"
-	"net/http"
-	"net/url"
-	"sort"
 	"strings"
-	"time"
-
-	"github.com/sroberts/outpost/internal/auth"
 )
-
-// maxExposureForm bounds the Internet access page's form: a list of paths.
-const maxExposureForm = 64 << 10
 
 // Exposure is what the gateway needs to set how an app is reached without a
 // login. A setting made here wins over the manifest's funnel and
@@ -24,23 +14,11 @@ type Exposure interface {
 	Reset(ctx context.Context, service, by string) error
 }
 
-// publicView is the Internet access page's state, for the template.
-type publicView struct {
-	Rows []publicRow
-	// Tally is what the internet reaches, in a line: "1 on the internet ·
-	// 1 failing".
-	Tally string
-}
-
-// healthRank orders the rows as the line orders stations: what's failing
-// first, then what's on its way, then what's on the internet, then the rest.
-var healthRank = map[string]int{"down": 0, "starting": 1, "up": 2, "off": 3}
-
+// publicRow is what the internet reaches of one app, for its Manage menu.
 type publicRow struct {
-	Name, Title string
-	Paths       string // one per line, for the form
-	PathList    []string
-	Funnel      bool
+	Paths    string // one per line, for the form
+	PathList []string
+	Funnel   bool
 	// CanFunnel is whether the app has a tailnet node for Funnel to be on.
 	CanFunnel bool
 	// State is how Funnel is doing, in words; Live is whether the internet
@@ -48,109 +26,47 @@ type publicRow struct {
 	State string
 	Live  bool
 	URLs  []string
-	// FromPortal says this page set it, over what the manifest says, in
+	// FromPortal says the portal set it, over what the manifest says, in
 	// Manifest.
 	FromPortal bool
 	Manifest   string
-	Notice     string
-	Error      string
-	// Health is its station's state: up when the internet reaches it, down
-	// when Funnel is on and failing, starting on the way, off when only the
-	// tailnet can; HealthWords says it for a reader.
+	// Health is its state: up when the internet reaches it, down when Funnel
+	// is on and failing, starting on the way, off when only the tailnet can;
+	// HealthWords says it for a reader.
 	Health, HealthWords string
 }
 
-func (g *Gateway) publicUser(w http.ResponseWriter, r *http.Request) (auth.User, bool) {
-	return g.adminUser(w, r, "/public", "Only an admin can change what the internet can reach.")
-}
-
-func (g *Gateway) publicPage(w http.ResponseWriter, r *http.Request) {
-	u, ok := g.publicUser(w, r)
-	if !ok {
-		return
+// publicRowFor is what the internet reaches of rt, and how.
+func publicRowFor(rt route) publicRow {
+	row := publicRow{
+		PathList: rt.PublicPaths, Funnel: rt.Funnel,
+		CanFunnel:  rt.TailscaleName != "",
+		FromPortal: rt.FromPortal,
+		Paths:      strings.Join(rt.PublicPaths, "\n"),
 	}
-	q := r.URL.Query()
-	notice := map[string]string{}
-	if name := q.Get("app"); name != "" {
-		if _, ok := g.routes.get(name); ok {
-			switch q.Get("done") {
-			case "saved":
-				notice[name] = "Saved. It takes effect in a few seconds; the app itself doesn't restart."
-			case "reset":
-				notice[name] = "Back to what the manifest says."
-			}
+	row.State, row.Live = funnelWords(rt)
+	switch {
+	case !rt.Funnel:
+		row.Health, row.HealthWords = "off", "tailnet only"
+	case row.Live:
+		row.Health, row.HealthWords = "up", "on the internet"
+	case rt.FunnelState == "unavailable":
+		row.Health, row.HealthWords = "down", "Funnel isn't working"
+	case rt.Status != "running":
+		// Not on its way: it waits on the app, which may stay stopped.
+		row.Health, row.HealthWords = "off", "app not running"
+	default:
+		row.Health, row.HealthWords = "starting", "Funnel starting"
+	}
+	if row.Live {
+		for _, p := range rt.PublicPaths {
+			row.URLs = append(row.URLs, "https://"+rt.Host+p)
 		}
 	}
-	g.renderPublic(w, r, u, http.StatusOK, notice, nil, nil)
-}
-
-// renderPublic draws the page. typed is what a refused form had, by app,
-// shown again in place of what's in force.
-func (g *Gateway) renderPublic(w http.ResponseWriter, r *http.Request, u auth.User, status int, notice, errs map[string]string, typed map[string]publicRow) {
-	var v publicView
-	for _, rt := range g.routes.all() {
-		row := publicRow{
-			Name: rt.Name, Title: rt.Title, PathList: rt.PublicPaths, Funnel: rt.Funnel,
-			CanFunnel:  rt.TailscaleName != "",
-			FromPortal: rt.FromPortal,
-			Notice:     notice[rt.Name], Error: errs[rt.Name],
-		}
-		if row.Title == "" {
-			row.Title = titleCase(rt.Name)
-		}
-		row.Paths = strings.Join(rt.PublicPaths, "\n")
-		row.State, row.Live = funnelWords(rt)
-		switch {
-		case !rt.Funnel:
-			row.Health, row.HealthWords = "off", "tailnet only"
-		case row.Live:
-			row.Health, row.HealthWords = "up", "on the internet"
-		case rt.FunnelState == "unavailable":
-			row.Health, row.HealthWords = "down", "Funnel isn't working"
-		case rt.Status != "running":
-			// Not on its way: it waits on the app, which may stay stopped.
-			row.Health, row.HealthWords = "off", "app not running"
-		default:
-			row.Health, row.HealthWords = "starting", "Funnel starting"
-		}
-		if row.Live {
-			for _, p := range rt.PublicPaths {
-				row.URLs = append(row.URLs, "https://"+rt.Host+p)
-			}
-		}
-		if rt.FromPortal {
-			row.Manifest = manifestWords(rt)
-		}
-		if t, ok := typed[rt.Name]; ok {
-			row.Paths, row.Funnel = t.Paths, t.Funnel
-		}
-		v.Rows = append(v.Rows, row)
+	if rt.FromPortal {
+		row.Manifest = manifestWords(rt)
 	}
-	sort.SliceStable(v.Rows, func(i, j int) bool { return healthRank[v.Rows[i].Health] < healthRank[v.Rows[j].Health] })
-	n := map[string]int{}
-	for _, row := range v.Rows {
-		n[row.Health]++
-	}
-	var tally []string
-	if n["up"] > 0 {
-		tally = append(tally, fmt.Sprintf("%d on the internet", n["up"]))
-	}
-	if n["starting"] > 0 {
-		tally = append(tally, fmt.Sprintf("%d starting", n["starting"]))
-	}
-	if n["down"] > 0 {
-		tally = append(tally, fmt.Sprintf("%d failing", n["down"]))
-	}
-	v.Tally = strings.Join(tally, " · ")
-	if v.Tally == "" {
-		v.Tally = "Nothing is on the internet"
-	}
-	g.render(w, r, status, "public", pageData{
-		Title:  "Internet access",
-		Who:    displayName(u),
-		Admin:  u.Admin,
-		Public: &v,
-	})
+	return row
 }
 
 // funnelWords says how an app's Funnel is doing, and whether the internet
@@ -199,59 +115,6 @@ func splitPaths(text string) []string {
 		out = append(out, p)
 	}
 	return out
-}
-
-func (g *Gateway) publicSubmit(w http.ResponseWriter, r *http.Request) {
-	if !g.sameOrigin(r) {
-		g.crossOrigin(w, r)
-		return
-	}
-	u, ok := g.publicUser(w, r)
-	if !ok {
-		return
-	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxExposureForm)
-	if err := r.ParseForm(); err != nil {
-		g.message(w, r, http.StatusBadRequest, "That didn't go through", "The form couldn't be read. Try again.", "/public", "Back to internet access")
-		return
-	}
-	f := r.PostForm
-	name := f.Get("app")
-	rt, ok := g.routes.get(name)
-	if !ok {
-		g.message(w, r, http.StatusBadRequest, "That app isn't there", "It may have been removed.", "/public", "Back to internet access")
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-	defer cancel()
-	var err error
-	var done, what string
-	switch f.Get("action") {
-	case "save":
-		funnel, paths := f.Get("funnel") != "", splitPaths(f.Get("paths"))
-		err = g.exposure.Set(ctx, rt.Name, funnel, paths, u.Username)
-		done, what = "saved", describeExposure(funnel, paths)
-	case "reset":
-		err = g.exposure.Reset(ctx, rt.Name, u.Username)
-		done, what = "reset", "went back to the manifest's public paths and Funnel"
-	default:
-		g.message(w, r, http.StatusBadRequest, "That didn't go through", "The form couldn't be read. Try again.", "/public", "Back to internet access")
-		return
-	}
-	if err != nil {
-		typed := map[string]publicRow{}
-		if done == "saved" {
-			typed[rt.Name] = publicRow{Paths: f.Get("paths"), Funnel: f.Get("funnel") != ""}
-		}
-		msg := err.Error()
-		g.renderPublic(w, r, u, http.StatusBadRequest, nil, map[string]string{rt.Name: strings.ToUpper(msg[:1]) + msg[1:]}, typed)
-		return
-	}
-	g.activity.record(EventExposure, "%s %s for %s from %s", u.Username, what, rt.Name, g.clientIP(r))
-	g.logf("gateway: %s %s for %s", u.Username, what, rt.Name)
-	// So the page it lands on shows what was just set.
-	g.refreshRoutes(r.Context())
-	http.Redirect(w, r, "/public?done="+done+"&app="+url.QueryEscape(rt.Name)+"#p-"+url.QueryEscape(rt.Name), http.StatusSeeOther)
 }
 
 func describeExposure(funnel bool, paths []string) string {

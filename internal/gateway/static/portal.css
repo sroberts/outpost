@@ -179,7 +179,12 @@ h2 { font-size: 19px; font-weight: 680; }
 .stopped .state { color: var(--dim); border: 1px solid var(--rule); }
 .stopped .why { color: var(--dim); }
 .quick { margin-top: 0.4rem; position: relative; z-index: 2; justify-items: start; }
-.quick button { min-height: 44px; font-size: 14px; }
+/* The one step back sits in the row as a pill, like everything else there. */
+.quick button.plain {
+  min-height: 44px; padding: 0 0.95rem; border-radius: 999px;
+  border-color: var(--field-edge); font-size: 14px; font-weight: 400;
+}
+.quick button.plain:hover { border-color: var(--beam); }
 .anyway { color: var(--dim); }
 /* Mid-action the label says what's happening, whatever state it left. */
 .busy .state { color: var(--beam); background: none; border: 1px solid var(--beam); }
@@ -594,3 +599,59 @@ label.check input {
   .ai .source > summary::after, .ref > summary::after { transition: none; }
 }
 
+
+/* An app's own settings, under its Manage menu below the actions: what the
+   internet reaches, its secrets and its AI, each a line that opens, one at
+   a time, like the sources under the AI page's Choose. */
+.app-set {
+  position: relative; z-index: 2; /* above the row's stretched link */
+  margin-top: 0.6rem; border-top: 1px solid var(--rule);
+}
+.act-list + .app-set { margin-top: 0.75rem; }
+.setting { border-bottom: 1px solid var(--rule); }
+.setting > summary {
+  display: flex; align-items: center; gap: 0.5rem; min-height: 44px;
+  list-style: none; cursor: pointer;
+}
+.setting > summary::-webkit-details-marker { display: none; }
+.setting > summary .set-name { font-size: 15px; font-weight: 600; }
+.setting > summary .count { margin-left: auto; font-size: 14px; color: var(--dim); text-align: right; }
+.setting > summary .count.why { color: var(--down-ink); }
+.setting > summary::after {
+  content: ""; flex: none; width: 6px; height: 6px; margin: -3px 0.25rem 0 0.6rem;
+  border-right: 1.5px solid var(--dim); border-bottom: 1.5px solid var(--dim);
+  transform: rotate(45deg); transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.setting[open] > summary::after { transform: translateY(3px) rotate(-135deg); }
+.setting > summary:hover .set-name, .setting[open] > summary .set-name { color: var(--porcelain); }
+.set-body { display: grid; gap: 0.4rem; padding: 0.15rem 0 1rem; }
+.set-body > p { margin: 0; }
+.set-body .meta { display: block; font-size: 14px; color: var(--dim); overflow-wrap: anywhere; }
+.set-body .meta.why { color: var(--down-ink); }
+.set-body > form { margin-top: 0.6rem; justify-items: start; max-width: 34rem; }
+.set-body > form > label, .set-body > form > input, .set-body > form > textarea { width: 100%; }
+.set-body > form.undo { margin-top: 0.25rem; }
+.set-body .error, .set-body .notice { margin: 0 0 0.25rem; font-size: 14px; }
+.set-body .urls { list-style: none; margin: 0.15rem 0 0; padding: 0; display: grid; gap: 4px; justify-items: start; }
+.set-body .urls .cmd { display: inline-block; max-width: 100%; margin-top: 0; overflow-wrap: anywhere; }
+.set-sub { margin: 0.75rem 0 0; font-size: 14px; font-weight: 550; color: var(--porcelain); }
+.set-sub a { color: var(--beam); }
+.set-list, .set-shared { list-style: none; margin: 0; padding: 0; }
+.set-list > li { display: grid; gap: 2px; padding: 0.6rem 0; }
+.set-list > li + li { border-top: 1px solid var(--rule); }
+.set-item { margin: 0; }
+.set-item code { font-size: 14px; }
+.set-list .secret-acts { margin-top: 0.4rem; }
+.set-shared { display: grid; gap: 0.25rem; margin-top: 0.3rem; font-size: 14px; }
+.set-shared code { font-size: 13px; }
+.set-shared a.hint { color: var(--dim); text-decoration-color: var(--rule); }
+.set-body > .set-add { justify-self: start; margin-top: 0.5rem; }
+.set-body > .set-add[open] { justify-self: stretch; }
+.set-add form { max-width: 34rem; }
+.set-add form > label, .set-add form > input { width: 100%; }
+.set-body fieldset.models + button { margin-top: 0.25rem; }
+.set-body > .confirm { justify-self: start; margin-top: 0.25rem; }
+.set-body > .confirm[open] { justify-self: stretch; }
+@media (prefers-reduced-motion: reduce) {
+  .setting > summary::after { transition: none; }
+}

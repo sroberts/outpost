@@ -33,8 +33,9 @@ func secretsHarness(t *testing.T) (*harness, *secrets.Store) {
 
 const distinctive = "sk-live-0123456789-distinctive"
 
-// An admin adds a secret for one app, rotates it, gives it to every app and
-// removes it, and the page never once shows a value.
+// An admin shares a secret with every app, rotates it, narrows it to one app
+// (which moves it to that app's menu) and removes it, and the page never
+// once shows a value.
 func TestSecretsPage_AddRotateBindRemove(t *testing.T) {
 	h, st := secretsHarness(t)
 	c := h.client(true)
@@ -45,18 +46,17 @@ func TestSecretsPage_AddRotateBindRemove(t *testing.T) {
 	}
 
 	b := body(t, h.post(c, portal+"/secrets", portal, url.Values{
-		"action": {"create"}, "name": {"openai-key"}, "value": {distinctive}, "app": {"yarr"},
+		"action": {"create"}, "name": {"openai-key"}, "value": {distinctive}, "global": {"1"},
 	}))
-	for _, want := range []string{"Added openai-key.", "Yarr restarts with it", "OPENAI_KEY", "Given to Yarr"} {
+	for _, want := range []string{"Added openai-key.", "Sous and Yarr restart with it", "OPENAI_KEY", "Given to every app"} {
 		if !strings.Contains(b, want) {
 			t.Errorf("after adding, page lacks %q:\n%s", want, b)
 		}
 	}
-	if vars, _ := st.Resolve("yarr"); vars["OPENAI_KEY"] != distinctive {
-		t.Errorf("yarr gets %v", vars)
-	}
-	if vars, _ := st.Resolve("sous"); len(vars) != 0 {
-		t.Errorf("sous got a secret given only to yarr: %v", vars)
+	for _, app := range []string{"sous", "yarr"} {
+		if vars, _ := st.Resolve(app); vars["OPENAI_KEY"] != distinctive {
+			t.Errorf("%s gets %v", app, vars)
+		}
 	}
 
 	b = body(t, h.post(c, portal+"/secrets", portal, url.Values{
@@ -69,21 +69,25 @@ func TestSecretsPage_AddRotateBindRemove(t *testing.T) {
 		t.Errorf("rotation didn't take: %v", vars)
 	}
 
+	// Given to one app by name, it's that app's, and leaves this page.
 	b = body(t, h.post(c, portal+"/secrets", portal, url.Values{
-		"action": {"apps"}, "name": {"openai-key"}, "global": {"1"},
+		"action": {"apps"}, "name": {"openai-key"}, "app": {"yarr"},
 	}))
-	if !strings.Contains(b, "Given to every app") || !strings.Contains(b, "Sous and Yarr") {
-		t.Errorf("after giving it to every app:\n%s", b)
+	if !strings.Contains(b, "Saved which apps get openai-key.") || strings.Contains(b, `id="s-openai-key"`) {
+		t.Errorf("after narrowing it to yarr:\n%s", b)
 	}
-	if sec, _ := st.Get("openai-key"); !sec.Global || len(sec.Services) != 0 {
-		t.Errorf("bindings = %+v; want every app and no longer yarr by name", sec)
+	if sec, _ := st.Get("openai-key"); sec.Global || len(sec.Services) != 1 {
+		t.Errorf("bindings = %+v; want yarr by name and no longer every app", sec)
+	}
+	if vars, _ := st.Resolve("sous"); len(vars) != 0 {
+		t.Errorf("sous still gets it: %v", vars)
 	}
 	if strings.Contains(b, distinctive) {
 		t.Fatal("the page shows a secret's value")
 	}
 
 	b = body(t, h.post(c, portal+"/secrets", portal, url.Values{"action": {"remove"}, "name": {"openai-key"}}))
-	if !strings.Contains(b, "Removed openai-key.") || !strings.Contains(b, "No secrets yet.") {
+	if !strings.Contains(b, "Removed openai-key.") || !strings.Contains(b, "No shared secrets.") {
 		t.Errorf("after removing:\n%s", b)
 	}
 	if len(st.List()) != 0 {
@@ -184,7 +188,7 @@ func TestListWords(t *testing.T) {
 }
 
 // A secret given to every app says which apps have their own instead, and a
-// change's confirmation is on the row the redirect lands on.
+// change to an app's own is confirmed under that app.
 func TestSecretsPage_ShadowedAppsAndRowNotice(t *testing.T) {
 	h, st := secretsHarness(t)
 	for _, step := range []func() (secrets.Secret, error){
@@ -205,12 +209,9 @@ func TestSecretsPage_ShadowedAppsAndRowNotice(t *testing.T) {
 		t.Errorf("the shared secret doesn't say Sous has its own:\n%s", b)
 	}
 
-	b = body(t, h.post(c, portal+"/secrets", portal, url.Values{"action": {"rotate"}, "name": {"sous-own"}, "value": {"3"}}))
-	row := b[strings.Index(b, `id="s-sous-own"`):]
-	if i := strings.Index(row, "</li>"); i > 0 {
-		row = row[:i]
-	}
-	if !strings.Contains(row, "Rotated sous-own. Sous restarts with it") {
-		t.Errorf("the rotation's confirmation isn't on its row:\n%s", row)
+	// Sous's own is replaced from its menu, which says so.
+	b = body(t, h.post(c, portal+"/settings", portal, url.Values{"action": {"secret-replace"}, "app": {"sous"}, "name": {"sous-own"}, "value": {"3"}}))
+	if !strings.Contains(settingsPanel(t, b, "set-secrets-sous"), "Replaced sous-own.") {
+		t.Errorf("the replacement's confirmation isn't on sous's panel:\n%s", b)
 	}
 }
