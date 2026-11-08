@@ -21,13 +21,13 @@ type Mail interface {
 	PasswordSecret() string
 	SetAccount(address, password, by string) error
 	TestAccount(ctx context.Context, address, password string) error
-	CheckNow()
+	CheckWait(ctx context.Context) error
 	Routes(service string) []mail.Route
 	AddAlias(service, note, by string) (mail.Route, error)
 	RemoveAlias(service, route, by string) error
 	CanSend(service string) bool
 	SetSend(service string, allowed bool, by string) error
-	Held(service string) (int, time.Time)
+	Held() (map[string]mail.Held, error)
 	Regenerate(service, by string) error
 }
 
@@ -73,34 +73,8 @@ func (g *Gateway) mailHealth(st mail.Status) (health, words string) {
 	case st.Checked.IsZero():
 		return "starting", "Checking the inbox"
 	default:
-		return "up", "Checked " + timeAgo(g.now(), st.Checked)
+		return "up", "Checked " + agoAt(g.now(), st.Checked)
 	}
-}
-
-// ago is how long before now t was, in a few words.
-func timeAgo(now, t time.Time) string {
-	d := now.Sub(t)
-	switch {
-	case d < time.Minute:
-		return "just now"
-	case d < time.Hour:
-		n := int(d / time.Minute)
-		return fmt.Sprintf("%d %s ago", n, noun(n, "minute", "minutes"))
-	case d < 48*time.Hour:
-		n := int(d / time.Hour)
-		return fmt.Sprintf("%d %s ago", n, noun(n, "hour", "hours"))
-	default:
-		n := int(d / (24 * time.Hour))
-		return fmt.Sprintf("%d days ago", n)
-	}
-}
-
-// noun is one or many, as n calls for.
-func noun(n int, one, many string) string {
-	if n == 1 {
-		return one
-	}
-	return many
 }
 
 func (g *Gateway) mailPage(w http.ResponseWriter, r *http.Request) {
@@ -111,9 +85,11 @@ func (g *Gateway) mailPage(w http.ResponseWriter, r *http.Request) {
 	v := mailView{}
 	switch r.URL.Query().Get("done") {
 	case "saved":
-		v.Notice = "Saved, and Gmail took the login. Outpost is reading the inbox now."
+		v.Notice = "Saved, and Gmail took the login."
 	case "checked":
-		v.Notice = "Checking the inbox now. Reload in a moment to see how it went."
+		v.Notice = "Checked the inbox."
+	case "checking":
+		v.Notice = "Still checking the inbox: Gmail is slow to answer. Reload in a moment to see how it went."
 	}
 	g.renderMail(w, r, u, http.StatusOK, v)
 }
@@ -128,8 +104,8 @@ func (g *Gateway) renderMail(w http.ResponseWriter, r *http.Request, u auth.User
 	v.Health, v.State = g.mailHealth(st)
 	v.Error = st.Error
 	if st.Ready() && st.Error == "" && !st.LastRouted.IsZero() {
-		v.State += fmt.Sprintf("; %d %s routed since Outpost started, the last %s", st.Routed,
-			noun(st.Routed, "message", "messages"), timeAgo(g.now(), st.LastRouted))
+		v.State += fmt.Sprintf("; %s routed since Outpost started, the last %s",
+			count(st.Routed, "message"), agoAt(g.now(), st.LastRouted))
 	}
 	v.Error = sentence(v.Error)
 	for _, rt := range g.routes.all() {
@@ -149,11 +125,18 @@ func (g *Gateway) renderMail(w http.ResponseWriter, r *http.Request, u auth.User
 		}
 		return strings.Compare(strings.ToLower(a.Title), strings.ToLower(b.Title))
 	})
+	// The first check after an account is set is waited out here, so the
+	// page doesn't sit on "Checking the inbox" until someone reloads it.
+	refresh := v.Health == "starting" && v.FormError == ""
+	if refresh {
+		v.Notice = strings.TrimSpace(v.Notice + " This page refreshes until the first check is done.")
+	}
 	g.render(w, r, status, "mail", pageData{
-		Title: "Mail",
-		Who:   displayName(u),
-		Admin: u.Admin,
-		Mail:  &v,
+		Title:   "Mail",
+		Who:     displayName(u),
+		Admin:   u.Admin,
+		Mail:    &v,
+		Refresh: refresh,
 	})
 }
 
@@ -189,8 +172,14 @@ func (g *Gateway) mailSubmit(w http.ResponseWriter, r *http.Request) {
 		g.activity.record(EventMail, "%s set the mail account from %s", u.Username, g.clientIP(r))
 		http.Redirect(w, r, "/mail?done=saved", http.StatusSeeOther)
 	case "check":
-		g.mail.CheckNow()
-		http.Redirect(w, r, "/mail?done=checked", http.StatusSeeOther)
+		// Waited for, so the page that follows says how it went.
+		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+		defer cancel()
+		done := "checked"
+		if err := g.mail.CheckWait(ctx); err != nil {
+			done = "checking"
+		}
+		http.Redirect(w, r, "/mail?done="+done, http.StatusSeeOther)
 	default:
 		g.message(w, r, http.StatusBadRequest, "That didn't go through", "The form couldn't be read. Try again.", "/mail", "Back to Mail")
 	}
@@ -207,7 +196,7 @@ type appMail struct {
 	Health string // the account's station mark
 }
 
-func (g *Gateway) appMail(app string, st mail.Status) *appMail {
+func (g *Gateway) appMail(app, title string, st mail.Status, held mail.Held) *appMail {
 	out := &appMail{Ready: st.Ready(), Send: g.mail.CanSend(app)}
 	for _, rt := range g.mail.Routes(app) {
 		mr := mailRoute{Route: rt.Route, Note: rt.Note, Address: rt.Address, Feed: rt.Feed, Alias: rt.Alias}
@@ -215,10 +204,10 @@ func (g *Gateway) appMail(app string, st mail.Status) *appMail {
 		out.Routes = append(out.Routes, mr)
 	}
 	out.Health, _ = g.mailHealth(st)
-	if n, last := g.mail.Held(app); n == 0 {
+	if held.Count == 0 {
 		out.Held = "No mail yet."
 	} else {
-		out.Held = fmt.Sprintf("%d %s held, the newest %s.", n, noun(n, "message", "messages"), timeAgo(g.now(), last))
+		out.Held = fmt.Sprintf("%s waiting for %s, the newest %s.", count(held.Count, "message"), title, agoAt(g.now(), held.Newest))
 	}
 	switch {
 	case !out.Ready:
@@ -226,7 +215,7 @@ func (g *Gateway) appMail(app string, st mail.Status) *appMail {
 	case len(out.Routes) == 0:
 		out.Words = "no addresses"
 	default:
-		out.Words = fmt.Sprintf("%d %s", len(out.Routes), noun(len(out.Routes), "address", "addresses"))
+		out.Words = count(len(out.Routes), "address")
 		if out.Send {
 			out.Words += ", sends"
 		}
@@ -243,12 +232,18 @@ type mailRoute struct {
 }
 
 // mailSettingsNotice is the words for a mail outcome on an app's panel.
-func mailSettingsNotice(done, route, title string) (string, bool) {
+// address is route's whole address when there's an account to make it from;
+// a bare "+route" means nothing to someone who hasn't read how routing works.
+func mailSettingsNotice(done, route, title, account string) (string, bool) {
+	address := "+" + route
+	if local, domain, ok := strings.Cut(account, "@"); ok {
+		address = local + "+" + route + "@" + domain
+	}
 	switch done {
 	case "mail-alias-added":
-		return "Made the address +" + route + ". Mail to it reaches " + title + " from the next check.", true
+		return "Made the address " + address + ". Mail to it reaches " + title + " from the next check.", true
 	case "mail-alias-removed":
-		return "Removed +" + route + ". Mail to it now stays in the inbox.", true
+		return "Removed " + address + ". Mail to it now stays in the inbox.", true
 	case "mail-send-on":
 		return title + " may send mail now, up to 100 messages a day.", true
 	case "mail-send-off":

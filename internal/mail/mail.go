@@ -13,7 +13,6 @@ package mail
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"maps"
@@ -25,6 +24,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/sroberts/outpost/internal/apptoken"
 )
 
 // Environment variables every app is started with.
@@ -82,6 +83,8 @@ type Service struct {
 	poll     time.Duration
 	imapAddr string
 	smtpAddr string
+	// drain is how long shutting down waits for requests before cutting them.
+	drain    time.Duration
 	keys     Keys
 	secret   string
 	services func() []string
@@ -90,10 +93,12 @@ type Service struct {
 	dial     dialer
 	send     sender
 	wake     chan struct{}
+	// waiters are CheckWait calls waiting for a check to finish.
+	waiters []chan struct{}
 
 	mu sync.Mutex
-	// issued maps a token's hash to the app it was handed to.
-	issued map[[32]byte]string
+	// issued is which app each handed-out token belongs to.
+	issued *apptoken.Issued
 	status Status
 	// sending counts each app's sends not yet recorded, for the daily limit.
 	sending map[string]int
@@ -154,6 +159,7 @@ func Open(opts Options) (*Service, error) {
 		poll:     poll,
 		imapAddr: opts.IMAP,
 		smtpAddr: opts.SMTP,
+		drain:    5 * time.Second,
 		keys:     opts.Keys,
 		secret:   opts.PasswordSecret,
 		services: services,
@@ -162,7 +168,7 @@ func Open(opts Options) (*Service, error) {
 		dial:     dialIMAP,
 		send:     smtpSend,
 		wake:     make(chan struct{}, 1),
-		issued:   map[[32]byte]string{},
+		issued:   apptoken.NewIssued(tokenPrefix),
 		sending:  map[string]int{},
 	}, nil
 }
@@ -190,7 +196,7 @@ func (s *Service) serviceNames() []string {
 
 // address is the account in force: the portal's, or config.toml's.
 func (s *Service) address() (addr string, fromPortal bool) {
-	if a := s.store.meta("address"); a != "" {
+	if a := s.store.portalAddress(); a != "" {
 		return a, true
 	}
 	return s.file, false
@@ -279,6 +285,22 @@ func (s *Service) TestAccount(ctx context.Context, address, password string) err
 	return nil
 }
 
+// CheckWait asks Run to check the inbox now, and waits until it has, or
+// until ctx ends.
+func (s *Service) CheckWait(ctx context.Context) error {
+	done := make(chan struct{})
+	s.mu.Lock()
+	s.waiters = append(s.waiters, done)
+	s.mu.Unlock()
+	s.CheckNow()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 // CheckNow asks Run to check the inbox without waiting for the next poll.
 func (s *Service) CheckNow() {
 	select {
@@ -292,9 +314,7 @@ func (s *Service) CheckNow() {
 // with the new one.
 func (s *Service) Resolve(service string) (map[string]string, string) {
 	tok, gen := s.store.token(service)
-	s.mu.Lock()
-	s.issued[sha256.Sum256([]byte(tok))] = service
-	s.mu.Unlock()
+	s.issued.Add(tok, service)
 	return map[string]string{EnvURL: s.URL(), EnvToken: tok}, "mail:" + strconv.FormatInt(gen, 10)
 }
 
@@ -307,21 +327,13 @@ func (s *Service) Regenerate(service, by string) error {
 	if err := s.store.regenerate(service); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	delete(s.issued, sha256.Sum256([]byte(old)))
-	s.mu.Unlock()
+	s.issued.Remove(old)
 	s.logf("mail: %s regenerated %s's token", by, service)
 	return nil
 }
 
 func (s *Service) serviceFor(tok string) (string, bool) {
-	if !strings.HasPrefix(tok, tokenPrefix) {
-		return "", false
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	svc, ok := s.issued[sha256.Sum256([]byte(tok))]
-	return svc, ok
+	return s.issued.Service(tok)
 }
 
 // Route is one address an app gets mail at.
@@ -462,15 +474,32 @@ func (s *Service) SetSend(service string, allowed bool, by string) error {
 	return nil
 }
 
-// Held is how many messages service has waiting, and when the newest came.
-func (s *Service) Held(service string) (int, time.Time) { return s.store.held(service) }
+// Held is what an app has waiting: how many messages, and when the newest
+// came.
+type Held struct {
+	Count  int
+	Newest time.Time
+}
+
+// Held is what each app has waiting. An app with nothing isn't in it.
+func (s *Service) Held() (map[string]Held, error) { return s.store.held() }
 
 // Run checks the inbox every poll, and when CheckNow asks, until ctx ends.
 func (s *Service) Run(ctx context.Context) {
 	t := time.NewTicker(s.poll)
 	defer t.Stop()
 	for {
+		// Only the callers already waiting are told when this check ends:
+		// one who asks during it is answered by the next, which sees what
+		// arrived since.
+		s.mu.Lock()
+		waiting := s.waiters
+		s.waiters = nil
+		s.mu.Unlock()
 		more := s.checkOnce(ctx)
+		for _, c := range waiting {
+			close(c)
+		}
 		if more {
 			continue
 		}
@@ -757,8 +786,18 @@ func firstNonEmpty(v ...string) string {
 
 // Serve answers apps on ln until ctx ends.
 func (s *Service) Serve(ctx context.Context, ln net.Listener) error {
+	// Requests run under their own context, cancelled once the drain below
+	// gives up, so a send waiting on Gmail stops rather than outliving it.
+	reqs, cancelReqs := context.WithCancel(context.Background())
+	defer cancelReqs()
+	var inFlight sync.WaitGroup
 	srv := &http.Server{
-		Handler:           s,
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			inFlight.Add(1)
+			defer inFlight.Done()
+			s.ServeHTTP(w, r)
+		}),
+		BaseContext:       func(net.Listener) context.Context { return reqs },
 		ReadHeaderTimeout: 10 * time.Second,
 		WriteTimeout:      3 * time.Minute, // sending waits on Gmail
 	}
@@ -766,15 +805,21 @@ func (s *Service) Serve(ctx context.Context, ln net.Listener) error {
 	go func() {
 		defer close(stopped)
 		<-ctx.Done()
-		shut, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shut, cancel := context.WithTimeout(context.Background(), s.drain)
 		defer cancel()
-		_ = srv.Shutdown(shut) // a request still open at exit is cut, which is all that's left to do
+		if err := srv.Shutdown(shut); err != nil {
+			// Still busy after the grace period: cut what's left.
+			cancelReqs()
+			_ = srv.Close() // closing anyway; its error says nothing more
+		}
 	}()
 	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
-	// Serve returns as Shutdown starts; requests in flight still use mail.db
-	// until Shutdown has drained them.
+	// Serve returns as Shutdown starts. Shutdown doesn't wait for handlers
+	// once it times out, and they use mail.db, which closes after this
+	// returns, so they are waited for here.
 	<-stopped
+	inFlight.Wait()
 	return nil
 }

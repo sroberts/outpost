@@ -140,7 +140,7 @@ func TestAppSettings_Mail(t *testing.T) {
 	}
 
 	b := body(t, h.post(c, portal+"/settings", portal, url.Values{"action": {"mail-alias-add"}, "app": {"sous"}, "note": {"The Weekly"}}))
-	m := regexp.MustCompile(`Made the address &#43;([a-z0-9]{4})\.`).FindStringSubmatch(b)
+	m := regexp.MustCompile(`Made the address me&#43;([a-z0-9]{4})@gmail\.com\.`).FindStringSubmatch(b)
 	if m == nil || !strings.Contains(b, `id="set-mail-sous" open`) {
 		t.Fatalf("after making an address:\n%s", b)
 	}
@@ -179,7 +179,7 @@ func TestAppSettings_Mail(t *testing.T) {
 		t.Errorf("removing sous's alias from tasking: %d", resp.StatusCode)
 	}
 	b = body(t, h.post(c, portal+"/settings", portal, url.Values{"action": {"mail-alias-remove"}, "app": {"sous"}, "route": {alias}}))
-	if !strings.Contains(b, "Removed &#43;"+alias+".") || len(svc.Routes("sous")) != 1 {
+	if !strings.Contains(b, "Removed me&#43;"+alias+"@gmail.com.") || len(svc.Routes("sous")) != 1 {
 		t.Errorf("after removing:\n%s", b)
 	}
 
@@ -192,5 +192,23 @@ func TestAppSettings_Mail(t *testing.T) {
 	// A made-up route in the redirect can't put words on the page.
 	if b := body(t, h.get(c, portal+"/?app=sous&done=mail-alias-added&route=%3Cb%3E")); strings.Contains(b, "Made the address") {
 		t.Error("a notice was made from a route that can't be one")
+	}
+}
+
+// Until the first check after setting the account is done, the Mail page
+// refreshes itself rather than sit on "Checking the inbox".
+func TestMailPage_RefreshesUntilChecked(t *testing.T) {
+	h, svc, _ := mailHarness(t)
+	c := h.client(true)
+	h.login(c, "root", "", "/")
+	if b := body(t, h.get(c, portal+"/mail")); strings.Contains(b, `http-equiv="refresh"`) {
+		t.Error("refreshing with no account")
+	}
+	if err := svc.SetAccount("me@gmail.com", "pw", "root"); err != nil {
+		t.Fatal(err)
+	}
+	b := body(t, h.get(c, portal+"/mail?done=saved"))
+	if !strings.Contains(b, `http-equiv="refresh"`) || !strings.Contains(b, "Saved, and Gmail took the login. This page refreshes until the first check is done.") {
+		t.Errorf("before the first check:\n%s", b)
 	}
 }

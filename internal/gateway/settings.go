@@ -107,8 +107,13 @@ func (g *Gateway) settle(ctx context.Context, sts []station, fl *settingsFlash) 
 		return
 	}
 	var mailStatus mail.Status
+	var held map[string]mail.Held
 	if g.mail != nil {
 		mailStatus = g.mail.Status()
+		var err error
+		if held, err = g.mail.Held(); err != nil {
+			g.logf("gateway: %v", err) // the panels say "No mail yet." rather than fail the page
+		}
 	}
 	// The apps' names and titles from the routes the gateway already holds,
 	// rather than asking the daemon again on every load.
@@ -147,7 +152,7 @@ func (g *Gateway) settle(ctx context.Context, sts []station, fl *settingsFlash) 
 			set.AI = g.appAI(rt.Name, choices, usage[rt.Name])
 		}
 		if g.mail != nil {
-			set.Mail = g.appMail(rt.Name, mailStatus)
+			set.Mail = g.appMail(rt.Name, st.Title, mailStatus, held[rt.Name])
 		}
 		if fl != nil && fl.App == st.Name {
 			set.Open, set.Notice, set.Error = fl.Panel, fl.Notice, fl.Error
@@ -262,7 +267,11 @@ func (g *Gateway) settingsNotice(r *http.Request) *settingsFlash {
 		if route != "" && !validMailRoute(route) {
 			return nil
 		}
-		words, ok := mailSettingsNotice(q.Get("done"), route, title)
+		var account string
+		if g.mail != nil {
+			account = g.mail.Status().Address
+		}
+		words, ok := mailSettingsNotice(q.Get("done"), route, title, account)
 		if !ok {
 			return nil
 		}

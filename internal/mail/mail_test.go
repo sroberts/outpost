@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -263,8 +264,8 @@ func TestCheck_RoutesLabelsAndArchives(t *testing.T) {
 	if err != nil || routed != 1 {
 		t.Errorf("second check routed %d, %v; want 1", routed, err)
 	}
-	if n, _ := h.svc.Held("yarr"); n != 3 {
-		t.Errorf("yarr holds %d; want 3", n)
+	if held, _ := h.svc.Held(); held["yarr"].Count != 3 {
+		t.Errorf("yarr holds %d; want 3", held["yarr"].Count)
 	}
 }
 
@@ -597,8 +598,8 @@ func TestStore_KeepsOnlyTheNewest(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if n, _ := h.svc.Held("yarr"); n != keep {
-		t.Errorf("held %d; want %d", n, keep)
+	if held, _ := h.svc.Held(); held["yarr"].Count != keep {
+		t.Errorf("held %d; want %d", held["yarr"].Count, keep)
 	}
 }
 
@@ -649,5 +650,89 @@ func TestTestAccount(t *testing.T) {
 	}
 	if h.svc.Status().Address != "" {
 		t.Error("testing saved the account")
+	}
+}
+
+// Shutting down waits for every request, since they use mail.db, which
+// closes next; a send still waiting on Gmail past the grace period is
+// cancelled rather than left running.
+func TestServe_WaitsForRequestsAtShutdown(t *testing.T) {
+	h := newHarness(t, "yarr")
+	h.setUp(t)
+	_ = h.svc.SetSend("yarr", true, "admin")
+	h.svc.drain = 50 * time.Millisecond
+	entered, finished := make(chan struct{}), make(chan struct{})
+	h.svc.send = func(ctx context.Context, _, _, _, _ string, _ []string, _ []byte) error {
+		close(entered)
+		<-ctx.Done()
+		time.Sleep(20 * time.Millisecond) // still working when the cut comes
+		close(finished)
+		return ctx.Err()
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	served := make(chan error, 1)
+	go func() { served <- h.svc.Serve(ctx, ln) }()
+
+	env, _ := h.svc.Resolve("yarr")
+	go func() {
+		req, _ := http.NewRequest("POST", "http://"+ln.Addr().String()+"/v1/send",
+			strings.NewReader(`{"to":["a@example.com"],"subject":"hi","text":"x"}`))
+		req.Header.Set("Authorization", "Bearer "+env[EnvToken])
+		if resp, err := http.DefaultClient.Do(req); err == nil {
+			_ = resp.Body.Close() // only the server's side is under test
+		}
+	}()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the send never started")
+	}
+	cancel()
+	select {
+	case err := <-served:
+		if err != nil {
+			t.Fatalf("Serve: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Serve didn't return after the grace period")
+	}
+	select {
+	case <-finished:
+	default:
+		t.Error("Serve returned while a request was still running")
+	}
+}
+
+// CheckWait returns once a check has run, and gives up when its context ends
+// if nothing is checking.
+func TestCheckWait(t *testing.T) {
+	h := newHarness(t, "yarr")
+	h.setUp(t)
+	h.box.add(1, newsletter("scott.roberts+yarr@gmail.com", "one"))
+
+	short, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if err := h.svc.CheckWait(short); err == nil {
+		t.Fatal("CheckWait returned with nothing checking")
+	}
+
+	ctx, stop := context.WithCancel(context.Background())
+	ran := make(chan struct{})
+	go func() { defer close(ran); h.svc.Run(ctx) }()
+	defer func() { stop(); <-ran }()
+	wait, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel2()
+	if err := h.svc.CheckWait(wait); err != nil {
+		t.Fatalf("CheckWait: %v", err)
+	}
+	if st := h.svc.Status(); st.Checked.IsZero() || st.Error != "" {
+		t.Errorf("after CheckWait: %+v", st)
+	}
+	if held, _ := h.svc.Held(); held["yarr"].Count != 1 {
+		t.Errorf("yarr holds %d; want 1", held["yarr"].Count)
 	}
 }

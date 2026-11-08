@@ -197,6 +197,10 @@ func smtpSend(ctx context.Context, addr, user, pass, from string, to []string, m
 		deadline = dl
 	}
 	_ = conn.SetDeadline(deadline) // a failed deadline only loses the bound
+	// net/smtp takes no context, so a cancelled one ends the conversation by
+	// cutting the connection under it: the daemon shutting down waits for this.
+	stop := context.AfterFunc(ctx, func() { _ = conn.SetDeadline(time.Now()) })
+	defer stop()
 	c, err := smtp.NewClient(conn, host)
 	if err != nil {
 		return fmt.Errorf("talk to %s: %w", addr, err)

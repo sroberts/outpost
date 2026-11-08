@@ -183,15 +183,15 @@
 <details class="confirm" name="mail-{{$a.Name}}"><summary class="pill"><span>Feed<span class="sr"> of mail to {{$label}}</span><span aria-hidden="true">…</span></span></summary>
 <p>Mail to this address as an Atom feed, for a feed reader running under Outpost, such as Yarr:</p>
 <p><code class="cmd feed">{{.Feed}}</code></p>
-<p class="hint">The link carries its own key, so keep it to readers you run.</p>
+<p class="hint">It works only on this machine, so a reader on your phone can't use it. The link carries its own key, so keep it to readers you run.</p>
 </details>
 {{if .Alias}}<details class="confirm" name="mail-{{$a.Name}}"><summary class="pill danger"><span>Remove<span class="sr"> {{$label}} from {{$a.Title}}</span><span aria-hidden="true">…</span></span></summary>
-<p>Mail sent to +{{.Route}} stays in the inbox from now on, and its feed stops. What {{$a.Title}} already has is kept.</p>
+<p>Mail sent to {{if .Address}}{{.Address}}{{else}}+{{.Route}}{{end}} stays in the inbox from now on, and its feed stops. What {{$a.Title}} already has is kept.</p>
 <form method="post" action="/settings">
 <input type="hidden" name="action" value="mail-alias-remove">
 <input type="hidden" name="app" value="{{$a.Name}}">
 <input type="hidden" name="route" value="{{.Route}}">
-<button class="ghost" type="submit"><span>Remove +{{.Route}}</span></button>
+<button class="ghost" type="submit"><span>Remove the address<span class="sr"> {{$label}}</span></span></button>
 </form>
 </details>{{end}}
 </div>

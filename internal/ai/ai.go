@@ -12,7 +12,6 @@ package ai
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,6 +24,8 @@ import (
 	"sync"
 	"time"
 	"unicode"
+
+	"github.com/sroberts/outpost/internal/apptoken"
 )
 
 // The two kinds of model an installation has.
@@ -107,8 +108,8 @@ type Service struct {
 	now      func() time.Time
 
 	mu sync.Mutex
-	// issued maps a token's hash to the app it was handed to.
-	issued map[[32]byte]string
+	// issued is which app each handed-out token belongs to.
+	issued *apptoken.Issued
 	usage  map[usageKey]*Usage
 }
 
@@ -161,7 +162,7 @@ func Open(opts Options) (*Service, error) {
 		client:  client,
 		logf:    logf,
 		now:     time.Now,
-		issued:  map[[32]byte]string{},
+		issued:  apptoken.NewIssued(tokenPrefix),
 		usage:   map[usageKey]*Usage{},
 	}, nil
 }
@@ -508,9 +509,7 @@ func (s *Service) ResetApps(kind, by string) error {
 // every reconcile tick for each running app, so it answers from memory.
 func (s *Service) Resolve(service string) (map[string]string, string) {
 	tok, gen := s.store.token(service)
-	s.mu.Lock()
-	s.issued[sha256.Sum256([]byte(tok))] = service
-	s.mu.Unlock()
+	s.issued.Add(tok, service)
 	return map[string]string{EnvURL: s.URL(), EnvToken: tok}, "ai:" + strconv.FormatInt(gen, 10)
 }
 
@@ -525,22 +524,14 @@ func (s *Service) Regenerate(service, by string) error {
 	if err := s.store.regenerate(service); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	delete(s.issued, sha256.Sum256([]byte(old)))
-	s.mu.Unlock()
+	s.issued.Remove(old)
 	s.logf("ai: %s regenerated %s's token", by, service)
 	return nil
 }
 
 // serviceFor is the app a token was handed to.
 func (s *Service) serviceFor(tok string) (string, bool) {
-	if !strings.HasPrefix(tok, tokenPrefix) {
-		return "", false
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	svc, ok := s.issued[sha256.Sum256([]byte(tok))]
-	return svc, ok
+	return s.issued.Service(tok)
 }
 
 // TestResult is what a test request got back.

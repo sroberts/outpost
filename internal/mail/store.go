@@ -16,6 +16,8 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite" // pure Go, so the binary stays cgo-free
+
+	"github.com/sroberts/outpost/internal/apptoken"
 )
 
 const schema = `
@@ -97,6 +99,9 @@ type store struct {
 	gens    map[string]int64
 	aliases map[string]alias // by alias
 	senders map[string]bool
+	// address is the account's, as set in the portal: kept in memory
+	// because every app's panel asks for it on every portal load.
+	address string
 }
 
 func openStore(path string) (*store, error) {
@@ -212,10 +217,19 @@ func (s *store) reload() error {
 		return err
 	}
 
+	address := s.meta("address")
+
 	s.mu.Lock()
-	s.gens, s.aliases, s.senders = gens, aliases, senders
+	s.gens, s.aliases, s.senders, s.address = gens, aliases, senders, address
 	s.mu.Unlock()
 	return nil
+}
+
+// portalAddress is the account address set in the portal; "" when unset.
+func (s *store) portalAddress() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.address
 }
 
 // meta reads a setting kept as text; "" when unset.
@@ -228,12 +242,18 @@ func (s *store) meta(key string) string {
 }
 
 func (s *store) setMeta(key, value string) error {
+	var err error
 	if value == "" {
-		_, err := s.db.Exec(`DELETE FROM meta WHERE key = ?`, key)
-		return err
-	}
-	_, err := s.db.Exec(`INSERT INTO meta (key, value) VALUES (?, ?)
+		_, err = s.db.Exec(`DELETE FROM meta WHERE key = ?`, key)
+	} else {
+		_, err = s.db.Exec(`INSERT INTO meta (key, value) VALUES (?, ?)
 		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, key, []byte(value))
+	}
+	if err == nil && key == "address" {
+		s.mu.Lock()
+		s.address = value
+		s.mu.Unlock()
+	}
 	return err
 }
 
@@ -278,11 +298,7 @@ func (s *store) regenerate(service string) error {
 // be stored to be handed out the same each time.
 func (s *store) token(service string) (tok string, gen int64) {
 	gen = s.generation(service)
-	m := hmac.New(sha256.New, s.key)
-	m.Write([]byte(service))
-	m.Write([]byte{0})
-	m.Write([]byte(strconv.FormatInt(gen, 10)))
-	return tokenPrefix + base64.RawURLEncoding.EncodeToString(m.Sum(nil)), gen
+	return apptoken.Mint(tokenPrefix, s.key, service, gen), gen
 }
 
 // feedSig is the secret part of a route's feed link. A feed reader can't send
@@ -452,16 +468,26 @@ func (s *store) remove(service string, id int64) error {
 }
 
 // held is how many messages service has, and when the newest came.
-func (s *store) held(service string) (int, time.Time) {
-	var n int
-	var last sql.NullInt64
-	if err := s.db.QueryRow(`SELECT COUNT(*), MAX(received) FROM messages WHERE service = ?`, service).Scan(&n, &last); err != nil {
-		return 0, time.Time{}
+// held is what every app has waiting, in one query: the portal draws every
+// app's panel at once.
+func (s *store) held() (map[string]Held, error) {
+	rows, err := s.db.Query(`SELECT service, COUNT(*), MAX(received) FROM messages GROUP BY service`)
+	if err != nil {
+		return nil, fmt.Errorf("count held mail: %w", err)
 	}
-	if !last.Valid {
-		return n, time.Time{}
+	defer func() { _ = rows.Close() }() // read-only
+	out := map[string]Held{}
+	for rows.Next() {
+		var name string
+		var h Held
+		var last int64
+		if err := rows.Scan(&name, &h.Count, &last); err != nil {
+			return nil, err
+		}
+		h.Newest = time.Unix(last, 0)
+		out[name] = h
 	}
-	return n, time.Unix(last.Int64, 0)
+	return out, rows.Err()
 }
 
 // sentSince counts what service sent after t, for the daily limit.

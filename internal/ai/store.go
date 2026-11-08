@@ -1,21 +1,19 @@
 package ai
 
 import (
-	"crypto/hmac"
 	"crypto/rand"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"sync"
 	"time"
 
 	_ "modernc.org/sqlite" // pure Go, so the binary stays cgo-free
+
+	"github.com/sroberts/outpost/internal/apptoken"
 )
 
 const schema = `
@@ -326,9 +324,5 @@ func (s *store) regenerate(service string) error {
 // token is service's token at its current generation.
 func (s *store) token(service string) (tok string, gen int64) {
 	gen = s.generation(service)
-	m := hmac.New(sha256.New, s.key)
-	m.Write([]byte(service))
-	m.Write([]byte{0})
-	m.Write([]byte(strconv.FormatInt(gen, 10)))
-	return tokenPrefix + base64.RawURLEncoding.EncodeToString(m.Sum(nil)), gen
+	return apptoken.Mint(tokenPrefix, s.key, service, gen), gen
 }
