@@ -62,6 +62,9 @@ type Options struct {
 	// AI, when set, gives admins a page for choosing the models apps are
 	// given.
 	AI AIModels
+	// Mail, when set, gives admins a page for the Gmail account apps get
+	// mail through, and a Mail panel under each app's menu.
+	Mail Mail
 	// Control, when set, gives admins a menu on each app in the catalog to
 	// start, stop, restart or back it up.
 	Control Control
@@ -94,6 +97,7 @@ type Gateway struct {
 	secrets      Secrets
 	exposure     Exposure
 	ai           AIModels
+	mail         Mail
 	control      Control
 	ops          appOps
 	// claim serialises the busy checks of the catalog's actions and the
@@ -170,6 +174,7 @@ func New(opts Options) (*Gateway, error) {
 		secrets:      opts.Secrets,
 		exposure:     opts.Exposure,
 		ai:           opts.AI,
+		mail:         opts.Mail,
 		control:      opts.Control,
 		stats:        opts.Stats,
 		scheme:       u.Scheme,

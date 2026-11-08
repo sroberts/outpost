@@ -285,6 +285,14 @@ which reach the two models the operator chose for the whole installation: an
 LLM and a System 1 model. You don't need them. If you want them, §15 is how
 to call them and what to expect back.
 
+### Email
+
+Every service is also started with `OUTPOST_MAIL_URL` and
+`OUTPOST_MAIL_TOKEN`, which reach the mail sent to your own addresses on the
+operator's Gmail account, such as `you+yourservice@gmail.com`, and, if the
+operator allows it, send mail from them. You don't need them either. §16 is
+how to use them.
+
 ---
 
 ## 4. Keep all persistent state in one directory
@@ -1133,3 +1141,126 @@ daemon's log: your service, the kind, the provider and model, the status, the
 time taken and the token counts. Prompts and replies are never logged. The
 operator sees your request counts under your app's Manage menu in the portal,
 and decides there, or on the AI models page, which apps may use each kind.
+
+---
+
+## 16. Using email
+
+Outpost can give your service email without you running a mail server or
+holding a password. The operator connects one Gmail account, and each service
+gets mail at its own **plus addresses** on it:
+
+- **its name,** such as `you+tasking@gmail.com` for a service named
+  `tasking`, when the name is lower-case letters, digits, `-`, `_` and `.`;
+- **aliases** the operator makes for it under its Manage menu: four random
+  characters with at least one digit, such as `you+k7q2@gmail.com`, each with
+  a note saying what it's for. One per newsletter or per sender lets the
+  operator remove one that's leaked without touching the rest.
+
+Outpost checks the inbox every minute. A message sent to one of your
+addresses is kept for you, and in Gmail it's labelled `Outpost/<service>`
+and archived. Mail to any other address is never opened or moved.
+
+Everything here is optional. A service that never reads these variables is
+unaffected, and its mail simply waits, up to the newest 500 messages.
+
+### What you're given
+
+```
+OUTPOST_MAIL_URL=http://127.0.0.1:47902
+OUTPOST_MAIL_TOKEN=omail_…
+```
+
+As with the AI endpoint (§15): the URL is loopback, plain HTTP and the
+operator's choice of port, so read it from the variable. The token is yours
+alone, sent as `Authorization: Bearer <token>`, stays the same across
+restarts, and changes only when the operator replaces it, which restarts you
+with the new one. Don't log it. **When the variables are unset,** there's no
+mail; carry on without it.
+
+### The endpoints
+
+All take and return JSON.
+
+| Method and path | Does |
+|---|---|
+| `GET /v1/me` | Your addresses, whether there's an account (`ready`) and whether you may send (`send`) |
+| `GET /v1/messages?after=<id>&limit=<n>` | Your messages with an id above `after`, oldest first; `limit` is at most 100 (default 50). `next` is the last id returned: pass it as `after` next time |
+| `GET /v1/messages/<id>` | One message |
+| `DELETE /v1/messages/<id>` | Forget one, once you've dealt with it |
+| `POST /v1/send` | Send a message, if the operator has allowed you to |
+
+`/v1/me` answers like this:
+
+```json
+{"ready": true, "send": false, "addresses": [
+  {"route": "tasking", "alias": false, "address": "you+tasking@gmail.com",
+   "feed": "http://127.0.0.1:47902/feeds/tasking.atom?key=…"},
+  {"route": "k7q2", "alias": true, "note": "Sentry alerts", "address": "you+k7q2@gmail.com",
+   "feed": "http://127.0.0.1:47902/feeds/k7q2.atom?key=…"}]}
+```
+
+A message:
+
+```json
+{"id": 42, "route": "k7q2", "to": "you+k7q2@gmail.com",
+ "from": {"name": "Sentry", "address": "noreply@sentry.io"}, "reply_to": "",
+ "subject": "New issue in api", "message_id": "abc@sentry.io",
+ "date": "2026-11-08T09:00:00Z", "received": "2026-11-08T09:00:41Z",
+ "text": "…", "html": "<p>…</p>", "attachments": 1}
+```
+
+`route` says which of your addresses it came to. `text` and `html` are the
+message's first plain-text and HTML parts, each up to 2 MiB; either may be
+empty. Attachments aren't kept, only counted. Each message is kept once,
+so polling with the last id you saw shows you each one once. Polling every
+minute or so matches how often Outpost checks.
+
+### Sending
+
+Off until the operator allows it under your Manage menu.
+
+```json
+POST /v1/send
+{"to": ["Ann <ann@example.com>"], "cc": [], "bcc": [],
+ "subject": "Your list", "text": "…", "html": "<p>…</p>",
+ "from_name": "Tasking", "route": "tasking"}
+```
+
+- `text`, `html` or both; with both, they're sent as alternatives.
+- `route` is which of your addresses it's from; unset is your name's.
+  The message is `From` and `Reply-To` that address, so replies come back to
+  you.
+- `in_reply_to`, the id of one of your messages, threads the reply and,
+  with no `to`, sends it to whoever sent that one, with `Re:` added to its
+  subject if you give none.
+- At most 20 recipients in all, and 100 messages a day for each service,
+  well inside Gmail's own limit for the whole account.
+
+It answers `{"message_id": "…"}` once Gmail has taken it.
+
+### Feeds
+
+Every address has an Atom feed of its newest 50 messages, at the `feed` URL
+in `/v1/me`. The link carries its own key, so a feed reader that can't send
+a token can subscribe to it: this is how newsletters reach a reader such as
+Yarr with no change to it. The feed's title is the alias's note, or else who
+sent the newest message, and each entry links to the message as it was sent,
+served with scripts off.
+
+### What can go wrong
+
+Errors are `{"error": "…"}`.
+
+| Status | Means | What to do |
+|---|---|---|
+| 401 | missing or wrong token | Check you send `OUTPOST_MAIL_TOKEN` |
+| 403 | you may not send | Do without; the operator can allow it |
+| 404 | no such message, or a path not served | Use one from the table above |
+| 400 | a bad recipient, no subject, no body, a route that isn't yours | Fix the request |
+| 429 | you've sent 100 messages in the last 24 hours | Wait |
+| 503 | no Gmail account is set up | Carry on without mail |
+| 502 | Gmail didn't take the message | Try again later |
+
+**Treat mail as an enhancement,** as with AI: keep running and keep passing
+your healthcheck when it's unavailable.

@@ -1,0 +1,47 @@
+{{define "body"}}
+{{template "rail" .}}
+<main class="page mail">
+<p class="back"><a href="{{.Home}}">Back to apps</a></p>
+<h1>Mail</h1>
+{{with .Mail}}<p class="lede">Apps get mail at your Gmail address with a + part: mail to you+yarr@gmail.com reaches Yarr. Each app's addresses, its feeds and whether it may send are under its Manage menu.</p>
+{{if .Notice}}<p class="notice" role="status">{{.Notice}}</p>{{end}}
+
+<section class="kind {{.Health}}" id="account" aria-labelledby="account-title">
+<h2 id="account-title"><span class="smark {{.Health}}" aria-hidden="true"></span>Gmail account<span class="sr"> ({{.State}})</span></h2>
+{{if .Address}}<p class="model"><code>{{.Address}}</code></p>{{end}}
+<p class="meta{{if eq .Health "down"}} why{{end}}">{{.State}}{{if .FromConfig}} · the address is from config.toml{{end}}</p>
+{{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+<div class="row-acts">
+<details class="confirm" name="mail-account"{{if or .FormError (not .HasPassword)}} open{{end}}><summary class="pill"><span>{{if .HasPassword}}Change<span class="sr"> the Gmail account</span>{{else}}Set up<span class="sr"> a Gmail account</span>{{end}}<span aria-hidden="true">…</span></span></summary>
+{{if .FormError}}<p class="error" role="alert" id="account-error">{{.FormError}}</p>{{end}}
+<form method="post" action="/mail">
+<input type="hidden" name="action" value="account">
+<label for="mail-address">Gmail address</label>
+<input id="mail-address" name="address" type="email" value="{{.Address}}" autocomplete="off" autocapitalize="off" spellcheck="false" required{{if .FormError}} aria-describedby="account-error"{{end}}>
+<label for="mail-password">App password</label>
+<input id="mail-password" name="password" type="password" autocomplete="off" spellcheck="false"{{if not .HasPassword}} required{{end}} aria-describedby="mail-password-hint">
+<p class="hint field-hint" id="mail-password-hint">{{if .HasPassword}}Saved. Leave it empty to keep it. {{end}}Make one at <a href="https://myaccount.google.com/apppasswords" rel="noopener noreferrer" target="_blank">myaccount.google.com/apppasswords</a>, which needs 2-Step Verification on. Not the account's own password.</p>
+<button type="submit"><span>Save<span class="sr"> the Gmail account</span></span></button>
+</form>
+<p class="hint">The password is kept as the secret <code>{{.Secret}}</code>, and can be replaced, never read back.</p>
+</details>
+{{if .HasPassword}}<form method="post" action="/mail">
+<input type="hidden" name="action" value="check">
+<button class="pill" type="submit"><span>Check now<span class="sr"> for new mail</span></span></button>
+</form>{{end}}
+</div>
+</section>
+
+<section class="panel fold" aria-labelledby="how-title" id="how">
+<h2 id="how-title">How it works</h2>
+<details class="ref"><summary><span class="count">Routing, feeds, sending</span></summary>
+<ul class="set-list">
+<li><p>Every minute Outpost looks at new mail in the inbox. Mail sent to an app's name or one of its random addresses is kept for that app, labelled <code>Outpost/&lt;app&gt;</code> and archived. Mail to any other address is never opened or moved.</p></li>
+<li><p>Each address has an Atom feed, so a feed reader such as Yarr can subscribe to the newsletters sent to it.</p></li>
+<li><p>Apps read their mail, and send it if allowed, at <code>OUTPOST_MAIL_URL</code> with their own <code>OUTPOST_MAIL_TOKEN</code>. They never see the password.</p></li>
+</ul>
+</details>
+</section>
+{{end}}
+</main>
+{{end}}

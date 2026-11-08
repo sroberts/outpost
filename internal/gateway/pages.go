@@ -61,7 +61,7 @@ func versioned(urlPath, file string) string {
 
 func loadPages() (pages, error) {
 	p := pages{}
-	for _, name := range []string{"login", "setup", "portal", "message", "account", "updates", "add", "secrets", "ai"} {
+	for _, name := range []string{"login", "setup", "portal", "message", "account", "updates", "add", "secrets", "ai", "mail"} {
 		t, err := template.New(name).Funcs(template.FuncMap{"lower": strings.ToLower}).
 			ParseFS(assets, "templates/layout.html", "templates/"+name+".html")
 		if err != nil {
@@ -102,6 +102,8 @@ type pageData struct {
 	Secrets     *secretsView
 	AILink      bool // the AI models page is there for this user
 	AI          *aiView
+	MailLink    bool // the Mail page is there for this user
+	Mail        *mailView
 	UpdateRows  []updateRow
 	ByHand      string // apps not from a release, in words
 	Checked     string // when releases were last checked, in words

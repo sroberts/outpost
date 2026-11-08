@@ -509,7 +509,7 @@ label.check input {
 /* Each model is a station: porcelain in a beam ring when it's chosen and
    nothing's known wrong, a hollow red ring when apps asking get an error,
    an empty field-edge ring when none is chosen. */
-.ai .kind h2 { display: flex; align-items: center; gap: 0.55rem; }
+.ai .kind h2, .mail .kind h2 { display: flex; align-items: center; gap: 0.55rem; }
 .smark { flex: none; width: 16px; height: 16px; border-radius: 50%; border: 4px solid var(--beam); background: var(--porcelain); }
 .smark.down { border-color: var(--down); background: var(--night); }
 .smark.unset, .smark.off { border-color: var(--field-edge); background: var(--night); }
@@ -517,20 +517,20 @@ label.check input {
 .smark.starting { background: var(--night); }
 /* Beside a row's name, which sits on a baseline the mark hasn't got. */
 .top > .smark { align-self: center; }
-.ai .kind { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--rule); scroll-margin-top: 1rem; }
-.ai .model { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.6rem; margin: 0.5rem 0 0; }
-.ai .model code { font-size: 17px; overflow-wrap: anywhere; }
+.ai .kind, .mail .kind { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--rule); scroll-margin-top: 1rem; }
+.ai .model, .mail .model { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.6rem; margin: 0.5rem 0 0; }
+.ai .model code, .mail .model code { font-size: 17px; overflow-wrap: anywhere; }
 /* Who serves it, beside the model: a name, not a state, so not uppercase. */
-.ai .model .tag { font-size: 12px; font-weight: 550; letter-spacing: 0; text-transform: none; }
-.ai .meta { display: block; margin: 0.35rem 0 0; }
-.ai .kind > .error { margin-top: 0.5rem; font-size: 14px; font-weight: 400; }
-.ai .kind > .error a { font-weight: 550; }
-.ai .error a { color: inherit; text-decoration-color: currentColor; }
+.ai .model .tag, .mail .model .tag { font-size: 12px; font-weight: 550; letter-spacing: 0; text-transform: none; }
+.ai .meta, .mail .meta { display: block; margin: 0.35rem 0 0; }
+.ai .kind > .error, .mail .kind > .error { margin-top: 0.5rem; font-size: 14px; font-weight: 400; }
+.ai .kind > .error a, .mail .kind > .error a { font-weight: 550; }
+.ai .error a, .mail .error a { color: inherit; text-decoration-color: currentColor; }
 /* Every control in the row is a pill, the same height, on one centre line. */
-.ai .row-acts { align-items: center; margin-top: 0.85rem; }
-.ai .row-acts > form { margin: 0; }
-.ai button.pill { font-weight: 400; }
-.ai .kind > .notice { margin-top: 0.6rem; }
+.ai .row-acts, .mail .row-acts { align-items: center; margin-top: 0.85rem; }
+.ai .row-acts > form, .mail .row-acts > form { margin: 0; }
+.ai button.pill, .mail button.pill { font-weight: 400; }
+.ai .kind > .notice, .mail .kind > .notice { margin-top: 0.6rem; }
 .pick { margin-top: 0.75rem; border-bottom: 1px solid var(--rule); padding-bottom: 1rem; }
 .pick > form { margin-top: 0; justify-items: start; }
 .pick > form.undo { margin-top: 1rem; }
@@ -559,8 +559,8 @@ label.check input {
 }
 .ai .source-off a { display: inline-flex; align-items: center; min-height: 44px; font-size: 14px; font-weight: 400; color: var(--beam); }
 .ai label.check > span { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 0.5rem; overflow-wrap: anywhere; }
-.ai .confirm form { max-width: 34rem; }
-.ai .confirm form > label { width: 100%; }
+.ai .confirm form, .mail .confirm form { max-width: 34rem; }
+.ai .confirm form > label, .mail .confirm form > label { width: 100%; }
 /* Providers and apps: name and what it has on the left, its pill at the
    end, on one line at phone width; an open pill takes the row beneath. */
 .ai .devices { margin-top: 0.75rem; }

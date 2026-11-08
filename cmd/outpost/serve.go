@@ -19,6 +19,7 @@ import (
 	"github.com/sroberts/outpost/internal/exposure"
 	"github.com/sroberts/outpost/internal/gateway"
 	"github.com/sroberts/outpost/internal/ipc"
+	"github.com/sroberts/outpost/internal/mail"
 	"github.com/sroberts/outpost/internal/manifest"
 	"github.com/sroberts/outpost/internal/runtime"
 	"github.com/sroberts/outpost/internal/secrets"
@@ -127,6 +128,23 @@ func (a *app) cmdServe(args []string) error {
 		defer func() { _ = aiLn.Close() }() // Serve has stopped by then, or never started
 	}
 
+	watch.at("opening the mail store")
+	mailService, err := mail.Open(mailOptions(a.config.Mail, a.mailPath(), secretKeys{secretStore},
+		func(format string, v ...any) { fmt.Fprintf(a.out, format+"\n", v...) }))
+	if err != nil {
+		return err
+	}
+	defer mailService.Close()
+	// Bound before any app starts, as the AI endpoint is, and for the same
+	// reason a port already taken isn't fatal.
+	mailLn, err := net.Listen("tcp", a.config.Mail.ListenAddr())
+	if err != nil {
+		fmt.Fprintf(a.err, "outpost: mail endpoint: %v; apps can't reach their mail until [mail] listen names a free port and the daemon restarts\n", err)
+		mailLn = nil
+	} else {
+		defer func() { _ = mailLn.Close() }() // Serve has stopped by then, or never started
+	}
+
 	// config.toml decides whether the tailnet is used at all; an explicit
 	// --tailnet on the command line overrides it for this run.
 	useTailnet := a.config.TailscaleEnabled()
@@ -208,7 +226,7 @@ func (a *app) cmdServe(args []string) error {
 		ProcessRuntime:  procs,
 		Interval:        *interval,
 		CheckRelease:    (&releaseChecks{a: a}).check,
-		Secrets:         withAI{secrets: secretStore, ai: aiService},
+		Secrets:         withAI{secrets: secretStore, ai: aiService, mail: mailService},
 		Exposure:        exposureStore,
 		Logf:            func(format string, v ...any) { fmt.Fprintf(a.out, format+"\n", v...) },
 	})
@@ -218,6 +236,14 @@ func (a *app) cmdServe(args []string) error {
 	if err := sup.Apply(context.Background()); err != nil {
 		return err
 	}
+	// An app's name is one of its mail routes.
+	mailService.SetServices(func() []string {
+		var names []string
+		for _, svc := range sup.Services() {
+			names = append(names, svc.Name)
+		}
+		return names
+	})
 
 	// A daemon killed with SIGKILL — OOM, power cut, `kill -9` — leaves its
 	// services running and holding their ports. Clear them before starting
@@ -271,6 +297,7 @@ func (a *app) cmdServe(args []string) error {
 			Secrets:      secretStore,
 			Exposure:     exposureWeb{a: a, store: exposureStore, sup: sup, opts: a.manifestOptions(useTailnet)},
 			AI:           aiService,
+			Mail:         mailService,
 			Control:      sup,
 			Stats:        sampler,
 			NodeSecret:   nodeSecret,
@@ -359,6 +386,22 @@ func (a *app) cmdServe(args []string) error {
 		close(aiDone)
 	}
 
+	mailDone := make(chan struct{})
+	if mailLn != nil {
+		fmt.Fprintf(a.out, "outpost: mail endpoint at %s\n", mailService.URL())
+		go func() {
+			if err := mailService.Serve(ctx, mailLn); err != nil {
+				fmt.Fprintf(a.err, "outpost: mail endpoint: %v\n", err)
+			}
+		}()
+	}
+	// Reading the inbox waits on Gmail, so it runs on its own, and is over
+	// before mail.db closes.
+	go func() {
+		defer close(mailDone)
+		mailService.Run(ctx)
+	}()
+
 	// Off the loop, which must never wait on the network, and over by the time
 	// the store closes.
 	checksDone := make(chan struct{})
@@ -388,6 +431,7 @@ func (a *app) cmdServe(args []string) error {
 	}
 	<-gwDone
 	<-aiDone
+	<-mailDone
 
 	fmt.Fprintln(a.out, "outpost: stopped")
 	if runErr != nil && ctx.Err() == nil {
