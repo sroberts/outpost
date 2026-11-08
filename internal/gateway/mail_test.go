@@ -1,6 +1,8 @@
 package gateway
 
 import (
+	"context"
+	"errors"
 	"net/url"
 	"path/filepath"
 	"regexp"
@@ -16,6 +18,17 @@ type mailKeys map[string]string
 
 func (k mailKeys) Value(name string) (string, bool) { v, ok := k[name]; return v, ok }
 func (k mailKeys) Put(name, value string) error     { k[name] = value; return nil }
+
+// testedMail is the mail service with the login test answered here rather
+// than by Gmail: a password of "wrong" is refused.
+type testedMail struct{ *mail.Service }
+
+func (m testedMail) TestAccount(_ context.Context, address, password string) error {
+	if password == "wrong" {
+		return errors.New("gmail refused the login. Gmail said: Invalid credentials")
+	}
+	return nil
+}
 
 // mailHarness is a portal with a real mail service, which reads no inbox:
 // its poller isn't run.
@@ -36,7 +49,7 @@ func mailHarness(t *testing.T) (*harness, *mail.Service, mailKeys) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = svc.Close() })
-	h.g.mail = svc
+	h.g.mail = testedMail{svc}
 	h.withServices(
 		supervisor.ServiceStatus{Name: "sous", Status: "running"},
 		supervisor.ServiceStatus{Name: "tasking", Status: "running"},
@@ -68,8 +81,15 @@ func TestMailPage_SetsTheAccount(t *testing.T) {
 		t.Errorf("a plus address as the account: %d\n%s", resp.StatusCode, b)
 	}
 
+	// A login Gmail refuses is said beside the form, and nothing is saved.
+	resp = h.post(c, portal+"/mail", portal, url.Values{"action": {"account"}, "address": {"me@gmail.com"}, "password": {"wrong"}})
+	b = body(t, resp)
+	if resp.StatusCode != 400 || !strings.Contains(b, "Gmail refused the login") || svc.Status().Address != "" {
+		t.Errorf("a refused login: %d\n%s", resp.StatusCode, b)
+	}
+
 	b = body(t, h.post(c, portal+"/mail", portal, url.Values{"action": {"account"}, "address": {"me@gmail.com"}, "password": {"abcd efgh ijkl mnop"}}))
-	if !strings.Contains(b, "Saved. Outpost is checking the inbox now.") || !strings.Contains(b, "<code>me@gmail.com</code>") {
+	if !strings.Contains(b, "Saved, and Gmail took the login.") || !strings.Contains(b, "<code>me@gmail.com</code>") {
 		t.Errorf("after saving:\n%s", b)
 	}
 	if keys["gmail-app-password"] != "abcdefghijklmnop" {
@@ -94,6 +114,16 @@ func TestMailPage_SetsTheAccount(t *testing.T) {
 	if resp := h.post(c, portal+"/mail", "https://evil.example", url.Values{"action": {"check"}}); resp.StatusCode != 403 {
 		t.Errorf("a cross-site post: %d", resp.StatusCode)
 	}
+
+	// Who may send as the account is seen in one place, senders first.
+	if err := svc.SetSend("tasking", true, "root"); err != nil {
+		t.Fatal(err)
+	}
+	b = body(t, h.get(c, portal+"/mail"))
+	ti, si := strings.Index(b, `href="/#set-mail-tasking"`), strings.Index(b, `href="/#set-mail-sous"`)
+	if !strings.Contains(b, "1 may send mail as you.") || ti < 0 || si < 0 || ti > si {
+		t.Errorf("the apps on the Mail page:\n%s", b)
+	}
 }
 
 // An app's addresses, feeds, sending and token are under its menu.
@@ -117,8 +147,9 @@ func TestAppSettings_Mail(t *testing.T) {
 	alias := m[1]
 	sous = settingsPanel(t, b, "set-mail-sous")
 	for _, want := range []string{
-		"<code class=\"whole\">me&#43;sous@gmail.com</code>",
-		"<code class=\"whole\">me&#43;" + alias + "@gmail.com</code> <span class=\"hint\">The Weekly</span>",
+		"<code>me&#43;sous<wbr>@gmail.com</code></p>\n<p class=\"hint\">Sous's own address</p>",
+		"<code>me&#43;" + alias + "<wbr>@gmail.com</code></p>\n<p class=\"hint\">The Weekly</p>",
+		"Feed<span class=\"sr\"> of mail to The Weekly</span>",
 		"http://127.0.0.1:47902/feeds/" + alias + ".atom?key=",
 		"2 addresses",
 		"No mail yet.",

@@ -644,7 +644,14 @@ label.check input {
 .set-list > li { display: grid; gap: 2px; padding: 0.6rem 0; }
 .set-list > li + li { border-top: 1px solid var(--rule); }
 .set-item { margin: 0; }
-.set-item code { font-size: 14px; }
+.set-item code { font-size: 14px; overflow-wrap: anywhere; }
+/* Mail: an address and its note on lines of their own, and a feed link that
+   wraps rather than pushing the panel sideways, selected whole in one tap. */
+.mail-routes .set-item + .hint { margin: 0.15rem 0 0; }
+.cmd.feed { display: inline-block; max-width: 100%; overflow-wrap: anywhere; }
+.set-body > form + .set-sub { margin-top: 1.5rem; }
+/* The hint sits under its checkbox's words, not under its 44px target. */
+.set-body > form > label.check + .field-hint { margin-top: -1rem; }
 .set-list .row-acts { margin-top: 0.4rem; }
 .set-shared { display: grid; gap: 0.25rem; margin-top: 0.3rem; font-size: 14px; }
 .set-shared li { display: flex; flex-wrap: wrap; align-items: center; gap: 0 0.4rem; min-height: 28px; }
@@ -661,3 +668,17 @@ label.check input {
 @media (prefers-reduced-motion: reduce) {
   .setting > summary::after { transition: none; }
 }
+
+/* The Mail page's apps: who gets mail and who may send as you, one tap from
+   each app's own panel. */
+.mail .apps { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--rule); }
+.mail .apps h2 { margin: 0; }
+.mail-apps { list-style: none; margin: 0.5rem 0 0; padding: 0; }
+.mail-apps li + li { border-top: 1px solid var(--rule); }
+.mail-apps a {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.6rem; min-height: 44px;
+  color: var(--porcelain); text-decoration: none;
+}
+.mail-apps a:hover .mail-app { text-decoration: underline; }
+.mail-apps .mail-app { font-weight: 550; }
+.mail-apps .tag { font-size: 12px; font-weight: 550; letter-spacing: 0; text-transform: none; }

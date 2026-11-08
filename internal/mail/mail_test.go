@@ -631,3 +631,23 @@ func TestCheck_DeliveredToDecides(t *testing.T) {
 		t.Error("mail with no Delivered-To wasn't routed by its To header")
 	}
 }
+
+func TestTestAccount(t *testing.T) {
+	h := newHarness(t)
+	if err := h.svc.TestAccount(context.Background(), "me@gmail.com", ""); err == nil {
+		t.Error("tested with no password at all")
+	}
+	if err := h.svc.TestAccount(context.Background(), "me@gmail.com", "ab cd"); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.box.logins; len(got) != 1 || got[0] != "me@gmail.com:abcd" {
+		t.Errorf("logins = %q", got)
+	}
+	h.box.loginErr = loginError(errors.New("Invalid credentials"))
+	if err := h.svc.TestAccount(context.Background(), "me@gmail.com", "x"); err == nil || !strings.Contains(err.Error(), "Gmail said: Invalid credentials") {
+		t.Errorf("a refused login = %v", err)
+	}
+	if h.svc.Status().Address != "" {
+		t.Error("testing saved the account")
+	}
+}

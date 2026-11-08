@@ -257,6 +257,28 @@ func (s *Service) SetAccount(address, password, by string) error {
 	return nil
 }
 
+// TestAccount logs in to address with password, or with the saved one when
+// password is empty, and logs out: what SetAccount would save, tried first.
+func (s *Service) TestAccount(ctx context.Context, address, password string) error {
+	address = strings.TrimSpace(address)
+	if _, err := parseAccount(address); err != nil {
+		return err
+	}
+	password = strings.ReplaceAll(strings.TrimSpace(password), " ", "")
+	if password == "" {
+		var ok bool
+		if password, ok = s.password(); !ok {
+			return errors.New("the app password is required")
+		}
+	}
+	sess, err := s.dial(ctx, s.imapAddr, address, password)
+	if err != nil {
+		return err
+	}
+	_ = sess.close() // the login is what was being tested
+	return nil
+}
+
 // CheckNow asks Run to check the inbox without waiting for the next poll.
 func (s *Service) CheckNow() {
 	select {

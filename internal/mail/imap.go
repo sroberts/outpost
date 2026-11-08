@@ -70,9 +70,10 @@ func login(ctx context.Context, conn net.Conn, user, pass string) (session, erro
 	return &imapSession{c: c, stop: stop}, nil
 }
 
-// loginError says what a refused login usually means with Gmail.
+// loginError says what a refused login usually means with Gmail, and then
+// what the server said.
 func loginError(err error) error {
-	return fmt.Errorf("gmail refused the login (%v); check the address, and that the password is an app password from myaccount.google.com/apppasswords, not the account's own", err)
+	return fmt.Errorf("gmail refused the login. Check the address, and that the password is an app password from myaccount.google.com/apppasswords, not the account's own. Gmail said: %v", err)
 }
 
 type imapSession struct {

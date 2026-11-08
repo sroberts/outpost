@@ -1,9 +1,12 @@
 package gateway
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/sroberts/outpost/internal/auth"
@@ -17,6 +20,7 @@ type Mail interface {
 	Status() mail.Status
 	PasswordSecret() string
 	SetAccount(address, password, by string) error
+	TestAccount(ctx context.Context, address, password string) error
 	CheckNow()
 	Routes(service string) []mail.Route
 	AddAlias(service, note, by string) (mail.Route, error)
@@ -46,6 +50,17 @@ type mailView struct {
 	Error       string // why the last check failed
 	Notice      string
 	FormError   string
+	// Apps is every app with its addresses, those that may send first, so
+	// who can send as the account is seen in one place.
+	Apps    []mailApp
+	Senders int
+}
+
+// mailApp is one app's line on the Mail page.
+type mailApp struct {
+	Name, Title string
+	Addresses   int
+	Send        bool
 }
 
 // mailHealth is the account's state as a station mark and words.
@@ -96,7 +111,7 @@ func (g *Gateway) mailPage(w http.ResponseWriter, r *http.Request) {
 	v := mailView{}
 	switch r.URL.Query().Get("done") {
 	case "saved":
-		v.Notice = "Saved. Outpost is checking the inbox now."
+		v.Notice = "Saved, and Gmail took the login. Outpost is reading the inbox now."
 	case "checked":
 		v.Notice = "Checking the inbox now. Reload in a moment to see how it went."
 	}
@@ -116,6 +131,24 @@ func (g *Gateway) renderMail(w http.ResponseWriter, r *http.Request, u auth.User
 		v.State += fmt.Sprintf("; %d %s routed since Outpost started, the last %s", st.Routed,
 			noun(st.Routed, "message", "messages"), timeAgo(g.now(), st.LastRouted))
 	}
+	v.Error = sentence(v.Error)
+	for _, rt := range g.routes.all() {
+		a := mailApp{Name: rt.Name, Title: firstNonEmpty(rt.Title, titleCase(rt.Name)),
+			Addresses: len(g.mail.Routes(rt.Name)), Send: g.mail.CanSend(rt.Name)}
+		if a.Send {
+			v.Senders++
+		}
+		v.Apps = append(v.Apps, a)
+	}
+	slices.SortStableFunc(v.Apps, func(a, b mailApp) int {
+		switch {
+		case a.Send && !b.Send:
+			return -1
+		case b.Send && !a.Send:
+			return 1
+		}
+		return strings.Compare(strings.ToLower(a.Title), strings.ToLower(b.Title))
+	})
 	g.render(w, r, status, "mail", pageData{
 		Title: "Mail",
 		Who:   displayName(u),
@@ -140,8 +173,16 @@ func (g *Gateway) mailSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.PostForm.Get("action") {
 	case "account":
-		addr := r.PostForm.Get("address")
-		if err := g.mail.SetAccount(addr, r.PostForm.Get("password"), u.Username); err != nil {
+		addr, pass := r.PostForm.Get("address"), r.PostForm.Get("password")
+		// Tried before it's saved, so a wrong password is said here, beside
+		// the field, not later on a page that has to be reloaded.
+		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+		err := g.mail.TestAccount(ctx, addr, pass)
+		cancel()
+		if err == nil {
+			err = g.mail.SetAccount(addr, pass, u.Username)
+		}
+		if err != nil {
 			g.renderMail(w, r, u, http.StatusBadRequest, mailView{Address: addr, FormError: sentence(err.Error())})
 			return
 		}
@@ -159,7 +200,7 @@ func (g *Gateway) mailSubmit(w http.ResponseWriter, r *http.Request) {
 type appMail struct {
 	Ready bool // there's an account to get mail through
 	// Routes are its addresses: its name, then the aliases made for it.
-	Routes []mail.Route
+	Routes []mailRoute
 	Send   bool
 	Held   string // what's waiting for it, in words
 	Words  string // the summary, in a few words
@@ -167,7 +208,12 @@ type appMail struct {
 }
 
 func (g *Gateway) appMail(app string, st mail.Status) *appMail {
-	out := &appMail{Ready: st.Ready(), Routes: g.mail.Routes(app), Send: g.mail.CanSend(app)}
+	out := &appMail{Ready: st.Ready(), Send: g.mail.CanSend(app)}
+	for _, rt := range g.mail.Routes(app) {
+		mr := mailRoute{Route: rt.Route, Note: rt.Note, Address: rt.Address, Feed: rt.Feed, Alias: rt.Alias}
+		mr.Local, mr.Domain, _ = strings.Cut(rt.Address, "@")
+		out.Routes = append(out.Routes, mr)
+	}
 	out.Health, _ = g.mailHealth(st)
 	if n, last := g.mail.Held(app); n == 0 {
 		out.Held = "No mail yet."
@@ -186,6 +232,14 @@ func (g *Gateway) appMail(app string, st mail.Status) *appMail {
 		}
 	}
 	return out
+}
+
+// mailRoute is an address as the panel draws it: split at the @, so a long
+// one breaks there on a phone rather than mid-word.
+type mailRoute struct {
+	Route, Note, Address, Feed string
+	Alias                      bool
+	Local, Domain              string
 }
 
 // mailSettingsNotice is the words for a mail outcome on an app's panel.

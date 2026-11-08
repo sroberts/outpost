@@ -804,7 +804,8 @@ each issue arrives as an article, with no change to Yarr.
 
 **Setting it up.** Turn on 2-Step Verification for the Google account, make an
 [app password](https://myaccount.google.com/apppasswords), and enter the
-address and app password on the admin-only **Mail** page. The password is kept
+address and app password on the admin-only **Mail** page, which tries the
+login before saving it, and lists every app with who may send as you. The password is kept
 as the secret `gmail-app-password` in `secrets.db`, never given to an app. Or,
 without the portal:
 

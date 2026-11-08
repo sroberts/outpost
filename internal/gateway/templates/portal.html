@@ -167,16 +167,25 @@
 {{with .Mail}}<details class="setting" name="set-{{$a.Name}}" id="set-mail-{{$a.Name}}"{{if eq $a.Open "mail"}} open{{end}}><summary><span class="set-name">Mail</span><span class="count{{if eq .Health "down"}} why{{end}}">{{.Words}}</span></summary>
 <div class="set-body">
 {{if eq $a.Open "mail"}}{{template "flash" $a}}{{end}}
-{{if not .Ready}}<p class="meta">There's no Gmail account yet. <a href="/mail">Set one up on the Mail page</a>, and {{$a.Title}} gets mail at the addresses below.</p>{{else if eq .Health "down"}}<p class="meta why">Outpost can't read the inbox now. <a href="/mail">See why on the Mail page</a>.</p>{{end}}
-{{if .Routes}}<ul class="set-list">
-{{range .Routes}}<li><p class="set-item">{{if .Address}}<code class="whole">{{.Address}}</code>{{else}}<code>+{{.Route}}</code>{{end}}{{if .Note}} <span class="hint">{{.Note}}</span>{{else if not .Alias}} <span class="hint">its name</span>{{end}}</p>
+{{if not .Ready}}<p class="meta">There's no Gmail account yet. <a href="/mail">Set one up on the Mail page</a>, and {{$a.Title}} gets mail at the addresses below.</p>{{else if eq .Health "down"}}<p class="meta why">Outpost can't read the inbox now. <a href="/mail">See why on the Mail page</a>.</p>{{else}}<p class="meta">{{.Held}}</p>{{end}}
+<form method="post" action="/settings">
+<input type="hidden" name="action" value="mail-send">
+<input type="hidden" name="app" value="{{$a.Name}}">
+<label class="check"><input type="checkbox" name="send" value="1"{{if .Send}} checked{{end}} aria-describedby="mail-send-hint-{{$a.Name}}{{if and (eq $a.Open "mail") $a.Error}} err-{{$a.Name}}{{end}}"> Let {{$a.Title}} send mail as you</label>
+<p class="hint field-hint" id="mail-send-hint-{{$a.Name}}">From its own addresses, up to 100 messages a day. Replies come back to the address it sent from.</p>
+<button type="submit"><span>Save<span class="sr"> whether {{$a.Title}} may send mail</span></span></button>
+</form>
+{{if .Routes}}<p class="set-sub">Its addresses</p>
+<ul class="set-list mail-routes">
+{{range .Routes}}{{$label := or .Note .Address (printf "+%s" .Route)}}<li><p class="set-item">{{if .Address}}<code>{{.Local}}<wbr>@{{.Domain}}</code>{{else}}<code>+{{.Route}}</code>{{end}}</p>
+<p class="hint">{{if .Note}}{{.Note}}{{else if not .Alias}}{{$a.Title}}'s own address{{else}}No note{{end}}</p>
 <div class="row-acts">
-<details class="confirm" name="mail-{{$a.Name}}"><summary class="pill"><span>Feed<span class="sr"> of mail to +{{.Route}}</span><span aria-hidden="true">…</span></span></summary>
-<p>Mail to this address as an Atom feed. Subscribe to it in a feed reader on this machine, such as Yarr:</p>
-<p><code class="whole">{{.Feed}}</code></p>
+<details class="confirm" name="mail-{{$a.Name}}"><summary class="pill"><span>Feed<span class="sr"> of mail to {{$label}}</span><span aria-hidden="true">…</span></span></summary>
+<p>Mail to this address as an Atom feed, for a feed reader running under Outpost, such as Yarr:</p>
+<p><code class="cmd feed">{{.Feed}}</code></p>
 <p class="hint">The link carries its own key, so keep it to readers you run.</p>
 </details>
-{{if .Alias}}<details class="confirm" name="mail-{{$a.Name}}"><summary class="pill danger"><span>Remove<span class="sr"> +{{.Route}} from {{$a.Title}}</span><span aria-hidden="true">…</span></span></summary>
+{{if .Alias}}<details class="confirm" name="mail-{{$a.Name}}"><summary class="pill danger"><span>Remove<span class="sr"> {{$label}} from {{$a.Title}}</span><span aria-hidden="true">…</span></span></summary>
 <p>Mail sent to +{{.Route}} stays in the inbox from now on, and its feed stops. What {{$a.Title}} already has is kept.</p>
 <form method="post" action="/settings">
 <input type="hidden" name="action" value="mail-alias-remove">
@@ -199,14 +208,6 @@
 </form>
 <p class="hint">A random address, such as +k7q2, that you can give out and later remove without touching {{$a.Title}}'s others.</p>
 </details>
-<p class="meta">{{.Held}}</p>
-<form method="post" action="/settings">
-<input type="hidden" name="action" value="mail-send">
-<input type="hidden" name="app" value="{{$a.Name}}">
-<label class="check"><input type="checkbox" name="send" value="1"{{if .Send}} checked{{end}}> Let {{$a.Title}} send mail from its addresses</label>
-<p class="hint">Up to 100 messages a day, from your Gmail account. Replies come back to the address it sent from.</p>
-<button type="submit"><span>Save<span class="sr"> whether {{$a.Title}} may send mail</span></span></button>
-</form>
 <details class="confirm" name="mtok-{{$a.Name}}"><summary class="pill quiet"><span>Replace token<span class="sr"> for {{$a.Title}}'s mail</span><span aria-hidden="true">…</span></span></summary>
 <p>Only needed if {{$a.Title}}'s mail token got out. Its current token stops working at once, and {{$a.Title}} restarts with a new one.</p>
 <form method="post" action="/settings">
