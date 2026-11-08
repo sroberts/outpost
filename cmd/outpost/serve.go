@@ -387,13 +387,18 @@ func (a *app) cmdServe(args []string) error {
 	}
 
 	mailDone := make(chan struct{})
+	// The endpoint reads and writes mail.db too, so it is waited for as well.
+	mailServeDone := make(chan struct{})
 	if mailLn != nil {
 		fmt.Fprintf(a.out, "outpost: mail endpoint at %s\n", mailService.URL())
 		go func() {
+			defer close(mailServeDone)
 			if err := mailService.Serve(ctx, mailLn); err != nil {
 				fmt.Fprintf(a.err, "outpost: mail endpoint: %v\n", err)
 			}
 		}()
+	} else {
+		close(mailServeDone)
 	}
 	// Reading the inbox waits on Gmail, so it runs on its own, and is over
 	// before mail.db closes.
@@ -432,6 +437,7 @@ func (a *app) cmdServe(args []string) error {
 	<-gwDone
 	<-aiDone
 	<-mailDone
+	<-mailServeDone
 
 	fmt.Fprintln(a.out, "outpost: stopped")
 	if runErr != nil && ctx.Err() == nil {

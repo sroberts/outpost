@@ -402,13 +402,25 @@ func (s *store) list(service string, after int64, limit int) ([]Message, error) 
 	return scanMessages(rows)
 }
 
-// latest is route's newest messages, newest first, for its feed.
-func (s *store) latest(route string, limit int) ([]Message, error) {
-	rows, err := s.db.Query(`SELECT `+messageCols+` FROM messages WHERE route = ? ORDER BY id DESC LIMIT ?`, route, limit)
+// latest is route's newest messages held for service, newest first, for its
+// feed. Scoped to service as well as route, so mail a route brought an
+// earlier owner never shows in a later one's feed.
+func (s *store) latest(service, route string, limit int) ([]Message, error) {
+	rows, err := s.db.Query(`SELECT `+messageCols+` FROM messages WHERE service = ? AND route = ? ORDER BY id DESC LIMIT ?`,
+		service, route, limit)
 	if err != nil {
 		return nil, err
 	}
 	return scanMessages(rows)
+}
+
+// routeHeld reports whether any message is held under route. A removed
+// alias with mail still held isn't handed out again: its feed link, which
+// is made from the route alone, would keep working for the new owner.
+func (s *store) routeHeld(route string) bool {
+	var one int
+	err := s.db.QueryRow(`SELECT 1 FROM messages WHERE route = ? LIMIT 1`, route).Scan(&one)
+	return err == nil
 }
 
 var errNoMessage = errors.New("no such message")
@@ -453,12 +465,12 @@ func (s *store) held(service string) (int, time.Time) {
 }
 
 // sentSince counts what service sent after t, for the daily limit.
-func (s *store) sentSince(service string, t time.Time) int {
+func (s *store) sentSince(service string, t time.Time) (int, error) {
 	var n int
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM sent WHERE service = ? AND at > ?`, service, t.Unix()).Scan(&n); err != nil {
-		return 0
+		return 0, fmt.Errorf("count what %s sent: %w", service, err)
 	}
-	return n
+	return n, nil
 }
 
 func (s *store) recordSent(service, route string, rcpts []string, subject, messageID string) error {

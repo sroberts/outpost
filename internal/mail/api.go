@@ -196,7 +196,8 @@ func (s *Service) serveFeed(w http.ResponseWriter, r *http.Request, rest string)
 		http.NotFound(w, r)
 		return
 	}
-	if _, ok := s.owner(route); !ok {
+	owner, ok := s.owner(route)
+	if !ok {
 		http.NotFound(w, r)
 		return
 	}
@@ -204,7 +205,7 @@ func (s *Service) serveFeed(w http.ResponseWriter, r *http.Request, rest string)
 		s.serveOne(w, r, route, id)
 		return
 	}
-	msgs, err := s.store.latest(route, feedEntries)
+	msgs, err := s.store.latest(owner, route, feedEntries)
 	if err != nil {
 		http.Error(w, "couldn't read the mail", http.StatusInternalServerError)
 		return

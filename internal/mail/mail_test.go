@@ -609,3 +609,25 @@ func TestRecipients_ReadsDeliveredToFirst(t *testing.T) {
 		t.Errorf("recipients = %q; want %q", got, want)
 	}
 }
+
+// Mail delivered to the account itself isn't routed by what its sender wrote
+// in To or Cc.
+func TestCheck_DeliveredToDecides(t *testing.T) {
+	h := newHarness(t, "yarr")
+	h.setUp(t)
+	forged := strings.Replace(newsletter("scott.roberts+yarr@gmail.com", "forged"),
+		"Delivered-To: scott.roberts+yarr@gmail.com", "Delivered-To: scott.roberts@gmail.com", 1)
+	h.box.add(1, forged)
+	noDelivered := strings.Replace(newsletter("scott.roberts+yarr@gmail.com", "plain"),
+		"Delivered-To: scott.roberts+yarr@gmail.com\r\n", "", 1)
+	h.box.add(2, noDelivered)
+	if _, _, err := h.svc.check(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !h.box.inbox[1] || slices.Contains(h.box.bodyRead, 1) {
+		t.Error("mail delivered to the account was routed by its To header")
+	}
+	if h.box.inbox[2] {
+		t.Error("mail with no Delivered-To wasn't routed by its To header")
+	}
+}

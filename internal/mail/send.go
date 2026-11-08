@@ -113,7 +113,9 @@ func compose(from *netmail.Address, replyTo string, to, cc []*netmail.Address, o
 	if len(cc) > 0 {
 		h("Cc", list(cc))
 	}
-	h("Subject", mime.QEncoding.Encode("utf-8", headerSafe(o.Subject)))
+	// The encoder splits a long subject into encoded words joined by spaces
+	// but doesn't fold them, and a line past 998 bytes can be refused.
+	h("Subject", strings.ReplaceAll(mime.QEncoding.Encode("utf-8", headerSafe(o.Subject)), "?= =?", "?=\r\n =?"))
 	h("Date", now.Format(time.RFC1123Z))
 	h("Message-ID", "<"+id+">")
 	if inReplyTo != "" {

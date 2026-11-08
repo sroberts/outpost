@@ -73,6 +73,24 @@ func recipients(header []byte) []string {
 	return out
 }
 
+// routingRecipients are the addresses a message is routed by. When the
+// server recorded where it actually delivered the message, only that counts:
+// To and Cc are written by the sender, so a forged "To: you+yarr@…" on mail
+// delivered to you@… must not route it, nor must an app's address Cc'd on a
+// thread sent to you. Without Delivered-To, the headers are all there is.
+func routingRecipients(header []byte) []string {
+	all := recipients(header)
+	m, err := netmail.ReadMessage(bytes.NewReader(append(bytes.TrimRight(header, "\r\n"), "\r\n\r\n"...)))
+	if err != nil {
+		return all
+	}
+	n := len(m.Header["Delivered-To"]) + len(m.Header["X-Original-To"])
+	if n == 0 {
+		return all
+	}
+	return all[:n]
+}
+
 // parse reads a whole message: its headers and the first plain text and
 // HTML parts. Attachments are counted, not kept.
 func parse(raw []byte) (*Message, error) {

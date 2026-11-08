@@ -41,6 +41,9 @@ const firstLook = 7 * 24 * time.Hour
 // next, which follows at once.
 const maxBatch = 200
 
+// bodyChunk is how many whole messages are fetched at a time.
+const bodyChunk = 10
+
 // Keys is where the account's app password is kept: secrets.db, as a secret
 // bound to no app.
 type Keys interface {
@@ -92,6 +95,8 @@ type Service struct {
 	// issued maps a token's hash to the app it was handed to.
 	issued map[[32]byte]string
 	status Status
+	// sending counts each app's sends not yet recorded, for the daily limit.
+	sending map[string]int
 
 	// checking is held for a whole check, so two never overlap.
 	checking sync.Mutex
@@ -158,6 +163,7 @@ func Open(opts Options) (*Service, error) {
 		send:     smtpSend,
 		wake:     make(chan struct{}, 1),
 		issued:   map[[32]byte]string{},
+		sending:  map[string]int{},
 	}, nil
 }
 
@@ -241,8 +247,10 @@ func (s *Service) SetAccount(address, password, by string) error {
 	if err := s.store.setMeta("address", address); err != nil {
 		return fmt.Errorf("save the address: %w", err)
 	}
+	// The last check was of what was set before, so it says nothing about
+	// this account until the next one finishes.
 	s.mu.Lock()
-	s.status.Error = ""
+	s.status.Error, s.status.Checked = "", time.Time{}
 	s.mu.Unlock()
 	s.logf("mail: %s set the account to %s", by, address)
 	s.CheckNow()
@@ -383,7 +391,7 @@ func (s *Service) AddAlias(service, note, by string) (Route, error) {
 		if err != nil {
 			return Route{}, err
 		}
-		if _, taken := s.store.aliasFor(r); taken || slices.Contains(names, r) {
+		if _, taken := s.store.aliasFor(r); taken || slices.Contains(names, r) || s.store.routeHeld(r) {
 			continue
 		}
 		if err := s.store.addAlias(alias{Alias: r, Service: service, Note: note, CreatedBy: by}); err != nil {
@@ -541,7 +549,7 @@ func (s *Service) check(ctx context.Context) (routed int, more bool, err error) 
 	where := map[uint32]dest{}
 	var want []uint32
 	for _, uid := range uids {
-		for _, rcpt := range recipients(heads[uid]) {
+		for _, rcpt := range routingRecipients(heads[uid]) {
 			route, ok := acct.route(rcpt)
 			if !ok {
 				continue
@@ -553,12 +561,16 @@ func (s *Service) check(ctx context.Context) (routed int, more bool, err error) 
 			}
 		}
 	}
-	bodies, err := sess.bodies(want)
-	if err != nil {
-		return 0, false, err
-	}
+	// Whole messages, attachments and all, are fetched a few at a time, so a
+	// full batch of large ones isn't held in memory at once.
 	filed := map[string][]uint32{}
-	for _, uid := range want {
+	var bodies map[uint32][]byte
+	for i, uid := range want {
+		if i%bodyChunk == 0 {
+			if bodies, err = sess.bodies(want[i:min(i+bodyChunk, len(want))]); err != nil {
+				return routed, false, err
+			}
+		}
 		d := where[uid]
 		raw, ok := bodies[uid]
 		if !ok {
@@ -672,9 +684,24 @@ func (s *Service) Send(ctx context.Context, service string, o Outgoing) (string,
 	case len(o.Text)+len(o.HTML) > maxSendBody:
 		return "", bad("the message is at most %d bytes", maxSendBody)
 	}
-	if s.store.sentSince(service, s.now().Add(-24*time.Hour)) >= dailyLimit {
-		return "", ErrLimit
+	// Counted with the sends still in flight, under one lock, so an app
+	// sending in parallel can't each pass the check before any is recorded.
+	s.mu.Lock()
+	sent, err := s.store.sentSince(service, s.now().Add(-24*time.Hour))
+	if err == nil && sent+s.sending[service] >= dailyLimit {
+		err = ErrLimit
 	}
+	if err != nil {
+		s.mu.Unlock()
+		return "", err
+	}
+	s.sending[service]++
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		s.sending[service]--
+		s.mu.Unlock()
+	}()
 	fromAddr := acct.address(route)
 	from := &netmail.Address{Name: headerSafe(firstNonEmpty(o.FromName, service)), Address: fromAddr}
 	msg, id, err := compose(from, fromAddr, to, cc, o, inReplyTo, s.now())
@@ -713,7 +740,9 @@ func (s *Service) Serve(ctx context.Context, ln net.Listener) error {
 		ReadHeaderTimeout: 10 * time.Second,
 		WriteTimeout:      3 * time.Minute, // sending waits on Gmail
 	}
+	stopped := make(chan struct{})
 	go func() {
+		defer close(stopped)
 		<-ctx.Done()
 		shut, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -722,5 +751,8 @@ func (s *Service) Serve(ctx context.Context, ln net.Listener) error {
 	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
+	// Serve returns as Shutdown starts; requests in flight still use mail.db
+	// until Shutdown has drained them.
+	<-stopped
 	return nil
 }
