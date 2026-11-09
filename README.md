@@ -337,6 +337,11 @@ from the binary on disk, and `outpost spec --revision` its revision, which is
 handy with the gateway off. After an upgrade, until the daemon restarts, the
 portal's copy is the one that matches what is actually running.
 
+Starting an app from scratch with a coding agent?
+[docs/new-app-with-an-agent.md](docs/new-app-with-an-agent.md) walks through
+it: a token for the agent, the contract in the new repository, the agent
+instructions that keep it in step, and how to check back after an upgrade.
+
 ## Manifest schema
 
 One TOML file per service in `~/.outpost/services/`. The filename minus its
