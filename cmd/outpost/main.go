@@ -47,6 +47,7 @@ Commands:
   restore <service> [ts]   restore storage from a backup (newest if ts omitted)
   tui                      launch the dashboard
   version                  print the build identity of this binary
+  spec [--revision]        print the service contract apps are built against
   config [--init]          show or create the global configuration
   config --tailscale on|off
                            give services their own Tailscale identity, or not
@@ -205,6 +206,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return a.cmdDaemon(cmdArgs)
 	case "version":
 		return a.cmdVersion(cmdArgs)
+	case "spec":
+		return a.cmdSpec(cmdArgs)
 	case "user":
 		return a.cmdUser(cmdArgs)
 	case "token":

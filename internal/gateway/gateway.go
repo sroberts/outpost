@@ -305,6 +305,12 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			g.serveMCP(w, r)
 			return
 		}
+		// The contract and this server's description, for whoever is
+		// building an app: the description takes a token, so it comes first.
+		if isContractPath(r.URL.Path) {
+			g.serveContract(w, r)
+			return
+		}
 		// Tokens reach apps, not the place accounts are managed from.
 		if len(presentedAccessTokens(r.Header)) > 0 {
 			g.refuseAccessToken(w, r)
