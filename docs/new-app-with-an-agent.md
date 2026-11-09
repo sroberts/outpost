@@ -5,16 +5,41 @@ Code, Codex, Cursor and the like) is writing it. The idea is that the agent
 learns the rules from your running server, not from memory or a stale copy, and
 can check back as Outpost improves.
 
-This assumes the login gateway is on, so the portal serves the contract. If it
-isn't, use `outpost spec` on the server in step 2 instead of `curl`.
+## Do you need a token?
+
+An access token lets the agent act for you against the portal. It uses it for
+two things:
+
+- **Reading `outpost.json`**, which says which Outpost version you run and
+  which revision of the contract it implements. It shows the version, so it
+  takes a token. The contract itself (`outpost-service-spec.md`) is public.
+- **Calling the app through the gateway** once it runs, to test it the way a
+  user would. That's why the token is limited to the one app.
+
+You don't need one if the agent works on the machine Outpost runs on. There,
+`outpost spec` prints the contract and `outpost spec --revision` its revision.
+The revision is the sha256 of the contract's text, so hashing the committed
+copy tells the agent whether a newer one exists, with no file of its own and
+no token. `outpost spec` reads the binary on disk. Just after an upgrade, until
+the daemon restarts, that can be newer than what's running; for building an
+app, newer is what you want.
+
+Use a token when the agent runs somewhere else, such as a laptop on your
+tailnet or a cloud sandbox, or when you want it to test the app through the
+gateway.
+
+If the gateway is off, the portal serves nothing, so work on the Outpost
+machine with `outpost spec`.
 
 ## The short way: hand this to your agent
 
-Two things have to come from you. First, make a token on the server (step 1)
-and put it in the agent's environment as `OUTPOST_TOKEN`. It goes there, not
-in the prompt, so it stays out of chat logs and the repository. Then fill in the
+If the agent works somewhere other than the Outpost machine, first make a token
+on the server (step 1) and put it in the agent's environment as
+`OUTPOST_TOKEN`. It goes there, not in the prompt, so it stays out of chat logs
+and the repository. On the Outpost machine itself, skip that. Then fill in the
 two placeholders below and paste the whole block to the agent in an empty
-directory. It does steps 2 to 4 itself.
+directory. It does steps 2 to 4 itself, and picks the way to reach Outpost
+that fits where it runs.
 
 ````text
 You're starting a new app that will run under Outpost, a supervisor for local
@@ -23,22 +48,32 @@ wins over anything you already believe about Outpost.
 
 App: <app name>, which <does what, in a sentence>.
 Outpost: <portal URL, e.g. https://outpost.example>
-OUTPOST_TOKEN is set in your environment. Never print it, write it to a file,
-or commit it.
+If OUTPOST_TOKEN is set in your environment, never print it, write it to a
+file, or commit it.
 
-1. Set up the repository and fetch what Outpost supports:
+1. Set up the repository and get the contract. Pick one way:
 
-   git init
-   curl -fsS "<portal URL>/.well-known/outpost-service-spec.md" -o outpost-service-spec.md
-   curl -fsS -H "Authorization: Bearer $OUTPOST_TOKEN" \
-     "<portal URL>/.well-known/outpost.json" -o .outpost.json
+   a. On the Outpost machine (the `outpost` command works and OUTPOST_TOKEN
+      isn't set):
 
-   If either request fails, stop and tell me why. A 401 means the token is
-   wrong or expired. Don't carry on from memory.
+      git init
+      outpost spec > outpost-service-spec.md
 
-2. Read outpost-service-spec.md in full. .outpost.json says which Outpost
-   version and contract revision you are building against, and lists the
-   features with the section that covers each.
+   b. Anywhere else, with OUTPOST_TOKEN set:
+
+      git init
+      curl -fsS "<portal URL>/.well-known/outpost-service-spec.md" -o outpost-service-spec.md
+      curl -fsS -H "Authorization: Bearer $OUTPOST_TOKEN" \
+        "<portal URL>/.well-known/outpost.json" -o .outpost.json
+
+   If neither works, stop and tell me why. A 401 means the token is wrong or
+   expired. Don't carry on from memory.
+
+2. Read outpost-service-spec.md in full. Its revision is
+   "sha256:" + the sha256 of the file, which is what `outpost spec --revision`
+   and outpost.json's contract.revision report. With way (b), .outpost.json
+   also says which Outpost version you're building against and lists the
+   features, each with the section that covers it.
 
 3. Write a "Running under Outpost" section into CLAUDE.md (or AGENTS.md if
    that's what this repository uses) so later sessions follow the contract
@@ -50,16 +85,20 @@ or commit it.
      numbers: the loopback port from OUTPOST_PORT, the /up healthcheck,
      state under OUTPOST_STORAGE_DIR, SIGTERM, logging, and how identity
      behind the gateway works and when to verify X-Outpost-Identity.
-   - How to check for a newer contract: fetch
-     <portal URL>/.well-known/outpost.json with the OUTPOST_TOKEN bearer token,
-     and if contract.revision differs from the one in .outpost.json, fetch the
-     spec again, diff it against the committed copy, report which changes
-     matter to this app before changing code, then commit the new spec and
-     .outpost.json together.
+   - How to check for a newer contract, written for the way you used in
+     step 1. Either way, the committed revision is
+     "sha256:" + `shasum -a 256 outpost-service-spec.md`.
+     (a) Compare it with `outpost spec --revision`.
+     (b) Compare it with contract.revision from
+     <portal URL>/.well-known/outpost.json, fetched with the OUTPOST_TOKEN
+     bearer token.
+     If they differ, get the spec again, diff it against the committed copy,
+     report which changes matter to this app before changing code, then
+     commit the new spec (and .outpost.json, with way b).
 
-4. Build the app to the contract. Where .outpost.json lists a feature that
-   fits, such as identity from the gateway instead of logins of its own, use
-   it rather than building your own.
+4. Build the app to the contract. Where it describes a feature that fits, such
+   as identity from the gateway instead of logins of its own, use it rather
+   than building your own.
 
 5. Verify against a local build, without Outpost: start it with OUTPOST_PORT
    and OUTPOST_STORAGE_DIR set, walk the §11 conformance checklist, and run the
@@ -77,6 +116,9 @@ The rest of this guide is the same setup done by hand, for when you want to
 control each step.
 
 ## 1. Give the agent a token
+
+Skip this on the Outpost machine itself: see [Do you need a
+token?](#do-you-need-a-token), and use `outpost spec` in step 2.
 
 On the machine running Outpost, make an access token for yourself and limit it
 to the app you're about to build. The app doesn't need to exist yet: the token
@@ -101,6 +143,10 @@ curl -fsS "$OUTPOST_URL/.well-known/outpost-service-spec.md" -o outpost-service-
 curl -fsS -H "Authorization: Bearer $OUTPOST_TOKEN" \
   "$OUTPOST_URL/.well-known/outpost.json" -o .outpost.json
 ```
+
+On the Outpost machine, `outpost spec > outpost-service-spec.md` replaces both
+`curl`s. There's no `.outpost.json` then, and the committed spec's hash is the
+revision.
 
 - `outpost-service-spec.md` is the contract the app must meet: one loopback
   port, a healthcheck, configuration from the environment, state in one
@@ -190,6 +236,13 @@ instructions tell it what to do. Or check by hand:
 ```sh
 jq -r .contract.revision .outpost.json
 curl -fsS -H "Authorization: Bearer $OUTPOST_TOKEN" "$OUTPOST_URL/.well-known/outpost.json" | jq -r .contract.revision
+```
+
+On the Outpost machine, with no token:
+
+```sh
+echo "sha256:$(shasum -a 256 outpost-service-spec.md | cut -d' ' -f1)"
+outpost spec --revision
 ```
 
 The same value means nothing has changed. A different one means read the new
