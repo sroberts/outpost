@@ -307,6 +307,36 @@ Have a project that runs under Outpost? `outpost-service-spec.md` is the
 contract it has to meet, and §14 covers publishing releases `outpost add` can
 install.
 
+### Asking a running Outpost what it supports
+
+When you're building an app, point it (or the coding agent writing it) at your
+own Outpost rather than a copy of the docs. With the gateway on, the portal
+serves two addresses:
+
+- `/.well-known/outpost-service-spec.md` is the contract the running daemon
+  implements. It's public, since it's the same text as in this repository.
+  Its `ETag` is the contract's revision, so asking again with
+  `If-None-Match` costs a `304` when nothing has changed.
+- `/.well-known/outpost.json` names the build that's running, the contract's
+  revision and address, the issuer and JWKS URL for identity tokens, and the
+  features the contract offers, each with its section. It shows the
+  version, which the portal shows only to signed-in users, so it takes a
+  portal session or an access token. Any of the user's tokens will do,
+  whatever apps it is scoped to.
+
+```sh
+export OUTPOST_TOKEN=$(outpost token create alice --name app-dev --expires 90d)
+curl -H "Authorization: Bearer $OUTPOST_TOKEN" https://outpost.example/.well-known/outpost.json
+curl https://outpost.example/.well-known/outpost-service-spec.md > outpost-service-spec.md
+```
+
+Keep the revision you built against with the app. When Outpost improves, fetch
+`outpost.json` again: a different `contract.revision` means the contract has
+changed and is worth reading again. `outpost spec` prints the same contract
+from the binary on disk, and `outpost spec --revision` its revision, which is
+handy with the gateway off. After an upgrade, until the daemon restarts, the
+portal's copy is the one that matches what is actually running.
+
 ## Manifest schema
 
 One TOML file per service in `~/.outpost/services/`. The filename minus its

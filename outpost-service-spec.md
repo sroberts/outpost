@@ -13,6 +13,16 @@ what the code actually uses.
 Companion documents: [`README.md`](README.md) for operating Outpost,
 [`spec.md`](spec.md) for its design.
 
+**Getting this document from a running Outpost.** Each Outpost serves the
+version of this contract it actually implements at
+`<portal>/.well-known/outpost-service-spec.md`. That address is public, and its
+`ETag` is the contract's revision. `<portal>/.well-known/outpost.json` takes a
+portal session or an access token (`Authorization: Bearer opat_…`). It reports
+the build that's running, `contract.revision`, the identity issuer and JWKS
+URL, and the features below, each with its section. Record the revision you
+built against. When it changes, read this document again. `outpost spec`
+prints the copy carried by the binary on disk.
+
 ---
 
 ## 1. Listen on one TCP port, on loopback, in plain HTTP
