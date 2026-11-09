@@ -222,8 +222,11 @@ func failureWords(kind string) string {
 }
 
 func plural(n int, s string) string {
-	if n == 1 {
+	switch {
+	case n == 1:
 		return s
+	case strings.HasSuffix(s, "s"):
+		return s + "es" // address, addresses
 	}
 	return s + "s"
 }

@@ -814,6 +814,52 @@ The endpoint listens on loopback only. It isn't on the tailnet, behind the
 gateway or reachable through Funnel. The design is in
 `docs/design/ai-models.md`.
 
+## Mail
+
+Apps can get and send email through one Gmail account, each at its own
+**plus address**: mail to `you+yarr@gmail.com` is Yarr's, and so is mail to
+`you+k7q2@gmail.com` when `k7q2` is a random alias made for Yarr. Outpost
+checks the inbox every minute over IMAP, keeps each routed message for its
+app, labels it `Outpost/<app>` in Gmail and archives it. Mail to no route is
+never opened or moved.
+
+Every app is started with:
+
+```
+OUTPOST_MAIL_URL=http://127.0.0.1:47902
+OUTPOST_MAIL_TOKEN=omail_…        # each app its own
+```
+
+and reads its mail at `GET $OUTPOST_MAIL_URL/v1/messages`, and sends at
+`POST /v1/send` if it's been allowed to. Each address also has an **Atom
+feed**, so a feed reader subscribes to the newsletters sent to it: give a
+newsletter `you+k7q2@gmail.com`, paste that alias's feed link into Yarr, and
+each issue arrives as an article, with no change to Yarr.
+`outpost-service-spec.md` §16 has the app's side.
+
+**Setting it up.** Turn on 2-Step Verification for the Google account, make an
+[app password](https://myaccount.google.com/apppasswords), and enter the
+address and app password on the admin-only **Mail** page, which tries the
+login before saving it, and lists every app with who may send as you. The password is kept
+as the secret `gmail-app-password` in `secrets.db`, never given to an app. Or,
+without the portal:
+
+```toml
+[mail]
+address = "you@gmail.com"
+# password_secret = "gmail-app-password"   # set it with: outpost secret set gmail-app-password
+# poll   = "1m"
+# imap   = "imap.gmail.com:993"
+# smtp   = "smtp.gmail.com:587"
+# listen = "127.0.0.1:47902"
+```
+
+**Per app,** under its **Manage** menu in the catalog: its addresses and their
+feed links, **New address…** to make an alias with a note saying what it's
+for, **Remove…** to retire one, whether it may **send** (off by default; up to
+100 messages a day, from its own address, so replies route back to it), and
+its token. An app's inbox keeps its newest 500 messages.
+
 ## Running without Tailscale
 
 Tailscale is off for new installs and never required. To turn it off on an
