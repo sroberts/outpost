@@ -104,6 +104,7 @@ var contractFeatures = []capFeature{
 	{Name: "secrets", Section: "3. Secrets"},
 	{Name: "github_release_install", Section: "14. Publishing releases outpost add can install"},
 	{Name: "ai_models", Section: "15. Using the operator's AI models"},
+	{Name: "email", Section: "16. Using email"},
 }
 
 // serveCapabilities describes this server to someone signed in to the portal
