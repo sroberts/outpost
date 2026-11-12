@@ -26,6 +26,9 @@ type Config struct {
 	// adds it only when set, so a file without it fingerprints as it did
 	// before [ai] existed.
 	AI AI `toml:"ai" json:"-"`
+	// Mail is the Gmail account apps get mail through. Left out of
+	// Fingerprint's JSON in the same way as AI.
+	Mail Mail `toml:"mail" json:"-"`
 }
 
 // Tailscale settings.
@@ -101,6 +104,9 @@ func (c Config) Validate() error {
 	if err := c.AI.validate(); err != nil {
 		return fmt.Errorf("ai: %w", err)
 	}
+	if err := c.Mail.validate(); err != nil {
+		return fmt.Errorf("mail: %w", err)
+	}
 	if c.Gateway.TailscaleName != "" && (!c.Gateway.Enabled || !c.TailscaleEnabled()) {
 		return errors.New("gateway: tailscale_name puts the portal on the tailnet, so it needs both the gateway " +
 			"([gateway] enabled = true) and Tailscale ([tailscale] enabled = true); turn them on or remove tailscale_name")
@@ -162,6 +168,8 @@ func (c Config) Render() string {
 	c.Gateway.render(&b)
 	b.WriteString("\n")
 	c.AI.render(&b)
+	b.WriteString("\n")
+	c.Mail.render(&b)
 	return b.String()
 }
 
@@ -199,6 +207,13 @@ func (c Config) Fingerprint() string {
 			return "" // can't happen: AI is plain data
 		}
 		body = append(body, more...)
+	}
+	if c.Mail != (Mail{}) {
+		more, err := json.Marshal(c.Mail)
+		if err != nil {
+			return "" // can't happen: Mail is plain data
+		}
+		body = append(append(body, "mail"...), more...)
 	}
 	sum := sha256.Sum256(body)
 	return hex.EncodeToString(sum[:8])

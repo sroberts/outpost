@@ -11,6 +11,7 @@ import (
 
 	"github.com/sroberts/outpost/internal/ai"
 	"github.com/sroberts/outpost/internal/auth"
+	"github.com/sroberts/outpost/internal/mail"
 	"github.com/sroberts/outpost/internal/secrets"
 )
 
@@ -44,6 +45,7 @@ type appSettings struct {
 	Public      *publicRow  // nil without a way to change it
 	Secrets     *appSecrets // nil without a secrets store
 	AI          *appAI      // nil without AI
+	Mail        *appMail    // nil without mail
 	// Open is the panel a change just came back to, with Notice or Error,
 	// so the menu opens on it.
 	Open          string
@@ -101,8 +103,17 @@ type settingsFlash struct {
 // once for them all.
 func (g *Gateway) settle(sts []station, fl *settingsFlash) {
 	_, canAI := g.ai.(AIApps)
-	if g.exposure == nil && g.secrets == nil && !canAI {
+	if g.exposure == nil && g.secrets == nil && !canAI && g.mail == nil {
 		return
+	}
+	var mailStatus mail.Status
+	var held map[string]mail.Held
+	if g.mail != nil {
+		mailStatus = g.mail.Status()
+		var err error
+		if held, err = g.mail.Held(); err != nil {
+			g.logf("gateway: %v", err) // the panels say "No mail yet." rather than fail the page
+		}
 	}
 	// The apps' names and titles from the stations, already titled from the
 	// routes, rather than asking the daemon again on every load. An admin's
@@ -140,6 +151,9 @@ func (g *Gateway) settle(sts []station, fl *settingsFlash) {
 		}
 		if canAI {
 			set.AI = g.appAI(rt.Name, choices, usage[rt.Name])
+		}
+		if g.mail != nil {
+			set.Mail = g.appMail(rt.Name, st.Title, mailStatus, held[rt.Name])
 		}
 		if fl != nil && fl.App == st.Name {
 			set.Open, set.Notice, set.Error = fl.Panel, fl.Notice, fl.Error
@@ -250,7 +264,19 @@ func (g *Gateway) settingsNotice(r *http.Request) *settingsFlash {
 	case "ai-token":
 		fl.Panel, fl.Notice = panelAI, "New token made. "+title+" restarts with it, and the old one no longer works."
 	default:
-		return nil
+		route := q.Get("route")
+		if route != "" && !validMailRoute(route) {
+			return nil
+		}
+		var account string
+		if g.mail != nil {
+			account = g.mail.Status().Address
+		}
+		words, ok := mailSettingsNotice(q.Get("done"), route, title, account)
+		if !ok {
+			return nil
+		}
+		fl.Panel, fl.Notice = panelMail, words
 	}
 	return fl
 }
@@ -435,6 +461,19 @@ func (g *Gateway) settingsSubmit(w http.ResponseWriter, r *http.Request) {
 		record(EventAI, "regenerated %s's AI token", app)
 		back("ai-token", nil)
 
+	case "mail-alias-add", "mail-alias-remove", "mail-send", "mail-token":
+		if g.mail == nil {
+			unknown()
+			return
+		}
+		done, extra, err := g.mailSettingsSubmit(action, app, f, u.Username)
+		if err != nil {
+			refuse(panelMail, err, settingsFlash{})
+			return
+		}
+		record(EventMail, "%s", mailActivity(done, app, extra.Get("route")))
+		back(done, extra)
+
 	default:
 		unknown()
 	}
@@ -467,6 +506,7 @@ func (g *Gateway) renderHome(w http.ResponseWriter, r *http.Request, u auth.User
 	d.AddLink = u.Admin && g.adder != nil
 	d.SecretsLink = u.Admin && g.secrets != nil
 	d.AILink = u.Admin && g.ai != nil
+	d.MailLink = u.Admin && g.mail != nil
 	if u.Admin && g.control != nil {
 		d.Poll = g.manage(d.Stations)
 	}

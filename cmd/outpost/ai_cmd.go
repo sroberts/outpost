@@ -11,31 +11,42 @@ import (
 
 	"github.com/sroberts/outpost/internal/ai"
 	"github.com/sroberts/outpost/internal/config"
+	"github.com/sroberts/outpost/internal/mail"
 	"github.com/sroberts/outpost/internal/secrets"
 	"github.com/sroberts/outpost/internal/supervisor"
 )
 
 // withAI is the supervisor's Secrets with OUTPOST_AI_URL and the app's own
-// OUTPOST_AI_TOKEN added, so every app is started with them and restarted
-// when its token is regenerated, by the same revision check that restarts it
-// for a rotated secret. Outpost's own variables are set last, so a secret
-// can't replace them; secrets can't be named OUTPOST_ anyway.
+// OUTPOST_AI_TOKEN added, and OUTPOST_MAIL_URL and OUTPOST_MAIL_TOKEN, so
+// every app is started with them and restarted when a token is regenerated,
+// by the same revision check that restarts it for a rotated secret.
+// Outpost's own variables are set last, so a secret can't replace them;
+// secrets can't be named OUTPOST_ anyway.
 type withAI struct {
 	secrets supervisor.Secrets
 	ai      *ai.Service
+	mail    *mail.Service // nil leaves mail out
 }
 
 func (w withAI) Resolve(service string) (map[string]string, string) {
 	vars, rev := w.secrets.Resolve(service)
 	aiVars, aiRev := w.ai.Resolve(service)
-	out := make(map[string]string, len(vars)+len(aiVars))
+	out := make(map[string]string, len(vars)+len(aiVars)+2)
 	for k, v := range vars {
 		out[k] = v
 	}
 	for k, v := range aiVars {
 		out[k] = v
 	}
-	return out, rev + "|" + aiRev
+	rev += "|" + aiRev
+	if w.mail != nil {
+		mailVars, mailRev := w.mail.Resolve(service)
+		for k, v := range mailVars {
+			out[k] = v
+		}
+		rev += "|" + mailRev
+	}
+	return out, rev
 }
 
 const aiUsage = `usage:
