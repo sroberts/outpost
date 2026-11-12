@@ -367,8 +367,11 @@ func choiceWords(c ai.Choice) string {
 }
 
 // changedAgo is a rough "when" for a change.
-func changedAgo(t time.Time) string {
-	d := time.Since(t)
+func changedAgo(t time.Time) string { return agoAt(time.Now(), t) }
+
+// agoAt is a rough "when" for t, seen from now.
+func agoAt(now, t time.Time) string {
+	d := now.Sub(t)
 	switch {
 	case d < time.Minute:
 		return "just now"

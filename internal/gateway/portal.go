@@ -102,6 +102,16 @@ func (g *Gateway) servePortal(w http.ResponseWriter, r *http.Request) {
 		default:
 			g.aiPage(w, r)
 		}
+	case "/mail":
+		switch {
+		case g.mail == nil:
+			g.message(w, r, http.StatusNotFound, "Nothing here",
+				"There's no page at this address.", g.portalLink(), "Back to apps")
+		case r.Method == http.MethodPost:
+			g.mailSubmit(w, r)
+		default:
+			g.mailPage(w, r)
+		}
 	case "/updates/self":
 		if g.updater == nil || g.selfUpdater == nil {
 			g.message(w, r, http.StatusNotFound, "Nothing here",
