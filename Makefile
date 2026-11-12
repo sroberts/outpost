@@ -24,7 +24,7 @@ LDFLAGS := -X $(V).Version=$(VERSION) -X $(V).Commit=$(COMMIT) -X $(V).Date=$(DA
 FMT_EXEMPT := internal/manifest/manifest_test.go
 
 .DEFAULT_GOAL := help
-.PHONY: help build install test test-race lint fmt fmt-check vet tidy clean check version
+.PHONY: help build install test test-race e2e lint fmt fmt-check vet tidy clean check version
 
 help: ## List targets
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | sort | \
@@ -43,6 +43,11 @@ test: ## Run the test suite
 
 test-race: ## Run the test suite under the race detector
 	go test -race ./...
+
+# Its own module, so chromedp stays out of the daemon's go.mod, and so not part
+# of `go test ./...` above. It skips without a Chrome or Chromium.
+e2e: ## Drive a real daemon from a real browser (needs Chrome or Chromium)
+	cd e2e && go test -count=1 ./...
 
 vet: ## go vet
 	go vet ./...

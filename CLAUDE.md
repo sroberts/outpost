@@ -21,7 +21,8 @@ make test                                        # full suite
 make test-race                                   # race detector; the suite is clean, keep it that way
 make lint                                        # go vet + golangci-lint
 make fmt-check                                   # gofmt, honouring the one exempt file
-make check                                       # everything CI runs
+make check                                       # everything CI runs, bar the browser test
+make e2e                                         # a real daemon driven by headless Chrome (e2e/)
 make version                                     # the stamp a build would carry
 
 go test ./internal/supervisor -run TestName -v   # one test

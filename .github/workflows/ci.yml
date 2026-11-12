@@ -80,3 +80,24 @@ jobs:
 
       - name: golangci-lint
         run: golangci-lint run ./...
+
+  e2e:
+    # A real daemon driven by a real browser: the cookie rules, the CSP and the
+    # portal's own scripts, which the Go tests above can't see. Linux only:
+    # the runner image ships Chrome, and nothing here is platform-specific.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            e2e/go.sum
+
+      # OUTPOST_E2E=1 turns a missing browser into a failure instead of a skip.
+      - name: Browser test
+        run: make e2e
+        env:
+          OUTPOST_E2E: "1"

@@ -1729,6 +1729,16 @@ inline when no loop is running, so every method is safe to call from any
 goroutine. `internal/runtime/testdata/fakeservice` is a real HTTP service that
 can be told to crash or go unhealthy on demand, used by the runtime tests.
 
+`make e2e` builds the binary, starts `outpost serve` in a fresh home with the
+gateway on over TLS, and drives it from headless Chrome or Chromium: the setup
+link, the catalog, an app behind the login, a restart from a Manage menu, and
+signing out. Along the way it checks what only a browser can show: the
+`__Host-` cookie's attributes, that the app sees the identity headers and
+never the cookie, that `frame-ancestors` keeps the portal out of another
+origin's frame, and that no page logs a script error or a CSP violation. It
+lives in its own module, `e2e/`, and skips when no browser is found; set
+`OUTPOST_E2E_CHROME` to point it at one.
+
 ## Deviations from the spec
 
 `spec.md` is the design document and has not been updated as the code was
