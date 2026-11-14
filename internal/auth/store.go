@@ -62,7 +62,12 @@ CREATE TABLE IF NOT EXISTS access_tokens (
     name         TEXT NOT NULL DEFAULT '',
     created_at   INTEGER NOT NULL,
     expires_at   INTEGER NOT NULL DEFAULT 0,
-    last_used_at INTEGER NOT NULL DEFAULT 0
+    last_used_at INTEGER NOT NULL DEFAULT 0,
+    internet     INTEGER NOT NULL DEFAULT 0,
+    -- When the token was first used from the internet, so the activity feed
+    -- can say so once. Nothing sets it until the gateway accepts these tokens
+    -- over Funnel; it's added with internet so auth.db changes once.
+    internet_used_at INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS access_tokens_user ON access_tokens(user_id);
@@ -131,6 +136,10 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	if err := addTailnetLogin(db); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := addTokenInternet(db); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -223,6 +232,39 @@ func addTailnetLogin(db *sql.DB) error {
 	}
 	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS users_tailnet_login ON users(tailnet_login) WHERE tailnet_login != ''`); err != nil {
 		return fmt.Errorf("index users.tailnet_login: %w", err)
+	}
+	return nil
+}
+
+// addTokenInternet gives an access_tokens table from before tokens could work
+// from the internet its internet and internet_used_at columns. Every existing
+// token reads as tailnet-only, which is the point: none gains reach it wasn't
+// made for.
+func addTokenInternet(db *sql.DB) error {
+	rows, err := db.Query(`SELECT name FROM pragma_table_info('access_tokens')`)
+	if err != nil {
+		return fmt.Errorf("read access_tokens columns: %w", err)
+	}
+	defer rows.Close()
+	have := map[string]bool{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return fmt.Errorf("read access_tokens columns: %w", err)
+		}
+		have[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows.Close()
+	for _, col := range []string{"internet", "internet_used_at"} {
+		if have[col] {
+			continue
+		}
+		if _, err := db.Exec(`ALTER TABLE access_tokens ADD COLUMN ` + col + ` INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return fmt.Errorf("add access_tokens.%s: %w", col, err)
+		}
 	}
 	return nil
 }
