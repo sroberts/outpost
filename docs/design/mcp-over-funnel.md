@@ -136,8 +136,9 @@ a good token from an address that is backing off gets a `429` too. Anyone with
 a Claude account who knows the hostname, which Certificate Transparency
 publishes, can point a connector at it with a bad token, or at any other path
 on it, and keep Anthropic's egress addresses backed off, and your connector
-with them, for as long as they keep at it. Open question 5 is how to stop
-that.
+with them, for as long as they keep at it. So on this path the token is
+checked before either throttle, and a good one gets through whatever its
+address owes (see The gateway).
 
 ## How a request travels
 
@@ -162,8 +163,8 @@ path.
 ### The gateway (`internal/gateway/public.go`)
 
 `servePublic` keeps its order: strip identity, throttle, refuse tokens, match
-the host, require a public path. One step goes in **before the token
-refusal**:
+the host, require a public path. One step goes in **after the strip and
+before the throttle**:
 
 - If the host's route has `mcp_funnel` on, the host is the name its node
   reports (`rt.Host == host`, as the Funnel check already requires), and the
@@ -171,7 +172,7 @@ refusal**:
   (escaped form equal to the path, so no `%2f`, `..` or `;` tricks), the
   request goes to a new `serveFunnelMCP`. Nothing else does.
 
-`serveFunnelMCP` does what `serveMCP` does on the portal, with three
+`serveFunnelMCP` does what `serveMCP` does on the portal, with four
 differences:
 
 1. **The client address is the Funnel client's** (`publicClient`), so the token
@@ -189,6 +190,16 @@ differences:
    rewriting isn't needed. `Set-Cookie` is still dropped, as on the portal's
    MCP route. In the proxy both hang off `target.mcp`, so this needs its own
    flag rather than reusing that one.
+4. **The token is looked up before the throttles wait.** A good internet
+   token for this app goes through even while its address is backing off,
+   because Anthropic's addresses are shared and anyone can keep them backed
+   off. Anything else is counted against the address in `publicThrottle` and
+   `tokenThrottle` as today, and gets a `429` while the address owes time and
+   a `401` otherwise. This reverses `lookupAccessToken`'s rule of turning a
+   good token away during backoff, on this path only. That rule keeps the
+   answer from testing a token, and a token is 256 random bits
+   (`internal/auth/token.go`), so guessing was never what the throttle
+   stopped. Here it only keeps down scanner noise and the log.
 
 The branch is taken before `servePublic` reaches its `Upgrade` refusal, its
 body cap and its cookie removal, so `serveFunnelMCP` has to apply each of
@@ -255,7 +266,9 @@ a `401`.
   the token refusal comes before the host and path checks, and the same goes
   for the MCP path on an app without `mcp_funnel`. `%2f`, `..`, `;` and trailing-slash
   variants of the path are `404`. `Set-Cookie` from the app never reaches the
-  client. The throttle counts the `X-Forwarded-For` client.
+  client. The throttle counts the `X-Forwarded-For` client. While that
+  address is backing off, a good internet token still reaches the app and a
+  bad one gets a `429`.
 - **Tokens:** `--internet` without `--app`, with two, or without `--expires` is
   refused. The migration leaves existing tokens tailnet-only.
 - **Manifest:** `mcp_funnel` without the gateway, a tailnet name or an
@@ -308,11 +321,3 @@ The internet can reach nothing new until step 3.
    It can't tell an MCP read from a write without parsing JSON-RPC, so as
    proposed this is the app's job. An app could offer a read-only `mcp_path` of
    its own.
-5. **Throttle lockout:** on this path, look the token up before either
-   throttle's wait, and let a good internet token for this app through
-   whatever its address owes? A token is 256 random bits, so the throttle
-   isn't what stops guessing; it's there for scanner noise and the log. The
-   cost is that a good token is no longer turned away while its address backs
-   off, which `lookupAccessToken` does today on purpose. The alternative is to
-   leave the throttle as it is and accept that a stranger can hold the
-   connector off.
