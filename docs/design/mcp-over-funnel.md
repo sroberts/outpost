@@ -58,7 +58,7 @@ OAuth. That's a much larger design (see Alternatives) and not this one.
 
 ## What changes for `spec.md`
 
-`spec.md` §3 accepts `funnel = true` only once "the MCP auth question (see the
+`spec.md` §7 accepts `funnel = true` only once "the MCP auth question (see the
 parent server-mode spec, Part 1 §4) is actually answered". This design is an
 answer for one client, Claude's connectors: a per-app opt-in and a per-token
 opt-in, with no OAuth. It's an exception the owner signs off by approving this
@@ -72,6 +72,19 @@ outside the tailnet. With this design, a token marked for the internet can
 reach **one app's MCP endpoint** from anywhere, as its user, with every tool
 that app offers, writes included. For Sous that means reading, creating,
 editing and deleting recipes as you.
+
+**Who holds the token.** The token is kept by Anthropic, in the connector's
+settings, and is used by Claude, not by you. Two things follow. First, Claude
+calls the tools in any conversation the connector is on in, and what it reads
+there can steer it: a web page, a file, or a recipe Sous imported from a web
+page can carry text telling Claude to delete or rewrite things, and Claude may
+act on it as you. Claude's own prompt before a tool call is the check, and it
+stops being one once a tool is set to run without asking. An app that opts in
+should keep its writes undoable (Sous's deletes go to the trash) and can offer
+a read-only `mcp_path` (Open question 4). Second, a connector added for a Team
+or Enterprise organization, rather than for yourself, sends the same header
+for every member, so every member's Claude acts as the token's user. Add the
+connector for yourself only, with a token whose user is you.
 
 **What must stay true:**
 
@@ -92,12 +105,17 @@ editing and deleting recipes as you.
 4. **Nothing falls back.** Over Funnel the MCP path takes a token and nothing
    else: no session cookie, no public path, no login redirect. A missing, bad,
    expired, out-of-scope or non-internet token gets the same plain `401`,
-   counted against the client's address. That's the same rule `/mcp/<name>`
-   follows on the portal.
+   counted against the client's address, a missing token included. That's
+   stricter than `/mcp/<name>` on the portal, which doesn't count a request
+   that presents no token, because on the internet those are scanners. The
+   one exception is the portal's: a good token whose user the app's allow
+   list refuses gets a `403`.
 5. **Shutting someone out still works.** Disabling or removing a user, or
    `outpost user logout`, already ends their tokens through `endUserAccess` and
-   the cascades. Internet tokens are ordinary tokens in `auth.db`, so this
-   carries over unchanged.
+   the cascades, and `outpost token revoke` ends one. Internet tokens are
+   ordinary tokens in `auth.db`, so this carries over unchanged. Every request
+   is checked afresh, so a revoked token stops at its next request; a stream
+   already open ends within Funnel's 75-second write timeout.
 6. **Identity is still the gateway's to set.** The request reaches the app with
    the same identity headers and identity token as on the tailnet, set inside
    the proxy's `Rewrite`, after `stripIdentity`. The token itself never reaches
@@ -110,8 +128,16 @@ treat its MCP endpoint as internet-facing input, from an authenticated user.
 come from (`160.79.104.0/21` and `153.61.208.0/20` as of 2026-11-13, "stable"
 and "will not change without notice"). They're shared by every Anthropic
 customer, so limiting to them stops scanners and token guessing from anywhere
-else, but not a stranger with a Claude account and a stolen token. See Open
-questions.
+else, but not a stranger with a Claude account and a stolen token. The same
+sharing cuts the other way for the throttle, and it's worse than a slowdown.
+Both throttles a request here meets (`publicThrottle` in `servePublic`, then
+`tokenThrottle` in `lookupAccessToken`) check the address before the token, so
+a good token from an address that is backing off gets a `429` too. Anyone with
+a Claude account who knows the hostname, which Certificate Transparency
+publishes, can point a connector at it with a bad token, or at any other path
+on it, and keep Anthropic's egress addresses backed off, and your connector
+with them, for as long as they keep at it. Open question 5 is how to stop
+that.
 
 ## How a request travels
 
@@ -139,24 +165,36 @@ path.
 the host, require a public path. One step goes in **before the token
 refusal**:
 
-- If the host's route has `mcp_funnel` on and the path is exactly its
-  `mcp_path`, matched the way `mcpService` matches (escaped form equal to the
-  path, so no `%2f`, `..` or `;` tricks), the request goes to a new
-  `serveFunnelMCP`. Nothing else does.
+- If the host's route has `mcp_funnel` on, the host is the name its node
+  reports (`rt.Host == host`, as the Funnel check already requires), and the
+  path is exactly its `mcp_path`, matched the way `mcpService` matches
+  (escaped form equal to the path, so no `%2f`, `..` or `;` tricks), the
+  request goes to a new `serveFunnelMCP`. Nothing else does.
 
 `serveFunnelMCP` does what `serveMCP` does on the portal, with three
 differences:
 
 1. **The client address is the Funnel client's** (`publicClient`), so the token
-   throttle counts the real sender and not the node.
+   throttle counts the real sender and not the node. `lookupAccessToken`
+   takes its address from `clientIP` today, which reads `X-Forwarded-For` only
+   when loopback is among `trusted_proxies`; set them without it and every
+   internet client lands in one bucket. It has to be handed the address
+   instead. `proxyAsTo` takes the address the app is told from `clientIP`
+   too, and leaves `target.public` unset, so it needs the same: the
+   `publicClient` address, and `public` set, so a proxy error is the bare
+   `502` Funnel gives elsewhere and `X-Forwarded-Proto` is `https`.
 2. **The token must be marked internet and scoped to this app alone.**
    Otherwise it's refused with the same `401` as a bad token.
 3. **The response goes out on the app's own origin**, so `onPortalOrigin`'s
    rewriting isn't needed. `Set-Cookie` is still dropped, as on the portal's
-   MCP route.
+   MCP route. In the proxy both hang off `target.mcp`, so this needs its own
+   flag rather than reusing that one.
 
-What `servePublic` already enforces still applies: no `Upgrade` (Streamable
-HTTP doesn't use one), the 25 MiB body cap, and the Funnel timeouts. A
+The branch is taken before `servePublic` reaches its `Upgrade` refusal, its
+body cap and its cookie removal, so `serveFunnelMCP` has to apply each of
+them itself (or they move above the branch): no `Upgrade` (Streamable HTTP
+doesn't use one), the 25 MiB body cap, and the Outpost cookies removed. The
+Funnel timeouts apply either way. A
 `DELETE` to end an MCP session goes the same way as a `POST`.
 
 **Timeouts.** Funnel's write timeout is 75 seconds. A tool call answers well
@@ -171,7 +209,11 @@ found to rely on a long stream.
   to false, so every existing token stays tailnet-only. `auth.db` is
   authoritative, so this is a migration, not a cache rebuild.
 - **`outpost token create --internet`:** requires exactly one `--app` and an
-  `--expires`. Open question: a maximum lifetime?
+  `--expires`. Open question: a maximum lifetime shorter than the general
+  `maxExpiryDays` cap?
+- **First use from the internet:** the activity line below needs the token to
+  remember whether it has been used over Funnel, which is state in `auth.db`
+  beside the flag.
 - **`outpost token list`:** shows which tokens work from the internet. Tokens
   are managed only from the CLI today, and this keeps it that way.
 
@@ -209,8 +251,9 @@ a `401`.
   its `mcp_path` with identity set and no token. A tailnet-only token, an
   unscoped token, a token for another app, a token whose user is disabled, an
   expired token, two tokens, and no token all get the same `401`. Every other
-  path on that host, with or without a token, stays a `404`, and so does the
-  MCP path on an app without `mcp_funnel`. `%2f`, `..`, `;` and trailing-slash
+  path on that host stays a `404` without a token and a `401` with one, since
+  the token refusal comes before the host and path checks, and the same goes
+  for the MCP path on an app without `mcp_funnel`. `%2f`, `..`, `;` and trailing-slash
   variants of the path are `404`. `Set-Cookie` from the app never reaches the
   client. The throttle counts the `X-Forwarded-For` client.
 - **Tokens:** `--internet` without `--app`, with two, or without `--expires` is
@@ -225,10 +268,11 @@ a `401`.
 1. **Tokens:** the `internet` flag, its migration, and the `create` and `list`
    changes. Nothing can use it yet.
 2. **Gateway:** `serveFunnelMCP` and its branch in `servePublic`, with tests.
-3. **Manifest, router and node:** `mcp_funnel`, and the node's Funnel listener
-   running for it.
-4. **Visibility and the portal:** status, the badge and the Internet access
-   switch.
+3. **Manifest, router, node and visibility:** `mcp_funnel`, the node's Funnel
+   listener running for it, and with them the status line, the badge and the
+   first-use activity line, so an app is never on the internet without
+   showing it.
+4. **The portal:** the Internet access switch.
 5. **Docs:** the README section, the deviation note, and replacing the
    README's statement that connectors in Anthropic's cloud can't use Outpost.
 
@@ -264,3 +308,11 @@ The internet can reach nothing new until step 3.
    It can't tell an MCP read from a write without parsing JSON-RPC, so as
    proposed this is the app's job. An app could offer a read-only `mcp_path` of
    its own.
+5. **Throttle lockout:** on this path, look the token up before either
+   throttle's wait, and let a good internet token for this app through
+   whatever its address owes? A token is 256 random bits, so the throttle
+   isn't what stops guessing; it's there for scanner noise and the log. The
+   cost is that a good token is no longer turned away while its address backs
+   off, which `lookupAccessToken` does today on purpose. The alternative is to
+   leave the throttle as it is and accept that a stranger can hold the
+   connector off.
