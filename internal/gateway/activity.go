@@ -36,6 +36,9 @@ const (
 	// EventTokenInternet is an internet access token's first use from the
 	// internet, the moment an app's MCP endpoint is known to be in use there.
 	EventTokenInternet = "token-internet"
+	// EventOAuthConnect is an OAuth client connected to an app's MCP
+	// endpoint, or cut off because its refresh token was used twice.
+	EventOAuthConnect = "oauth"
 	// EventSecret is a secret created, rotated, bound, unbound or removed,
 	// never with its value.
 	EventSecret = "secret"

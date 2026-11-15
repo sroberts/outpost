@@ -227,10 +227,16 @@ with `mcp_funnel` on, matched as `funnelMCPRoute` matches:
   Anthropic's addresses are shared.
 
 `/.well-known/openid-configuration` stays a `404`. Outpost isn't an OpenID
-provider. The `401` from `serveFunnelMCP` gains
-`resource_metadata="…"` and `scope="mcp"`. Nothing changes on the tailnet
-side, and the portal keeps answering discovery with a `404`, since `/mcp/<name>`
-doesn't do OAuth.
+provider. Nothing changes on the tailnet side, and the portal keeps answering
+discovery with a `404`, since `/mcp/<name>` doesn't do OAuth.
+
+**Built differently:** the `401` from `serveFunnelMCP` stays a plain `Bearer`,
+without `resource_metadata` or `scope`. The MCP spec lets a server announce
+its metadata either in that header or at the well-known address, and clients
+must try both. Claude was seen trying
+`/.well-known/oauth-protected-resource/mcp` first, then the root and
+`/.well-known/oauth-authorization-server`, before any of this was built.
+Keeping the header as it is leaves the tests for mcp-over-funnel unchanged.
 
 ### The portal: authorize and consent (step 3)
 

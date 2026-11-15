@@ -61,7 +61,7 @@ func versioned(urlPath, file string) string {
 
 func loadPages() (pages, error) {
 	p := pages{}
-	for _, name := range []string{"login", "setup", "portal", "message", "account", "updates", "add", "secrets", "ai", "mail"} {
+	for _, name := range []string{"login", "setup", "portal", "message", "account", "updates", "add", "secrets", "ai", "mail", "authorize"} {
 		t, err := template.New(name).Funcs(template.FuncMap{"lower": strings.ToLower}).
 			ParseFS(assets, "templates/layout.html", "templates/"+name+".html")
 		if err != nil {
@@ -125,6 +125,8 @@ type pageData struct {
 	LinkText string
 	// Station, on a message page about one app, draws it as it stands.
 	Station *station
+	// Consent is the page asking to let an OAuth client in.
+	Consent *consentView
 
 	// Filled in by render for every page.
 	CSS, JS, PollJS, Art string // the assets' versioned URLs

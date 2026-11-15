@@ -25,8 +25,9 @@ const GrantIdleTTL = 90 * 24 * time.Hour
 
 // ErrInvalidGrant covers a refresh token that was never issued, has been
 // replaced, belongs to a lapsed or revoked grant or a disabled user, or was
-// presented by another client or for another app. The token endpoint answers
-// them all with invalid_grant.
+// presented by another client or for another app, and a grant CreateGrant
+// won't make for what it was asked. The token endpoint answers them all with
+// invalid_grant; any other error is the server's, not the client's.
 var ErrInvalidGrant = errors.New("invalid grant")
 
 // ErrRefreshReused is a refresh token that was already exchanged, presented
@@ -61,10 +62,10 @@ func (g Grant) Lapsed(now time.Time) bool { return !g.ExpiresAt.After(now) }
 // row and an activity line.
 const clientNameMax = 80
 
-// cleanClientName makes a name from a client's metadata document fit to show:
+// CleanClientName makes a name from a client's metadata document fit to show:
 // control characters out, trimmed, and cut to clientNameMax runes. The name is
 // the client's own claim, so callers show the client's host beside it.
-func cleanClientName(name string) string {
+func CleanClientName(name string) string {
 	name = strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) || r == unicode.ReplacementChar {
 			return -1
@@ -84,12 +85,12 @@ func cleanClientName(name string) string {
 // exactly as it checks one made with `outpost token create --internet`.
 func (s *Store) CreateGrant(username, app, clientID, clientName string) (access, refresh string, g Grant, err error) {
 	if err := validTokenApp(app); err != nil {
-		return "", "", Grant{}, err
+		return "", "", Grant{}, fmt.Errorf("%w: %w", ErrInvalidGrant, err)
 	}
 	if clientID == "" || len(clientID) > 2048 || validText("client id", clientID) != nil {
-		return "", "", Grant{}, errors.New("a client id is required, as a URL of at most 2048 bytes")
+		return "", "", Grant{}, fmt.Errorf("%w: a client id is required, as a URL of at most 2048 bytes", ErrInvalidGrant)
 	}
-	clientName = cleanClientName(clientName)
+	clientName = CleanClientName(clientName)
 	if refresh, err = newRefreshToken(); err != nil {
 		return "", "", Grant{}, err
 	}
@@ -101,13 +102,16 @@ func (s *Store) CreateGrant(username, app, clientID, clientName string) (access,
 	defer rollback(tx)
 
 	r, err := s.getUser(tx, username)
+	if errors.Is(err, ErrNoSuchUser) {
+		return "", "", Grant{}, fmt.Errorf("%w: %w", ErrInvalidGrant, err)
+	}
 	if err != nil {
 		return "", "", Grant{}, err
 	}
 	// As with tokens: disabling ends a user's grants, so one made afterwards
 	// would be the only thing outliving it.
 	if r.Disabled {
-		return "", "", Grant{}, fmt.Errorf("%s is disabled", username)
+		return "", "", Grant{}, fmt.Errorf("%w: %s is disabled", ErrInvalidGrant, username)
 	}
 	now := s.now()
 	// Grants lapse rather than being swept, so making one is when the lapsed

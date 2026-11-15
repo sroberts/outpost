@@ -30,6 +30,8 @@ func (g *Gateway) servePortal(w http.ResponseWriter, r *http.Request) {
 		}
 	case "/continue":
 		g.continueApp(w, r)
+	case oauthAuthorizePath:
+		g.oauthAuthorize(w, r)
 	case "/logout":
 		g.logout(w, r)
 	case "/account":

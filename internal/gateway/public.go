@@ -69,6 +69,12 @@ func (g *Gateway) servePublic(w http.ResponseWriter, r *http.Request) {
 		g.serveFunnelMCP(rec, r, rt, client)
 		return
 	}
+	// The OAuth addresses beside it, which apply their own throttling for
+	// the same reason. See oauth.go.
+	if rt, ok := g.funnelOAuthRoute(r); ok {
+		g.serveFunnelOAuth(rec, r, rt, client)
+		return
+	}
 	refuse := func(status int) {
 		g.publicThrottle.fail(now, client)
 		// An empty body: nothing about what is or isn't here.
