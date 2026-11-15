@@ -41,3 +41,31 @@ func (s *Service) validateFunnel(opts Options) []error {
 	}
 	return errs
 }
+
+// validateMCPFunnel checks mcp_funnel = true, which answers the service's
+// mcp_path from the internet through Funnel, for internet access tokens only.
+// Unlike funnel it needs no public_paths, but the same node and gateway, for
+// the same reasons.
+func (s *Service) validateMCPFunnel(opts Options) []error {
+	if !s.MCPFunnel {
+		return nil
+	}
+	var errs []error
+	if !opts.RequireTailscale || s.TailscaleName == "" {
+		errs = append(errs, fmt.Errorf("mcp_funnel is served on the service's tailnet node, so it needs Tailscale and a tailscale_name"))
+	}
+	// Without the gateway a node proxies straight to the service, so the
+	// internet would reach all of it with no token at all.
+	if !opts.Gateway {
+		errs = append(errs, fmt.Errorf("mcp_funnel needs the gateway on ([gateway] enabled = true in config.toml); without it the whole app would be on the internet, with no token checked"))
+	}
+	if s.MCPPath == "" {
+		errs = append(errs, fmt.Errorf("mcp_funnel = true answers only mcp_path from the internet, and there is none; add where the app serves MCP, such as mcp_path = \"/mcp\""))
+	}
+	return errs
+}
+
+// FunnelListener reports whether the service's node needs a Funnel listener:
+// for its public_paths, its mcp_path, or both. What is answered is still the
+// gateway's public listener's to decide.
+func (s *Service) FunnelListener() bool { return s.Funnel || s.MCPFunnel }

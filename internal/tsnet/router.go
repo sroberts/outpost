@@ -163,6 +163,8 @@ type node struct {
 	port     int
 	tcp      []manifest.TCPForward
 	funnel   bool
+	// funnelFor is what the internet reaches through funnel, for the log.
+	funnelFor string
 	// wantHost, set only on the portal's node, is the DNS name public_url
 	// expects it to be given.
 	wantHost string
@@ -342,8 +344,8 @@ func (r *Router) NodeStatus(name string) (NodeStatus, bool) {
 func (r *Router) Attach(ctx context.Context, svc *manifest.Service) error {
 	// Belt and braces, as validation refuses this too: without the
 	// gateway's two listeners in front, the internet would reach every path.
-	if svc.Funnel && (r.upstream == "" || r.publicUpstream == "") {
-		return fmt.Errorf("%s: funnel needs the gateway, which answers only the app's public_paths from the internet", svc.Name)
+	if svc.FunnelListener() && (r.upstream == "" || r.publicUpstream == "") {
+		return fmt.Errorf("%s: funnel needs the gateway, which answers only the app's public_paths and mcp_path from the internet", svc.Name)
 	}
 	hostname := svc.TailscaleName
 	if hostname == "" {
@@ -354,9 +356,13 @@ func (r *Router) Attach(ctx context.Context, svc *manifest.Service) error {
 
 	r.mu.Lock()
 	if existing, ok := r.nodes[svc.Name]; ok {
-		if existing.port == svc.Port && existing.hostname == hostname && slices.Equal(existing.tcp, tcp) && existing.funnel == svc.Funnel {
-			// Already attached, or on its way. Nothing to do.
+		if existing.port == svc.Port && existing.hostname == hostname && slices.Equal(existing.tcp, tcp) && existing.funnel == svc.FunnelListener() {
+			// Already attached, or on its way. Nothing to do, but what the
+			// listener is for can change without it.
 			r.mu.Unlock()
+			existing.mu.Lock()
+			existing.funnelFor = funnelFor(svc)
+			existing.mu.Unlock()
 			return nil
 		}
 		// A changed port, hostname, forward or funnel needs a fresh node. Claim the slot first
@@ -377,10 +383,11 @@ func (r *Router) Attach(ctx context.Context, svc *manifest.Service) error {
 		hostname: hostname,
 		port:     svc.Port,
 		tcp:      tcp,
-		funnel:   svc.Funnel,
+		funnel:   svc.FunnelListener(),
 		cancel:   cancel,
 		done:     make(chan struct{}),
 	}
+	n.funnelFor = funnelFor(svc)
 	r.nodes[svc.Name] = n
 	r.mu.Unlock()
 
@@ -592,7 +599,7 @@ func (r *Router) serve(ctx context.Context, n *node, live tailnetNode) bool {
 				got, n.wantHost, n.hostname, got)
 		}
 	case r.upstream != "":
-		r.logf("%s: on the tailnet as https://%s -> gateway -> 127.0.0.1:%d%s%s", n.name, shown, n.port, describeTCP(n.tcp, true), describeFunnel(n.funnel))
+		r.logf("%s: on the tailnet as https://%s -> gateway -> 127.0.0.1:%d%s%s", n.name, shown, n.port, describeTCP(n.tcp, true), describeFunnel(n))
 	default:
 		r.logf("%s: on the tailnet as %s -> 127.0.0.1:%d%s", n.name, shown, n.port, describeTCP(n.tcp, false))
 	}
@@ -709,7 +716,7 @@ func (r *Router) funnelReport(n *node, state, why string) {
 	n.mu.Lock()
 	changed := n.funnelState != state || n.funnelErr != why
 	n.funnelState, n.funnelErr = state, why
-	host := n.dnsName
+	host, what := n.dnsName, n.funnelFor
 	n.mu.Unlock()
 	if host == "" {
 		host = n.hostname // reported before serve has recorded the name
@@ -719,18 +726,32 @@ func (r *Router) funnelReport(n *node, state, why string) {
 	}
 	switch state {
 	case FunnelOn:
-		r.logf("%s: funnel on: the internet reaches its public_paths at https://%s", n.name, host)
+		r.logf("%s: funnel on: the internet reaches %s at https://%s", n.name, what, host)
 	default:
 		r.logf("%s: funnel unavailable, so only the tailnet reaches it: %s", n.name, why)
 	}
 }
 
 // describeFunnel is funnel for the line logged when a node comes up.
-func describeFunnel(on bool) string {
-	if !on {
+func describeFunnel(n *node) string {
+	if !n.funnel {
 		return ""
 	}
-	return "; funnel for its public_paths"
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return "; funnel for " + n.funnelFor
+}
+
+// funnelFor says what a service's Funnel listener lets the internet reach.
+func funnelFor(svc *manifest.Service) string {
+	mcp := "its MCP endpoint " + svc.MCPPath + ", for internet access tokens"
+	switch {
+	case svc.Funnel && svc.MCPFunnel:
+		return "its public_paths and " + mcp
+	case svc.MCPFunnel:
+		return mcp
+	}
+	return "its public_paths"
 }
 
 // describeTCP is the forwards for the line logged when a node comes up,

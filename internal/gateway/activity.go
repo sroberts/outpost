@@ -33,6 +33,9 @@ const (
 	EventTokenCreate = "token-create"
 	EventTokenRevoke = "token-revoke"
 	EventTokenFail   = "token-fail"
+	// EventTokenInternet is an internet access token's first use from the
+	// internet, the moment an app's MCP endpoint is known to be in use there.
+	EventTokenInternet = "token-internet"
 	// EventSecret is a secret created, rotated, bound, unbound or removed,
 	// never with its value.
 	EventSecret = "secret"

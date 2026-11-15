@@ -17,9 +17,9 @@
 <div class="row">
 <span class="mark" aria-hidden="true"></span>
 <div class="body">
-{{if eq .State "up"}}<div class="top"><a class="name go" href="{{.URL}}">{{.Title}}</a>{{if .Hidden}}<span class="tag">Hidden</span>{{end}}{{if .Public}}<a class="tag" href="#set-public-{{.Name}}" title="The internet reaches its public paths, through Funnel">Public</a>{{end}}{{if .Busy}}<span class="state">{{.Label}}</span>{{else}}<span class="sr">, {{.Label}}</span>{{end}}</div>
+{{if eq .State "up"}}<div class="top"><a class="name go" href="{{.URL}}">{{.Title}}</a>{{if .Hidden}}<span class="tag">Hidden</span>{{end}}{{if .Public}}<a class="tag" href="#set-public-{{.Name}}" title="{{.PublicWhat}}">Public</a>{{end}}{{if .Busy}}<span class="state">{{.Label}}</span>{{else}}<span class="sr">, {{.Label}}</span>{{end}}</div>
 <span class="meta">{{if .Description}}<span class="desc">{{.Description}}</span>{{end}}<span class="addr">{{.Addr}}</span></span>
-{{else}}<div class="top"><span class="name">{{.Title}}</span>{{if .Hidden}}<span class="tag">Hidden</span>{{end}}{{if .Public}}<a class="tag" href="#set-public-{{.Name}}" title="The internet reaches its public paths, through Funnel">Public</a>{{end}}<span class="state">{{.Label}}</span></div>
+{{else}}<div class="top"><span class="name">{{.Title}}</span>{{if .Hidden}}<span class="tag">Hidden</span>{{end}}{{if .Public}}<a class="tag" href="#set-public-{{.Name}}" title="{{.PublicWhat}}">Public</a>{{end}}<span class="state">{{.Label}}</span></div>
 {{if not .Busy}}<span class="why">{{.Reason}}</span>
 {{template "quick" .}}
 {{if .Command}}<code class="cmd">{{.Command}}</code>{{end}}{{end}}

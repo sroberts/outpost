@@ -38,6 +38,9 @@ type AccessToken struct {
 	// there, so no token made before it was asked for gains that reach. One is
 	// always scoped to exactly one app and always expires.
 	Internet bool
+	// InternetUsedAt is when the token was first used from the internet;
+	// zero means never. Only LookupAccessToken fills it in.
+	InternetUsedAt time.Time
 }
 
 // Reaches reports whether the token's scope covers an app. It says nothing
@@ -162,15 +165,15 @@ VALUES (?, ?, ?, ?, ?, ?)`, HashToken(secret), r.id, name, now.Unix(), expires, 
 // when the token was made.
 func (s *Store) LookupAccessToken(secret string) (AccessToken, User, error) {
 	var (
-		t                      AccessToken
-		created, expires, used int64
-		disabled               bool
+		t                                    AccessToken
+		created, expires, used, internetUsed int64
+		disabled                             bool
 	)
 	err := s.db.QueryRow(`
-SELECT t.id, u.username, u.disabled, t.name, t.created_at, t.expires_at, t.last_used_at, t.internet
+SELECT t.id, u.username, u.disabled, t.name, t.created_at, t.expires_at, t.last_used_at, t.internet, t.internet_used_at
 FROM access_tokens t JOIN users u ON u.id = t.user_id
 WHERE t.token_hash = ? AND (t.expires_at = 0 OR t.expires_at > ?)`, HashToken(secret), s.now().Unix()).
-		Scan(&t.ID, &t.Username, &disabled, &t.Name, &created, &expires, &used, &t.Internet)
+		Scan(&t.ID, &t.Username, &disabled, &t.Name, &created, &expires, &used, &t.Internet, &internetUsed)
 	if errors.Is(err, sql.ErrNoRows) || (err == nil && disabled) {
 		return AccessToken{}, User{}, ErrNoSuchAccessToken
 	}
@@ -178,6 +181,7 @@ WHERE t.token_hash = ? AND (t.expires_at = 0 OR t.expires_at > ?)`, HashToken(se
 		return AccessToken{}, User{}, fmt.Errorf("look up access token: %w", err)
 	}
 	t.CreatedAt, t.ExpiresAt, t.LastUsedAt = fromUnix(created), fromUnix(expires), fromUnix(used)
+	t.InternetUsedAt = fromUnix(internetUsed)
 	if t.Apps, err = tokenApps(s.db, t.ID); err != nil {
 		return AccessToken{}, User{}, err
 	}
@@ -205,6 +209,21 @@ func (s *Store) TouchAccessToken(t AccessToken) error {
 		return fmt.Errorf("touch access token: %w", err)
 	}
 	return nil
+}
+
+// MarkInternetUsed records that a token has been used from the internet and
+// reports whether this was the first time, so the activity feed says so once
+// however many requests race to be first.
+func (s *Store) MarkInternetUsed(id int64) (bool, error) {
+	res, err := s.db.Exec(`UPDATE access_tokens SET internet_used_at = ? WHERE id = ? AND internet_used_at = 0`, s.now().Unix(), id)
+	if err != nil {
+		return false, fmt.Errorf("mark access token %d used from the internet: %w", id, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n == 1, nil
 }
 
 // ListAccessTokens returns one user's tokens, or everyone's when username is

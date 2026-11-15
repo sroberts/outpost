@@ -52,6 +52,10 @@ type Service struct {
 	// "/mcp". With it set, the gateway also routes https://<portal>/mcp/<name>
 	// there, for clients holding an access token.
 	MCPPath string `toml:"mcp_path"`
+	// MCPFunnel answers MCPPath, and nothing else of the app, from the
+	// internet through Funnel, for access tokens made for the internet and
+	// this app. See docs/design/mcp-over-funnel.md.
+	MCPFunnel bool `toml:"mcp_funnel"`
 
 	// TCP forwards raw TCP from the service's tailnet node to loopback, for
 	// protocols the HTTP proxy can't carry, such as SSH: each key is a port on
@@ -182,6 +186,7 @@ func (s *Service) validateWith(opts Options) []error {
 	}
 
 	errs = append(errs, s.validateFunnel(opts)...)
+	errs = append(errs, s.validateMCPFunnel(opts)...)
 	errs = append(errs, s.validateCatalog()...)
 	errs = append(errs, s.validateTCP(opts)...)
 

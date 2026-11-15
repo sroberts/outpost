@@ -338,6 +338,7 @@ func (s *Supervisor) statusOf(name string) ServiceStatus {
 		st.PublicPaths = svc.PublicPaths
 		st.MCPPath = svc.MCPPath
 		st.Funnel = svc.Funnel
+		st.MCPFunnel = svc.MCPFunnel
 		if m, ok := s.fromManifest[name]; ok {
 			st.FromPortal, st.ManifestFunnel, st.ManifestPublicPaths = true, m.funnel, m.publicPaths
 		}
