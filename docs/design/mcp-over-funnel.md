@@ -1,8 +1,27 @@
 # Design: an app's MCP endpoint from Claude's connectors, through Funnel
 
-Status: proposed, 2026-11-13. Nothing here is built. It reverses one of the
-non-goals in [funnel-webhooks.md](funnel-webhooks.md), so it needs the owner's
-sign-off before any code.
+Status: built. Proposed 2026-11-13 and built 2026-11-15 in #138 (tokens), #139
+(gateway), #140 (manifest, node and visibility) and #141 (portal). It reverses
+one of the non-goals in [funnel-webhooks.md](funnel-webhooks.md). The
+operator's side is in the README under
+[Claude's connectors](../../README.md#claudes-connectors-an-mcp-endpoint-from-the-internet).
+
+**What changed in building it.**
+
+- **The open questions stayed open, and the build took the defaults,** each
+  of which can still change: no limit on source addresses, an expiry but no
+  shorter cap for internet tokens, the field named `mcp_funnel`, and a
+  read-only endpoint left to the app.
+- **The portal's switch is kept apart.** `exposure.db` holds it in its own
+  `mcp_settings` table, so it is set and reset apart from public paths and
+  Funnel. Like those, it is held to the manifest's rules when saved and on
+  each apply.
+- **`outpost apply` doesn't print the URL.** `outpost status <name>` shows it
+  on an `mcp funnel:` line, and the daemon logs it when the node's Funnel
+  comes up.
+- **The first-use line is kept once per token.** `internet_used_at` in
+  `auth.db` is set with a conditional update, so racing requests can't record
+  it twice.
 
 ## Summary
 
