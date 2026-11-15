@@ -367,6 +367,7 @@ port           = 8081                          # required
 storage        = "~/.outpost/data/plumbline"   # required, created 0700 if absent
 tailscale_name = "plumbline"                   # required, unique on the tailnet
 funnel         = false                         # answer public_paths from the internet; see Funnel
+mcp_funnel     = false                         # answer mcp_path from the internet; see Claude's connectors
 healthcheck    = "/up"
 mcp            = true                          # informational only
 mcp_path       = "/mcp"                        # where you serve MCP; see Access tokens
@@ -392,6 +393,7 @@ start_grace_seconds = 30
 | `source` | — | GitHub `owner/repo` the binary came from; what `outpost update` fetches |
 | `release` | — | Release tag installed. Neither field changes what runs, so editing them restarts nothing |
 | `mcp_path` | — | Where the service serves MCP (Streamable HTTP). Lets MCP clients with an access token reach it at `https://<portal>/mcp/<name>`; see [MCP clients](#mcp-clients) |
+| `mcp_funnel` | `false` | `true` answers `mcp_path`, and nothing else of the app, from the internet through Tailscale Funnel, for access tokens made with `--internet` for this app. Needs the gateway, a `tailscale_name` and an `mcp_path`. An app's Internet access setting in the portal overrides it; see [Claude's connectors](#claudes-connectors-an-mcp-endpoint-from-the-internet) |
 | `tcp` | — | Tailnet port to loopback port, for protocols that aren't HTTP, such as SSH. Needs a `tailscale_name`; not 80 or 443, and never the service's own `port`; see [Raw TCP forwards](#raw-tcp-forwards) |
 
 `outpost apply` validates the whole set and fails loudly rather than
@@ -1112,6 +1114,11 @@ tell it from a browser. The app never sees the token itself.
   with `--app` (repeatable, by service name). Naming an app grants nothing the
   `allow` list doesn't. `--expires` takes days (`90d`), weeks (`12w`) or hours
   (`24h`); without it a token doesn't expire.
+- **From the internet.** A token works only on the tailnet unless it is made
+  with `--internet`, which needs exactly one `--app` and an `--expires`. It
+  then also reaches that app's MCP endpoint from the internet, if the app
+  [puts it there](#claudes-connectors-an-mcp-endpoint-from-the-internet). `outpost token list` shows which
+  tokens can, under `FROM`.
 - **Apps only.** A token is refused on the portal, apart from its
   [MCP endpoints](#mcp-clients), and under `/.outpost/` on app hosts, so it
   can't reach the account page, updates or sign-in, and it never creates a
@@ -1171,8 +1178,10 @@ cookies on), `Mcp-Session-Id` passes through, and a service that is down gets
 a plain-text `502`. The portal answers OAuth discovery
 (`/.well-known/oauth-protected-resource` and the like) with a plain `404`, so
 a client whose token has stopped working reports that rather than looking for
-a sign-in. There is no OAuth server, so connectors that run in Anthropic's
-cloud, rather than on a machine on your tailnet, can't use this.
+a sign-in. There is no OAuth server. Claude's connectors on claude.ai and in
+Claude's phone apps run in Anthropic's cloud, not on your tailnet, so they
+can't use `/mcp/<name>`. They can use an app whose MCP endpoint is
+[put on the internet](#claudes-connectors-an-mcp-endpoint-from-the-internet), with a token made for it.
 
 ## What Outpost trusts
 
@@ -1206,6 +1215,13 @@ anyone can send it anything, as often as they like. Outpost makes sure only
 those paths are reachable, anonymously, but it can't tell a real webhook
 from a forged one: the app has to check the signature. See
 [Funnel](#funnel-webhooks-from-the-internet).
+
+**An MCP endpoint on the internet is Claude acting as you.** With
+`mcp_funnel = true`, the token sits in a connector's settings at Anthropic,
+and Claude uses it, with every tool the app offers, writes included. What
+Claude reads in a conversation, such as a web page or a recipe imported from
+one, can steer what it does with them. See
+[Claude's connectors](#claudes-connectors-an-mcp-endpoint-from-the-internet).
 
 **Loopback is a trusted proxy.** By default `trusted_proxies` is the loopback
 range, because that is where the tailnet nodes and `tailscale serve` connect
@@ -1253,8 +1269,9 @@ Everything lives under `~/.outpost` (or `$OUTPOST_HOME`, or `--home`):
                            linked tailnet logins (0600)
   secrets.db               secrets and their bindings, values sealed (0600)
   secrets.key              the key that seals them (0600)
-  exposure.db              public paths and Funnel set on the portal, over
-                           the manifests' (0600)
+  exposure.db              public paths, Funnel and MCP endpoints on the
+                           internet, set on the portal, over the
+                           manifests' (0600)
   ai.db                    AI models and their apps chosen on the portal,
                            and the key apps' AI tokens come from (0600)
   config.toml              global settings, mode 0600 (optional)
@@ -1665,16 +1682,19 @@ says when it is overriding the manifest, and what the manifest says, and
 app's tailnet node, not the app.
 
 Nothing else is reachable from the internet: not the app's other paths, not
-other apps, not the portal, sign-in, `/mcp/<name>` or `/.outpost/`. That
-holds because of where requests go, not because of a check on each one.
-Funnel traffic arrives on a listener of its own on the app's node, which
-sends it to a gateway listener of its own on loopback, and that listener has
-code only for public paths:
+other apps, not the portal, sign-in, `/mcp/<name>` or `/.outpost/`. The one
+other thing an app can put there is its own MCP endpoint, for tokens made for
+it; see [Claude's connectors](#claudes-connectors-an-mcp-endpoint-from-the-internet). That holds because of
+where requests go, not because of a check on each one. Funnel traffic arrives
+on a listener of its own on the app's node, which sends it to a gateway
+listener of its own on loopback, and that listener has code only for public
+paths and those MCP endpoints:
 
 - every `X-Outpost-*` header and Outpost's cookies are removed, and the app
   sees an anonymous request, as on a public path today;
 - an Outpost access token (`opat_…` or `Outpost-Token`) is refused with a
-  401, never passed on, so a leaked one can't be used from outside;
+  401, never passed on, so a leaked one can't be used from outside. The only
+  exception is a token made with `--internet`, on its own app's MCP endpoint;
 - the host must be the node's own name, for an app with Funnel on, and the
   path one of its public paths, with the same hardening against `..`, `%2f`
   and `;` tricks. Anything else is a bare 404, never a login page;
@@ -1707,6 +1727,86 @@ and the app's Internet access setting in the portal say Funnel is unavailable, w
 reason. The node keeps trying, so granting the attribute is enough; no
 restart is needed. Admins see a **Public** mark on an app in the catalog
 while the internet can reach it.
+
+### Claude's connectors: an MCP endpoint from the internet
+
+Claude's custom connectors, on claude.ai and in Claude's iPhone and Android
+apps, connect to an MCP server from Anthropic's cloud, never from your device.
+Being on your tailnet doesn't help, and `/mcp/<name>` on the portal can't be
+reached from there. An app can instead have **exactly its `mcp_path`**
+answered on the internet, through Funnel, at its own address, for access
+tokens made for that purpose:
+
+```toml
+tailscale_name = "sous"
+mcp_path       = "/mcp"
+mcp_funnel     = true
+```
+
+```sh
+outpost token create alice --name claude-phone --app sous --internet --expires 90d
+```
+
+```
+https://sous.<tailnet>.ts.net/mcp   from anywhere, with an internet token for sous
+https://sous.<tailnet>.ts.net/      tailnet only, behind the login, as before
+```
+
+On claude.ai, add a custom connector with that URL. Under **Request headers**,
+send `Authorization` with `Bearer opat_…`. Claude's phone apps then have it
+like any other connector. Anthropic describes request headers as a beta for a
+limited set of organizations. If adding a connector doesn't offer them, this
+can't be used yet, since Outpost has no OAuth server. Add the connector for
+yourself, not for a Team or Enterprise organization, which would send your
+token for every member.
+
+The switch is also in the portal, in the app's **Internet access** setting,
+apart from its public paths. As there, **a setting made in the portal wins
+over the manifest**, and "Use the manifest's setting" goes back to it.
+Changing it restarts the app's tailnet node, not the app. It needs what
+[Funnel](#funnel-webhooks-from-the-internet) needs in Tailscale.
+
+What the internet gets:
+
+- **Only that path, on that host.** The same exact match as `/mcp/<name>`, so
+  `%2f`, `..`, `;` and trailing-slash variants aren't it. Every other path on
+  the app is what it was: a public path if Funnel is on, and otherwise a
+  `404`, or a `401` if it carries a token.
+- **Only a token made for it.** Exactly one token, made with `--internet`,
+  for this app alone. Any other token, including a good tailnet token, gets
+  the same plain `401` with `WWW-Authenticate: Bearer` as an expired, revoked
+  or missing one. Nothing falls back to a cookie, a public path or the login.
+  A good token whose user the app's `allow` list refuses gets a `403`.
+- **The token first.** Anthropic's addresses are shared by everyone using
+  Claude. If a bad token slowed a shared address down, anyone could keep your
+  connector out. So a good internet token is let through even while its
+  address is backing off. Requests without a good token count against their
+  address, and get a `429` while it owes time.
+- **The rest of Funnel's rules.** Identity is set by the gateway, as on the
+  tailnet. The app never sees the token, upgrades are refused, bodies are
+  capped at 25 MiB, Outpost's cookies are removed, and any `Set-Cookie` from
+  the app is dropped. Funnel ends a response after 75 seconds, so a
+  long-lived stream reconnects.
+
+You can see when it's on in several places:
+
+- `outpost status <name>` has an `mcp funnel:` line with the address, or why
+  it isn't working.
+- The daemon's log says what the internet reaches once the node's Funnel is
+  up.
+- Admins see the **Public** mark in the catalog.
+- The activity feed records the first time each internet token is used from
+  the internet, with its address. Refusals stay out of the feed, as with
+  Funnel; each request is a line in the daemon's log.
+
+**Claude acts as you with it.** The connector holds the token, and Claude
+calls the app's tools as the token's user in any conversation the connector
+is on in, writes included. Text it reads there, from a web page, a file or a
+recipe imported from a page, can try to steer it. Keep Claude asking before
+it runs a tool, and prefer apps whose writes can be undone; Sous's deletes go
+to the trash. `outpost token revoke <id>` ends a token at its next request.
+Disabling the user or `outpost user logout` ends all of theirs. The design
+is in `docs/design/mcp-over-funnel.md`.
 
 ## Development
 
@@ -1818,8 +1918,15 @@ app's `public_paths`, and nothing else, from the internet; see
 [Funnel](#funnel-webhooks-from-the-internet) and the design in
 `docs/design/funnel-webhooks.md`. `/mcp/<name>` is not exposed that way.
 
-**The portal can override a manifest.** For `funnel` and `public_paths`
-only, what an admin sets under an app's Manage menu in the portal is kept in
+**An app's MCP endpoint can be on the internet.** Spec §7 would accept
+`funnel = true` for MCP only once the MCP auth question was answered. For
+Claude's connectors it is answered without OAuth. An app opts in with
+`mcp_funnel = true`, and only tokens made with `--internet`, for one app and
+with an expiry, work there. See [Claude's connectors](#claudes-connectors-an-mcp-endpoint-from-the-internet)
+and `docs/design/mcp-over-funnel.md`.
+
+**The portal can override a manifest.** For `funnel`, `public_paths` and
+`mcp_funnel` only, what an admin sets under an app's Manage menu in the portal is kept in
 `exposure.db` and wins over the manifest, which stays the default. Like `auth.db` and
 `secrets.db`, that file is authoritative rather than a cache.
 
