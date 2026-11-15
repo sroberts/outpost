@@ -50,6 +50,10 @@ const (
 	CmdTokenCreate = "token.create"
 	CmdTokenList   = "token.list"
 	CmdTokenRevoke = "token.revoke"
+	// CmdTokenClients lists OAuth clients' grants, and CmdTokenRevokeClient
+	// ends one.
+	CmdTokenClients      = "token.clients"
+	CmdTokenRevokeClient = "token.revoke-client"
 
 	CmdGatewayStatus = "gateway.status"
 
@@ -194,6 +198,8 @@ type Response struct {
 	SignIns  []SignInInfo               `json:"sign_ins,omitempty"`
 	Gateway  *gateway.Status            `json:"gateway,omitempty"`
 	Tokens   []TokenInfo                `json:"tokens,omitempty"`
+	// Clients is token.clients' result: OAuth grants, with no secrets.
+	Clients []ClientInfo `json:"clients,omitempty"`
 	// Secret is a new access token, set only by token.create. It crosses the
 	// 0600 socket once and the daemon keeps nothing it could be read back from.
 	Secret string `json:"secret,omitempty"`

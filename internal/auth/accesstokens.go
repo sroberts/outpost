@@ -228,11 +228,12 @@ func (s *Store) MarkInternetUsed(id int64) (bool, error) {
 
 // ListAccessTokens returns one user's tokens, or everyone's when username is
 // empty, oldest first. Expired tokens stay listed until revoked, so whoever is
-// working out why a script stopped can see the reason.
+// working out why a script stopped can see the reason. Tokens an OAuth grant
+// issued are left out: they renew hourly, and ListGrants shows the grant.
 func (s *Store) ListAccessTokens(username string) ([]AccessToken, error) {
 	const cols = `
 SELECT t.id, u.username, t.name, t.created_at, t.expires_at, t.last_used_at, t.internet
-FROM access_tokens t JOIN users u ON u.id = t.user_id`
+FROM access_tokens t JOIN users u ON u.id = t.user_id WHERE t.grant_id = 0`
 	var (
 		rows *sql.Rows
 		err  error
@@ -243,7 +244,7 @@ FROM access_tokens t JOIN users u ON u.id = t.user_id`
 		if _, err := mustUserID(s.db, username); err != nil {
 			return nil, err
 		}
-		rows, err = s.db.Query(cols+` WHERE u.username = ? ORDER BY t.id`, username)
+		rows, err = s.db.Query(cols+` AND u.username = ? ORDER BY t.id`, username)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("list access tokens: %w", err)
@@ -353,6 +354,10 @@ func endUserAccess(q querier, id int64, username string) error {
 	}
 	if _, err := q.Exec(`DELETE FROM access_tokens WHERE user_id = ?`, id); err != nil {
 		return fmt.Errorf("revoke access tokens for %s: %w", username, err)
+	}
+	// A grant would otherwise issue fresh tokens at its next refresh.
+	if _, err := q.Exec(`DELETE FROM oauth_grants WHERE user_id = ?`, id); err != nil {
+		return fmt.Errorf("revoke connected clients for %s: %w", username, err)
 	}
 	return nil
 }

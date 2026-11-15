@@ -299,6 +299,20 @@ func (c *Client) TokenRevoke(id int64) (string, error) {
 	return resp.Message, err
 }
 
+// TokenClients returns one user's connected OAuth clients, or everyone's
+// for "".
+func (c *Client) TokenClients(username string) ([]ClientInfo, error) {
+	resp, err := c.do(Request{Command: CmdTokenClients, AccessToken: &TokenRequest{Username: username}})
+	return resp.Clients, err
+}
+
+// TokenRevokeClient disconnects one OAuth client, ending its grant and its
+// access tokens.
+func (c *Client) TokenRevokeClient(id int64) (string, error) {
+	resp, err := c.do(Request{Command: CmdTokenRevokeClient, AccessToken: &TokenRequest{ID: id}})
+	return resp.Message, err
+}
+
 // SecretList returns every secret, without values.
 func (c *Client) SecretList() ([]SecretInfo, error) {
 	resp, err := c.do(Request{Command: CmdSecretList})
