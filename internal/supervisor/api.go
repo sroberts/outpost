@@ -55,6 +55,9 @@ type ServiceStatus struct {
 	// Funnel is the manifest's funnel: whether public_paths are meant to be
 	// answered from the internet. Tailnet.Funnel says whether they are.
 	Funnel bool `json:"funnel,omitempty"`
+	// MCPFunnel is whether the app's mcp_path is meant to be answered from
+	// the internet too, for access tokens made for it.
+	MCPFunnel bool `json:"mcp_funnel,omitempty"`
 	// FromPortal says Funnel and PublicPaths are the portal's setting, which
 	// wins over the manifest; ManifestFunnel and ManifestPublicPaths are what
 	// the manifest says instead.

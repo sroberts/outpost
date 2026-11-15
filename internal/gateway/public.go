@@ -9,14 +9,18 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/sroberts/outpost/internal/auth"
 )
 
 // The public listener is where a node with Funnel sends what arrives from the
 // internet. It is its own loopback listener, with its own handler, and that
-// handler has code for one thing: an app's public_paths, for an app with
-// funnel on, with no identity. The portal, sign-in, sessions, access tokens,
-// MCP and /.outpost/ aren't wired into it, so no bug in them can be reached
-// from the internet.
+// handler has code for two things: an app's public_paths, for an app with
+// funnel on, with no identity; and an app's mcp_path, for an app with
+// mcp_funnel on, with an access token made for the internet and that app. The
+// portal, sign-in, sessions, every other token, the portal's MCP and
+// /.outpost/ aren't wired into it, so no bug in them can be reached from the
+// internet. See docs/design/mcp-over-funnel.md.
 
 // MaxPublicBody caps a request body from the internet. GitHub's webhooks
 // are the largest a sender is known to send, at 25 MB.
@@ -58,6 +62,13 @@ func (g *Gateway) servePublic(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		g.logf("gateway: funnel: %s %s %s%s -> %d", client, r.Method, hostname(r.Host), r.URL.Path, rec.status)
 	}()
+	// Ahead of the throttle, which serveFunnelMCP applies itself: Claude's
+	// connectors call from addresses every Anthropic customer shares, so
+	// anyone could keep them backed off, and a good token must still work.
+	if rt, ok := g.funnelMCPRoute(r); ok {
+		g.serveFunnelMCP(rec, r, rt, client)
+		return
+	}
 	refuse := func(status int) {
 		g.publicThrottle.fail(now, client)
 		// An empty body: nothing about what is or isn't here.
@@ -107,6 +118,97 @@ func (g *Gateway) servePublic(w http.ResponseWriter, r *http.Request) {
 		public: true,
 	})
 	g.proxy.ServeHTTP(rec, r.WithContext(ctx))
+}
+
+// funnelMCPRoute is the app a request from the internet is for, when it is
+// exactly that app's MCP endpoint: the host is the name the app's node
+// reports, the app has mcp_funnel on, and the path is its mcp_path, sent
+// with nothing escaped, so no %2f, "..", ";" or trailing slash reaches it.
+func (g *Gateway) funnelMCPRoute(r *http.Request) (route, bool) {
+	host := hostname(r.Host)
+	rt, ok := g.routes.forHost(host)
+	if !ok || !rt.MCPFunnel || rt.MCPPath == "" || rt.Host == "" || rt.Host != host {
+		return route{}, false
+	}
+	if r.URL.Path != rt.MCPPath || r.URL.EscapedPath() != r.URL.Path {
+		return route{}, false
+	}
+	return rt, true
+}
+
+// serveFunnelMCP carries a request from the internet to an app's MCP
+// endpoint. It takes one access token, made for the internet and scoped to
+// this app alone, and nothing else: no session, no public path, no sign-in.
+//
+// The token is looked up before either throttle is asked, and a good one goes
+// through whatever its address owes. That reverses lookupAccessToken's rule,
+// on this path only, because the callers' addresses are shared: a stranger
+// sending bad tokens from them would otherwise hold the owner's connector off.
+// A token is 256 random bits, so guessing was never what the throttle
+// stopped. Everything else is counted against the address, a request with no
+// token in publicThrottle as servePublic's refusals are, and a bad token in
+// tokenThrottle, and gets an empty 401, or a 429 while the address owes time.
+// Refusals stay out of the activity feed, which scanners would flood; the
+// funnel log line has each one.
+func (g *Gateway) serveFunnelMCP(w http.ResponseWriter, r *http.Request, rt route, client string) {
+	presented := presentedAccessTokens(r.Header)
+	// Whatever happens next, the token goes no further than here.
+	removeAccessTokens(r.Header)
+	now := g.now()
+
+	var (
+		tok  auth.AccessToken
+		user auth.User
+		good bool
+	)
+	if len(presented) == 1 {
+		t, u, err := g.auth.LookupAccessToken(presented[0])
+		switch {
+		case err == nil:
+			tok, user = t, u
+			good = t.Internet && len(t.Apps) == 1 && t.Apps[0] == rt.Name
+		case !errors.Is(err, auth.ErrNoSuchAccessToken):
+			g.logf("gateway: funnel mcp %s: access token lookup: %v", rt.Name, err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+	}
+	if !good {
+		tokenKey := "ip:" + client
+		if d := max(g.publicThrottle.wait(now, client), g.tokenThrottle.wait(now, tokenKey)); d > 0 {
+			w.Header().Set("Retry-After", retryAfter(d))
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		if len(presented) == 0 {
+			g.publicThrottle.fail(now, client)
+		} else {
+			g.tokenThrottle.fail(now, tokenKey)
+		}
+		w.Header().Set("WWW-Authenticate", "Bearer")
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+	// The one answer that isn't a 401, as on the portal's MCP route: only
+	// someone holding a good token can get it.
+	if !allowed(user, rt) {
+		http.Error(w, "this account can't open this app", http.StatusForbidden)
+		return
+	}
+	// What servePublic does after its own checks, which this path is taken
+	// ahead of. Streamable HTTP never upgrades.
+	if r.Header.Get("Upgrade") != "" {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	if r.ContentLength > MaxPublicBody {
+		w.WriteHeader(http.StatusRequestEntityTooLarge)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, MaxPublicBody)
+	g.touchAccessToken(tok)
+	// proxyAsTo removes the Outpost cookies and sets identity on the way out.
+	g.proxyAsTo(w, r, rt, user, target{host: r.Host, client: client, public: true, funnelMCP: true})
 }
 
 // publicClient is the internet address a request came from. The node sets
