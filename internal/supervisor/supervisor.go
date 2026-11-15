@@ -107,6 +107,13 @@ type Exposure interface {
 	Override(service string) (funnel bool, publicPaths []string, ok bool)
 }
 
+// MCPExposure is an Exposure that also holds the portal's setting for
+// mcp_funnel. ok is false for a service the portal hasn't set it for, which
+// then has its manifest's.
+type MCPExposure interface {
+	MCPOverride(service string) (on, ok bool)
+}
+
 // manifestExposure is what a service's manifest says about funnel and
 // public_paths, kept for a service the portal overrides, so status can say
 // what going back to the manifest would mean.
@@ -129,6 +136,9 @@ type Supervisor struct {
 	// fromManifest is, for each service the portal overrides, what its
 	// manifest says instead. Reconcile-loop goroutine only.
 	fromManifest map[string]manifestExposure
+	// fromManifestMCP is, for each service whose mcp_funnel the portal
+	// sets, the manifest's mcp_funnel. Reconcile-loop goroutine only.
+	fromManifestMCP map[string]bool
 
 	Interval            time.Duration
 	healthFailThreshold int
@@ -255,6 +265,7 @@ func (s *Supervisor) applyLocked(ctx context.Context) error {
 		return fmt.Errorf("load manifests: %w", err)
 	}
 	services, fromManifest := s.withExposure(services)
+	services, fromManifestMCP := s.withMCPExposure(services)
 	if errs := manifest.ValidateWith(services, s.manifestOpts); len(errs) > 0 {
 		return fmt.Errorf("invalid manifests:\n%s", indentErrors(errs))
 	}
@@ -275,6 +286,7 @@ func (s *Supervisor) applyLocked(ctx context.Context) error {
 
 	s.desired = next
 	s.fromManifest = fromManifest
+	s.fromManifestMCP = fromManifestMCP
 	if fp, err := s.manifestFingerprint(); err == nil {
 		s.fingerprint = fp
 	}
@@ -304,6 +316,33 @@ func (s *Supervisor) withExposure(services []*manifest.Service) ([]*manifest.Ser
 			continue
 		}
 		from[svc.Name] = manifestExposure{funnel: svc.Funnel, publicPaths: svc.PublicPaths}
+		out[i] = merged
+	}
+	return out, from
+}
+
+// withMCPExposure lays the portal's mcp_funnel settings over the
+// manifests', as withExposure does for funnel and public_paths, and returns
+// the manifest's mcp_funnel for each service it changed.
+func (s *Supervisor) withMCPExposure(services []*manifest.Service) ([]*manifest.Service, map[string]bool) {
+	from := map[string]bool{}
+	m, ok := s.exposure.(MCPExposure)
+	if !ok {
+		return services, from
+	}
+	out := make([]*manifest.Service, len(services))
+	for i, svc := range services {
+		out[i] = svc
+		on, ok := m.MCPOverride(svc.Name)
+		if !ok {
+			continue
+		}
+		merged, errs := svc.WithMCPFunnel(on, s.manifestOpts)
+		if len(errs) > 0 {
+			s.logf("%s: the portal's setting for the MCP endpoint on the internet doesn't apply, so the manifest's does: %s", svc.Name, joinErrors(errs))
+			continue
+		}
+		from[svc.Name] = svc.MCPFunnel
 		out[i] = merged
 	}
 	return out, from

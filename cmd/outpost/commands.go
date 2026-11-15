@@ -208,8 +208,12 @@ func (a *app) cmdStatus(args []string) error {
 			fmt.Fprintf(a.out, "  public paths:  %s%s\n", strings.Join(st.PublicPaths, ", "), from)
 			fmt.Fprintf(a.out, "  funnel:        %s\n", funnelLine(st))
 		}
-		if st.MCPFunnel {
-			fmt.Fprintf(a.out, "  mcp funnel:    %s\n", mcpFunnelLine(st))
+		if st.MCPFunnel || st.MCPFromPortal {
+			from := ""
+			if st.MCPFromPortal {
+				from = " (set on the portal's Internet access page, over the manifest)"
+			}
+			fmt.Fprintf(a.out, "  mcp funnel:    %s%s\n", mcpFunnelLine(st), from)
 		}
 		fmt.Fprintf(a.out, "  restart:       %s (backoff %ds)\n", st.RestartPolicy, st.Backoff)
 		if st.Source != "" {
@@ -478,6 +482,9 @@ func truncateDur(d time.Duration) string {
 // and at what address. Only an internet access token for the service gets in,
 // so the line says that too.
 func mcpFunnelLine(st supervisor.ServiceStatus) string {
+	if !st.MCPFunnel {
+		return "off (only the tailnet reaches its MCP endpoint)"
+	}
 	t := st.Tailnet
 	switch {
 	case t == nil || t.Funnel == "":

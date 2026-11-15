@@ -19,6 +19,15 @@ func (s *Service) WithExposure(funnel bool, publicPaths []string, opts Options) 
 	return &out, errs
 }
 
+// WithMCPFunnel is s with mcp_funnel set as the portal set it, which wins
+// over the manifest's, and the errors that setting has by the manifest's own
+// rules. s is not changed.
+func (s *Service) WithMCPFunnel(on bool, opts Options) (*Service, []error) {
+	out := *s
+	out.MCPFunnel = on
+	return &out, out.validateMCPFunnel(opts)
+}
+
 // validateFunnel checks funnel = true, which answers the service's
 // public_paths, and only those, on the public internet through Tailscale
 // Funnel. Each rule closes a way it could expose more than that, or nothing.

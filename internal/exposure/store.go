@@ -1,7 +1,9 @@
 // Package exposure keeps what the portal has set about how an app is reached
 // without a login: its public paths, and whether Tailscale Funnel answers
 // them from the internet. A setting here wins over the manifest's funnel and
-// public_paths; an app with none uses the manifest's.
+// public_paths; an app with none uses the manifest's. Whether its MCP
+// endpoint is answered from the internet is kept apart, in mcp_settings, so
+// either can be set, or go back to the manifest's, without the other.
 //
 // Like auth.db and secrets.db, exposure.db is authoritative: nothing can
 // rebuild it, so it is kept apart from state.db, which is only a cache.
@@ -28,6 +30,12 @@ CREATE TABLE IF NOT EXISTS settings (
     updated_at   INTEGER NOT NULL,
     updated_by   TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS mcp_settings (
+    service    TEXT PRIMARY KEY,
+    mcp_funnel INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    updated_by TEXT NOT NULL
+);
 `
 
 // Setting is what the portal set for one app.
@@ -47,6 +55,9 @@ type Store struct {
 
 	mu    sync.RWMutex
 	cache map[string]Setting
+	// mcp is mcp_settings: whether each app the portal set answers its
+	// mcp_path from the internet.
+	mcp map[string]bool
 }
 
 // Open opens, creating if needed, the database at path.
@@ -107,10 +118,32 @@ func (s *Store) reload() error {
 	if err := rows.Err(); err != nil {
 		return err
 	}
+	mcp, err := s.readMCP()
+	if err != nil {
+		return err
+	}
 	s.mu.Lock()
-	s.cache = cache
+	s.cache, s.mcp = cache, mcp
 	s.mu.Unlock()
 	return nil
+}
+
+func (s *Store) readMCP() (map[string]bool, error) {
+	rows, err := s.db.Query(`SELECT service, mcp_funnel FROM mcp_settings`)
+	if err != nil {
+		return nil, fmt.Errorf("read MCP exposure settings: %w", err)
+	}
+	defer func() { _ = rows.Close() }() // read-only
+	mcp := map[string]bool{}
+	for rows.Next() {
+		var service string
+		var on int
+		if err := rows.Scan(&service, &on); err != nil {
+			return nil, err
+		}
+		mcp[service] = on != 0
+	}
+	return mcp, rows.Err()
 }
 
 // Get returns the setting for service, and false if the portal has set none.
@@ -172,6 +205,46 @@ func (s *Store) Set(service string, funnel bool, publicPaths []string, by string
 func (s *Store) Reset(service string) error {
 	if _, err := s.db.Exec(`DELETE FROM settings WHERE service = ?`, service); err != nil {
 		return fmt.Errorf("reset exposure setting: %w", err)
+	}
+	return s.reload()
+}
+
+// MCPOverride is whether the portal has the internet reach service's
+// mcp_path, and false for ok if the portal hasn't said, so the manifest's
+// mcp_funnel applies.
+func (s *Store) MCPOverride(service string) (on, ok bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	on, ok = s.mcp[service]
+	return on, ok
+}
+
+// SetMCPFunnel records whether the internet reaches service's mcp_path,
+// over the manifest's mcp_funnel. The caller has checked it against the
+// manifest's rules.
+func (s *Store) SetMCPFunnel(service string, on bool, by string) error {
+	if service == "" {
+		return fmt.Errorf("a service is required")
+	}
+	v := 0
+	if on {
+		v = 1
+	}
+	if _, err := s.db.Exec(`INSERT INTO mcp_settings (service, mcp_funnel, updated_at, updated_by) VALUES (?, ?, ?, ?)
+		ON CONFLICT(service) DO UPDATE SET mcp_funnel = excluded.mcp_funnel,
+		updated_at = excluded.updated_at, updated_by = excluded.updated_by`,
+		service, v, s.now().Unix(), by); err != nil {
+		return fmt.Errorf("save MCP exposure setting: %w", err)
+	}
+	return s.reload()
+}
+
+// ResetMCPFunnel forgets the portal's MCP setting for service, so the
+// manifest's mcp_funnel applies again. Its public paths and Funnel are left
+// as they are.
+func (s *Store) ResetMCPFunnel(service string) error {
+	if _, err := s.db.Exec(`DELETE FROM mcp_settings WHERE service = ?`, service); err != nil {
+		return fmt.Errorf("reset MCP exposure setting: %w", err)
 	}
 	return s.reload()
 }

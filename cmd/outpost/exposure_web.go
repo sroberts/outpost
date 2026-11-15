@@ -46,6 +46,34 @@ func (e exposureWeb) Reset(ctx context.Context, service, _ string) error {
 	return e.apply(ctx)
 }
 
+// SetMCPFunnel sets whether the internet reaches service's MCP endpoint, over
+// its manifest's mcp_funnel, held to the manifest's rules as Set is.
+func (e exposureWeb) SetMCPFunnel(ctx context.Context, service string, on bool, by string) error {
+	svc, err := e.manifest(service)
+	if err != nil {
+		return err
+	}
+	if _, errs := svc.WithMCPFunnel(on, e.opts); len(errs) > 0 {
+		parts := make([]string, len(errs))
+		for i, err := range errs {
+			parts[i] = err.Error()
+		}
+		return errors.New(strings.Join(parts, "; "))
+	}
+	if err := e.store.SetMCPFunnel(service, on, by); err != nil {
+		return err
+	}
+	return e.apply(ctx)
+}
+
+// ResetMCPFunnel goes back to the manifest's mcp_funnel for service.
+func (e exposureWeb) ResetMCPFunnel(ctx context.Context, service, _ string) error {
+	if err := e.store.ResetMCPFunnel(service); err != nil {
+		return err
+	}
+	return e.apply(ctx)
+}
+
 // manifest is service's manifest as it is on disk, for checking a setting
 // against.
 func (e exposureWeb) manifest(service string) (*manifest.Service, error) {
