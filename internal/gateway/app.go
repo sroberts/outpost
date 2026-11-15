@@ -261,7 +261,12 @@ func (g *Gateway) proxyAsTo(w http.ResponseWriter, r *http.Request, rt route, u 
 	removeCookie(r.Header, g.cookieName)
 	removeCookie(r.Header, g.stateCookieName())
 
-	to.name, to.port, to.client = rt.Name, rt.Port, g.clientIP(r)
+	to.name, to.port = rt.Name, rt.Port
+	// A caller from the internet has already said who the client is; the
+	// public listener's peer is only ever the node.
+	if to.client == "" {
+		to.client = g.clientIP(r)
+	}
 	to.admin, to.user, to.token = u.Admin, &u, idTok
 	ctx := context.WithValue(r.Context(), targetKey{}, to)
 	g.proxy.ServeHTTP(w, r.WithContext(ctx))
@@ -302,6 +307,11 @@ type target struct {
 	// public marks a request from the internet, through Funnel: an error
 	// says nothing about what's behind it.
 	public bool
+	// funnelMCP marks an MCP request from the internet. It's on the app's own
+	// origin, so none of mcp's rewriting for the portal applies, but the app
+	// may still set no cookies: MCP keeps its session in Mcp-Session-Id, and
+	// a cookie would be the app's credential held in someone else's cloud.
+	funnelMCP bool
 }
 
 func (g *Gateway) newProxy() *httputil.ReverseProxy {
@@ -350,12 +360,17 @@ func (g *Gateway) newProxy() *httputil.ReverseProxy {
 			pr.Out.Header.Del("Forwarded")
 		},
 		ModifyResponse: func(resp *http.Response) error {
-			if t, _ := resp.Request.Context().Value(targetKey{}).(target); t.mcp {
+			t, _ := resp.Request.Context().Value(targetKey{}).(target)
+			if t.mcp {
 				// The portal's origin is shared by every app's MCP endpoint
 				// and the portal itself, so no app gets to set a cookie on
 				// it. MCP keeps its session in Mcp-Session-Id instead.
 				resp.Header.Del("Set-Cookie")
 				onPortalOrigin(resp.Header)
+				return nil
+			}
+			if t.funnelMCP {
+				resp.Header.Del("Set-Cookie")
 				return nil
 			}
 			removeSetCookies(resp.Header, sessionCookieNames)

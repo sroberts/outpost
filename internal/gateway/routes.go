@@ -42,6 +42,9 @@ type route struct {
 	Funnel      bool
 	FunnelState string
 	FunnelError string
+	// MCPFunnel is whether the public listener answers MCPPath, for internet
+	// access tokens scoped to this app.
+	MCPFunnel bool
 	// FromPortal says Funnel and PublicPaths were set on the portal's
 	// Internet access page, over the manifest's ManifestFunnel and
 	// ManifestPublicPaths.
@@ -137,7 +140,7 @@ func (g *Gateway) refreshRoutes(ctx context.Context) {
 			Title: s.Title, Description: s.Description, Hidden: s.Hidden,
 			Allow: s.Allow, PublicPaths: s.PublicPaths, MCPPath: s.MCPPath, Source: s.Source, Release: s.Release,
 			Desired: s.Desired, Halted: s.Halted, RestartCount: s.RestartCount, NextAttempt: s.NextAttempt,
-			Funnel: s.Funnel, FromPortal: s.FromPortal, ManifestFunnel: s.ManifestFunnel,
+			Funnel: s.Funnel, MCPFunnel: s.MCPFunnel, FromPortal: s.FromPortal, ManifestFunnel: s.ManifestFunnel,
 			ManifestPublicPaths: s.ManifestPublicPaths, TailscaleName: s.TailscaleName,
 		}
 		if t := s.Tailnet; t != nil {
