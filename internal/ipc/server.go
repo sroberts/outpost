@@ -247,7 +247,7 @@ func (s *Server) dispatch(ctx context.Context, req Request) Response {
 		CmdUserDisable, CmdUserEnable, CmdUserLogout, CmdUserAdmin, CmdUserSignIns, CmdUserTailnet, CmdAuthRotate:
 		return s.dispatchAuth(ctx, req)
 
-	case CmdTokenCreate, CmdTokenList, CmdTokenRevoke:
+	case CmdTokenCreate, CmdTokenList, CmdTokenRevoke, CmdTokenClients, CmdTokenRevokeClient:
 		return s.dispatchToken(ctx, req)
 
 	case CmdSecretList, CmdSecretSet, CmdSecretRemove, CmdSecretBind, CmdSecretUnbind:

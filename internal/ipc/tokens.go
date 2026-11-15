@@ -40,6 +40,27 @@ type TokenInfo struct {
 	Internet   bool      `json:"internet,omitempty"`
 }
 
+// ClientInfo is an OAuth client's grant as the CLI sees one: who connected
+// what to which app, and when it last renewed. It has no secrets.
+type ClientInfo struct {
+	ID          int64     `json:"id"`
+	Username    string    `json:"username"`
+	App         string    `json:"app"`
+	ClientID    string    `json:"client_id"`
+	ClientName  string    `json:"client_name,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	RefreshedAt time.Time `json:"refreshed_at"`
+	ExpiresAt   time.Time `json:"expires_at"`
+	Lapsed      bool      `json:"lapsed,omitempty"`
+}
+
+func clientInfo(g auth.Grant, now time.Time) ClientInfo {
+	return ClientInfo{
+		ID: g.ID, Username: g.Username, App: g.App, ClientID: g.ClientID, ClientName: g.ClientName,
+		CreatedAt: g.CreatedAt, RefreshedAt: g.RefreshedAt, ExpiresAt: g.ExpiresAt, Lapsed: g.Lapsed(now),
+	}
+}
+
 func tokenInfo(t auth.AccessToken, now time.Time) TokenInfo {
 	return TokenInfo{
 		ID: t.ID, Username: t.Username, Name: t.Name, Apps: t.Apps,
@@ -108,6 +129,26 @@ func (s *Server) dispatchToken(ctx context.Context, req Request) Response {
 		}
 		s.feed(ctx, gateway.EventTokenRevoke, fmt.Sprintf("access token %d for %s revoked", t.ID, t.Username))
 		return Response{OK: true, Message: fmt.Sprintf("revoked access token %d for %s", t.ID, t.Username)}
+
+	case CmdTokenClients:
+		list, err := s.auth.ListGrants(r.Username)
+		if err != nil {
+			return errorResponse(err)
+		}
+		infos := make([]ClientInfo, 0, len(list))
+		for _, g := range list {
+			infos = append(infos, clientInfo(g, time.Now()))
+		}
+		return Response{OK: true, Clients: infos}
+
+	case CmdTokenRevokeClient:
+		g, err := s.auth.RevokeGrant(r.ID)
+		if err != nil {
+			return errorResponse(err)
+		}
+		what := fmt.Sprintf("%s for %s on %s (client %d)", gateway.ClientLabel(g.ClientName, g.ClientID), g.Username, g.App, g.ID)
+		s.feed(ctx, gateway.EventTokenRevoke, "disconnected "+what)
+		return Response{OK: true, Message: "disconnected " + what}
 	}
 	return errorResponse(fmt.Errorf("unknown command %q", req.Command))
 }
