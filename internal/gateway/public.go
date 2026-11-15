@@ -207,6 +207,14 @@ func (g *Gateway) serveFunnelMCP(w http.ResponseWriter, r *http.Request, rt rout
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, MaxPublicBody)
 	g.touchAccessToken(tok)
+	if tok.InternetUsedAt.IsZero() {
+		if first, err := g.auth.MarkInternetUsed(tok.ID); err != nil {
+			g.logf("gateway: funnel mcp %s: %v", rt.Name, err)
+		} else if first {
+			g.activity.record(EventTokenInternet, "internet access token %d for %s first used from the internet, from %s, to reach %s",
+				tok.ID, user.Username, client, rt.Name)
+		}
+	}
 	// proxyAsTo removes the Outpost cookies and sets identity on the way out.
 	g.proxyAsTo(w, r, rt, user, target{host: r.Host, client: client, public: true, funnelMCP: true})
 }

@@ -208,6 +208,9 @@ func (a *app) cmdStatus(args []string) error {
 			fmt.Fprintf(a.out, "  public paths:  %s%s\n", strings.Join(st.PublicPaths, ", "), from)
 			fmt.Fprintf(a.out, "  funnel:        %s\n", funnelLine(st))
 		}
+		if st.MCPFunnel {
+			fmt.Fprintf(a.out, "  mcp funnel:    %s\n", mcpFunnelLine(st))
+		}
 		fmt.Fprintf(a.out, "  restart:       %s (backoff %ds)\n", st.RestartPolicy, st.Backoff)
 		if st.Source != "" {
 			fmt.Fprintf(a.out, "  installed:     %s from %s\n", orDash(st.Release), st.Source)
@@ -469,6 +472,22 @@ func truncateDur(d time.Duration) string {
 		return d.Truncate(time.Minute).String()
 	}
 	return d.Truncate(time.Hour).String()
+}
+
+// mcpFunnelLine says whether the internet reaches a service's MCP endpoint,
+// and at what address. Only an internet access token for the service gets in,
+// so the line says that too.
+func mcpFunnelLine(st supervisor.ServiceStatus) string {
+	t := st.Tailnet
+	switch {
+	case t == nil || t.Funnel == "":
+		return "on, once its node is up"
+	case t.Funnel == supervisor.FunnelOn && t.Host != "":
+		return "on: https://" + t.Host + st.MCPPath + " (internet access tokens only; `outpost token create <user> --internet --app " + st.Name + " --expires 90d`)"
+	case t.Funnel == supervisor.FunnelUnavailable:
+		return "unavailable: " + t.FunnelError
+	}
+	return "starting"
 }
 
 // funnelLine says whether the internet reaches a service's public paths, and

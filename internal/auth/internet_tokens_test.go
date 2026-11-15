@@ -124,3 +124,29 @@ INSERT INTO access_tokens (token_hash, user_id, name, created_at) VALUES (?, 1, 
 	}
 	again.Close()
 }
+
+// First use from the internet is recorded once, and a lookup carries it.
+func TestInternetAccessToken_MarkInternetUsed(t *testing.T) {
+	s, c := newTestStore(t)
+	if err := s.AddUser(User{Username: "alice"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	secret, tok, err := s.CreateInternetAccessToken("alice", "", "sous", 90*24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _, _ := s.LookupAccessToken(secret); !got.InternetUsedAt.IsZero() {
+		t.Errorf("a new token has been used from the internet at %v", got.InternetUsedAt)
+	}
+	if first, err := s.MarkInternetUsed(tok.ID); err != nil || !first {
+		t.Fatalf("first mark = %v, %v; want true", first, err)
+	}
+	when := c.now()
+	c.advance(time.Hour)
+	if first, err := s.MarkInternetUsed(tok.ID); err != nil || first {
+		t.Errorf("second mark = %v, %v; want false", first, err)
+	}
+	if got, _, _ := s.LookupAccessToken(secret); !got.InternetUsedAt.Equal(when) {
+		t.Errorf("used at %v; want the first time, %v", got.InternetUsedAt, when)
+	}
+}
