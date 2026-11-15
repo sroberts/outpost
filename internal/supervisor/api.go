@@ -58,6 +58,10 @@ type ServiceStatus struct {
 	// MCPFunnel is whether the app's mcp_path is meant to be answered from
 	// the internet too, for access tokens made for it.
 	MCPFunnel bool `json:"mcp_funnel,omitempty"`
+	// MCPFromPortal says MCPFunnel is the portal's setting, which wins over
+	// the manifest's, ManifestMCPFunnel.
+	MCPFromPortal     bool `json:"mcp_from_portal,omitempty"`
+	ManifestMCPFunnel bool `json:"manifest_mcp_funnel,omitempty"`
 	// FromPortal says Funnel and PublicPaths are the portal's setting, which
 	// wins over the manifest; ManifestFunnel and ManifestPublicPaths are what
 	// the manifest says instead.
@@ -341,6 +345,9 @@ func (s *Supervisor) statusOf(name string) ServiceStatus {
 		st.MCPFunnel = svc.MCPFunnel
 		if m, ok := s.fromManifest[name]; ok {
 			st.FromPortal, st.ManifestFunnel, st.ManifestPublicPaths = true, m.funnel, m.publicPaths
+		}
+		if m, ok := s.fromManifestMCP[name]; ok {
+			st.MCPFromPortal, st.ManifestMCPFunnel = true, m
 		}
 		s.addRelease(&st, svc)
 	}

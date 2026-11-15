@@ -87,6 +87,23 @@
 <input type="hidden" name="app" value="{{$a.Name}}">
 <button class="plain" type="submit"><span>Use the manifest's setting<span class="sr"> for {{$a.Title}}</span></span></button>
 </form>{{end}}
+{{with .MCP}}<h3 class="set-sub">MCP endpoint <code>{{.Path}}</code></h3>
+<p class="meta">{{.State}}</p>
+{{if .URL}}<ul class="urls"><li><code class="cmd">{{.URL}}</code></li></ul>{{end}}
+{{if .Manifest}}<p class="meta">{{.Manifest}}</p>{{end}}
+<form method="post" action="/settings">
+<input type="hidden" name="action" value="mcp-save">
+<input type="hidden" name="app" value="{{$a.Name}}">
+{{if $a.Public.CanFunnel}}<label class="check"><input type="checkbox" name="mcp_funnel" value="1"{{if .On}} checked{{end}}> Answer it from the internet, through Funnel</label>
+<p class="hint">Only for access tokens made for the internet and {{$a.Title}}: <code>outpost token create &lt;user&gt; --internet --app {{$a.Name}} --expires 90d</code>. Nothing else of {{$a.Title}} is answered, and a request without such a token gets nothing.</p>
+<button type="submit"><span>Save<span class="sr"> {{$a.Title}}'s MCP endpoint</span></span></button>
+{{else}}<p class="hint">Funnel needs the app on the tailnet, with a <code>tailscale_name</code>.</p>{{end}}
+</form>
+{{if .FromPortal}}<form class="undo" method="post" action="/settings">
+<input type="hidden" name="action" value="mcp-reset">
+<input type="hidden" name="app" value="{{$a.Name}}">
+<button class="plain" type="submit"><span>Use the manifest's setting<span class="sr"> for {{$a.Title}}'s MCP endpoint</span></span></button>
+</form>{{end}}{{end}}
 </div>
 </details>{{end}}
 {{with .Secrets}}<details class="setting" name="set-{{$a.Name}}" id="set-secrets-{{$a.Name}}"{{if eq $a.Open "secrets"}} open{{end}}><summary><span class="set-name">Secrets</span><span class="count">{{if .Count}}{{.Count}} {{if eq .Count 1}}variable{{else}}variables{{end}}{{else}}none{{end}}</span></summary>
