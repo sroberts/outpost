@@ -136,6 +136,14 @@ type Gateway struct {
 	// publicThrottle limits refused requests from the internet per address,
 	// in a table of its own, so scanners can't crowd out sign-ins.
 	publicThrottle throttle
+	// oauthCodes are OAuth authorization codes for apps' MCP endpoints,
+	// between consent on the portal and their exchange on the app's host.
+	oauthCodes oauthCodeStore
+	// clientMetas are OAuth clients' metadata documents, fetched by
+	// clientMetadata; clientMetaHTTP, when set, fetches them in place of
+	// publicOnlyClient, for tests.
+	clientMetas    clientMetaCache
+	clientMetaHTTP *http.Client
 
 	ln  net.Listener
 	srv *http.Server

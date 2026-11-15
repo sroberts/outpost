@@ -1,0 +1,21 @@
+{{define "body"}}
+<main class="door">
+<div class="hub">
+<span class="lamp" aria-hidden="true"></span>
+<p class="hub-name">{{.Portal}}</p>
+<p class="tally">{{.Host}}</p>
+</div>
+{{with .Consent}}<section class="panel" aria-labelledby="what">
+<h1 id="what">Connect {{.Client}} to {{.AppTitle}}?</h1>
+<p><strong>{{.Client}}</strong> wants to use <strong>{{.AppTitle}}</strong> as <strong>{{.User}}</strong>.</p>
+<p>It will be able to use every tool {{.AppTitle}} offers over MCP, including ones that change things, from the internet, until you disconnect it. Nothing else of {{.AppTitle}}, and no other app, is reachable with it.</p>
+<p class="hint">Its details come from <code>{{.ClientID}}</code>.{{if .Redirect}} After this you go to <strong>{{.Redirect}}</strong>.{{end}} Only allow this if you just asked it to connect.</p>
+<p class="hint">You can disconnect it later with <code>outpost token revoke-client</code>; <code>outpost token list</code> shows its id.</p>
+<form method="post" action="/oauth/authorize" class="consent">
+{{range .Params}}<input type="hidden" name="{{.Name}}" value="{{.Value}}">
+{{end}}<button type="submit" name="action" value="allow">Allow</button>
+<button class="plain" type="submit" name="action" value="deny">Don't allow</button>
+</form>
+</section>{{end}}
+</main>
+{{end}}
