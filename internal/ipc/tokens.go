@@ -20,7 +20,10 @@ type TokenRequest struct {
 	// ExpiresIn is a duration rather than a time so the daemon's clock decides;
 	// zero means the token doesn't expire.
 	ExpiresIn time.Duration `json:"expires_in,omitempty"`
-	ID        int64         `json:"id,omitempty"`
+	// Internet asks for a token that also works from the internet. It needs
+	// exactly one app and an expiry.
+	Internet bool  `json:"internet,omitempty"`
+	ID       int64 `json:"id,omitempty"`
 }
 
 // TokenInfo is an access token as the CLI sees one. It has no hash or secret
@@ -34,13 +37,14 @@ type TokenInfo struct {
 	ExpiresAt  time.Time `json:"expires_at"`
 	LastUsedAt time.Time `json:"last_used_at"`
 	Expired    bool      `json:"expired,omitempty"`
+	Internet   bool      `json:"internet,omitempty"`
 }
 
 func tokenInfo(t auth.AccessToken, now time.Time) TokenInfo {
 	return TokenInfo{
 		ID: t.ID, Username: t.Username, Name: t.Name, Apps: t.Apps,
 		CreatedAt: t.CreatedAt, ExpiresAt: t.ExpiresAt, LastUsedAt: t.LastUsedAt,
-		Expired: t.Expired(now),
+		Expired: t.Expired(now), Internet: t.Internet,
 	}
 }
 
@@ -60,11 +64,29 @@ func (s *Server) dispatchToken(ctx context.Context, req Request) Response {
 		if r.Username == "" {
 			return errorResponse(errors.New("token create: a username is required"))
 		}
-		secret, t, err := s.auth.CreateAccessToken(r.Username, r.Name, r.Apps, r.ExpiresIn)
+		var (
+			secret string
+			t      auth.AccessToken
+			err    error
+		)
+		if r.Internet {
+			// Checked here as well as in the store so the message names the
+			// flags, and so two apps aren't quietly cut down to one.
+			if len(r.Apps) != 1 {
+				return errorResponse(errors.New("token create: --internet needs exactly one --app"))
+			}
+			secret, t, err = s.auth.CreateInternetAccessToken(r.Username, r.Name, r.Apps[0], r.ExpiresIn)
+		} else {
+			secret, t, err = s.auth.CreateAccessToken(r.Username, r.Name, r.Apps, r.ExpiresIn)
+		}
 		if err != nil {
 			return errorResponse(err)
 		}
-		s.feed(ctx, gateway.EventTokenCreate, fmt.Sprintf("access token %d created for %s", t.ID, t.Username))
+		kind := "access token"
+		if t.Internet {
+			kind = "internet access token"
+		}
+		s.feed(ctx, gateway.EventTokenCreate, fmt.Sprintf("%s %d created for %s", kind, t.ID, t.Username))
 		return Response{OK: true, Secret: secret, Tokens: []TokenInfo{tokenInfo(t, time.Now())},
 			Message: s.unknownApps(ctx, t.Apps)}
 

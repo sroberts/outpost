@@ -33,6 +33,11 @@ type AccessToken struct {
 	CreatedAt  time.Time
 	ExpiresAt  time.Time // zero means never
 	LastUsedAt time.Time // zero means never; up to AccessTokenTouchEvery behind
+	// Internet marks a token made to be used from the internet, through an
+	// app's Funnel, as well as on the tailnet. Only such a token is accepted
+	// there, so no token made before it was asked for gains that reach. One is
+	// always scoped to exactly one app and always expires.
+	Internet bool
 }
 
 // Reaches reports whether the token's scope covers an app. It says nothing
@@ -71,6 +76,24 @@ func validTokenApp(app string) error {
 // never stored and can't be recovered. No apps means every app the user may
 // reach. A ttl of zero means it doesn't expire.
 func (s *Store) CreateAccessToken(username, name string, apps []string, ttl time.Duration) (string, AccessToken, error) {
+	return s.createAccessToken(username, name, apps, ttl, false)
+}
+
+// CreateInternetAccessToken issues a token that also works from the internet,
+// for one app and with an expiry. Both are required here and not only by the
+// CLI, because what the internet can reach with a leaked token is the whole of
+// the risk: an unscoped or everlasting one would be all of it.
+func (s *Store) CreateInternetAccessToken(username, name, app string, ttl time.Duration) (string, AccessToken, error) {
+	if app == "" {
+		return "", AccessToken{}, errors.New("a token for the internet has to name exactly one app")
+	}
+	if ttl <= 0 {
+		return "", AccessToken{}, errors.New("a token for the internet has to expire")
+	}
+	return s.createAccessToken(username, name, []string{app}, ttl, true)
+}
+
+func (s *Store) createAccessToken(username, name string, apps []string, ttl time.Duration, internet bool) (string, AccessToken, error) {
 	if err := validText("token name", name); err != nil {
 		return "", AccessToken{}, err
 	}
@@ -110,8 +133,8 @@ func (s *Store) CreateAccessToken(username, name string, apps []string, ttl time
 		expires = now.Add(ttl).Unix()
 	}
 	res, err := tx.Exec(`
-INSERT INTO access_tokens (token_hash, user_id, name, created_at, expires_at)
-VALUES (?, ?, ?, ?, ?)`, HashToken(secret), r.id, name, now.Unix(), expires)
+INSERT INTO access_tokens (token_hash, user_id, name, created_at, expires_at, internet)
+VALUES (?, ?, ?, ?, ?, ?)`, HashToken(secret), r.id, name, now.Unix(), expires, internet)
 	if err != nil {
 		return "", AccessToken{}, fmt.Errorf("create access token: %w", err)
 	}
@@ -124,7 +147,7 @@ VALUES (?, ?, ?, ?, ?)`, HashToken(secret), r.id, name, now.Unix(), expires)
 			return "", AccessToken{}, fmt.Errorf("scope access token: %w", err)
 		}
 	}
-	t := AccessToken{ID: id, Username: username, Name: name, CreatedAt: fromUnix(now.Unix()), ExpiresAt: fromUnix(expires)}
+	t := AccessToken{ID: id, Username: username, Name: name, CreatedAt: fromUnix(now.Unix()), ExpiresAt: fromUnix(expires), Internet: internet}
 	if t.Apps, err = tokenApps(tx, id); err != nil {
 		return "", AccessToken{}, err
 	}
@@ -144,10 +167,10 @@ func (s *Store) LookupAccessToken(secret string) (AccessToken, User, error) {
 		disabled               bool
 	)
 	err := s.db.QueryRow(`
-SELECT t.id, u.username, u.disabled, t.name, t.created_at, t.expires_at, t.last_used_at
+SELECT t.id, u.username, u.disabled, t.name, t.created_at, t.expires_at, t.last_used_at, t.internet
 FROM access_tokens t JOIN users u ON u.id = t.user_id
 WHERE t.token_hash = ? AND (t.expires_at = 0 OR t.expires_at > ?)`, HashToken(secret), s.now().Unix()).
-		Scan(&t.ID, &t.Username, &disabled, &t.Name, &created, &expires, &used)
+		Scan(&t.ID, &t.Username, &disabled, &t.Name, &created, &expires, &used, &t.Internet)
 	if errors.Is(err, sql.ErrNoRows) || (err == nil && disabled) {
 		return AccessToken{}, User{}, ErrNoSuchAccessToken
 	}
@@ -189,7 +212,7 @@ func (s *Store) TouchAccessToken(t AccessToken) error {
 // working out why a script stopped can see the reason.
 func (s *Store) ListAccessTokens(username string) ([]AccessToken, error) {
 	const cols = `
-SELECT t.id, u.username, t.name, t.created_at, t.expires_at, t.last_used_at
+SELECT t.id, u.username, t.name, t.created_at, t.expires_at, t.last_used_at, t.internet
 FROM access_tokens t JOIN users u ON u.id = t.user_id`
 	var (
 		rows *sql.Rows
@@ -212,7 +235,7 @@ FROM access_tokens t JOIN users u ON u.id = t.user_id`
 			t                      AccessToken
 			created, expires, used int64
 		)
-		if err := rows.Scan(&t.ID, &t.Username, &t.Name, &created, &expires, &used); err != nil {
+		if err := rows.Scan(&t.ID, &t.Username, &t.Name, &created, &expires, &used, &t.Internet); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("list access tokens: %w", err)
 		}
