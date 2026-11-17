@@ -80,7 +80,11 @@ func (m Model) enterView(v view) (Model, tea.Cmd) {
 		m, cmd = m.startLogTicks()
 		return m, tea.Batch(m.refreshExtras(), m.fetchLogView(), cmd)
 	}
-	return m, tea.Batch(m.refreshExtras(), m.enterCmd())
+	var usage tea.Cmd
+	if m.usageShown() {
+		usage = m.fetchUsage()
+	}
+	return m, tea.Batch(m.refreshExtras(), m.enterCmd(), usage)
 }
 
 // WithConfigCheck has the header say when config.toml no longer matches

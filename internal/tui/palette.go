@@ -261,6 +261,10 @@ func (m Model) handleOutputKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			return next, cmd, true
 		}
 	}
+	// Held to the last screenful, so scrolling past the end doesn't take as
+	// many presses to come back from.
+	lines, rows := o.layout(m.bodyHeight())
+	o.offset = min(o.offset, max(len(lines)-rows, 0))
 	m.out = &o
 	return m, nil, true
 }
@@ -465,10 +469,8 @@ func (m Model) formView() string {
 	return b.String()
 }
 
-func (m Model) outputView(height int) string {
-	o := m.out
-	var b strings.Builder
-	b.WriteString("  " + m.rule(o.title) + "\n")
+// layout is the pane's lines, and how many of them fit in height rows.
+func (o outputPane) layout(height int) ([]string, int) {
 	lines := strings.Split(strings.TrimRight(plainText(o.text), "\n"), "\n")
 	if strings.TrimSpace(o.text) == "" {
 		lines = []string{"(no output)"}
@@ -477,6 +479,14 @@ func (m Model) outputView(height int) string {
 	if o.then != nil {
 		rows = max(rows-2, 1)
 	}
+	return lines, rows
+}
+
+func (m Model) outputView(height int) string {
+	o := m.out
+	var b strings.Builder
+	b.WriteString("  " + m.rule(o.title) + "\n")
+	lines, rows := o.layout(height)
 	off := min(o.offset, max(len(lines)-rows, 0))
 	style := valueStyle
 	if o.isErr {

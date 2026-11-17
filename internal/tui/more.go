@@ -106,8 +106,9 @@ func (m Model) updateMore(msg tea.Msg) (Model, tea.Cmd, bool) {
 // shortcuts take; ok is false for the rest.
 func (m Model) handleMoreKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	k := msg.String()
-	// The digits jump to a view by its place on the tab line.
-	if _, ok := m.extras(); ok && len(k) == 1 && k[0] >= '1' && k[0] <= '9' {
+	// The digits jump to a view by its place on the tab line, unless a field
+	// is taking them, as the log search is.
+	if _, ok := m.extras(); ok && !m.typing() && len(k) == 1 && k[0] >= '1' && k[0] <= '9' {
 		vs := m.views()
 		if i := int(k[0] - '1'); i < len(vs) {
 			next, cmd := m.enterView(vs[i])

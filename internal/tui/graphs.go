@@ -41,6 +41,13 @@ func (m Model) fetchUsage() tea.Cmd {
 	}
 }
 
+// usageShown reports whether the view on screen draws usage. A read is a
+// day of series for every service, so the tick doesn't make one for a view
+// that shows none; opening one that does reads it then.
+func (m Model) usageShown() bool {
+	return m.view == viewServices || m.view == viewOverview
+}
+
 // usageOf is the selected range's series for a service, and whether there is
 // any usage for it at all.
 func (m Model) usageOf(name string) (stats.Usage, bool) {
@@ -251,7 +258,11 @@ func (m Model) graphLines(name string, width int, tall int) []string {
 				case 0:
 					head = label(k, now)
 				case 1:
-					head = labelStyle.Render(pad("", 6) + pad("peak "+peak, 10))
+					// The label column, not the value's, takes "peak": with
+					// it in front, a value such as 12.3 MiB ran past the
+					// 16 cells every row's head is given and pushed this
+					// row of the chart out of line.
+					head = labelStyle.Render(pad("peak", 6) + pad(peak, 10))
 				}
 				out = append(out, head+"  "+graphStyle.Render(r))
 			}

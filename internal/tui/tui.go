@@ -132,6 +132,9 @@ func New(client Client, logs LogReader) Model {
 		ctx:    ctx,
 		cancel: cancel,
 		lv:     logView{follow: true},
+		// Init subscribes; without this a tick landing before that answers
+		// would subscribe a second time and leak the first stream.
+		watchRetry: watchRetryTicks,
 	}
 }
 
@@ -284,7 +287,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// activity and log still are: neither changes the list.
 		var watchCmd tea.Cmd
 		m, watchCmd = m.watchOnTick()
-		cmds := []tea.Cmd{m.refreshExtras(), m.fetchUsage(), m.refreshMore(), watchCmd, tick()}
+		cmds := []tea.Cmd{m.refreshExtras(), m.refreshMore(), watchCmd, tick()}
+		if m.usageShown() {
+			cmds = append(cmds, m.fetchUsage())
+		}
 		if m.watching {
 			cmds = append(cmds, m.fetchEvents(m.selectedName()), m.maybeFetchLogs())
 		} else {

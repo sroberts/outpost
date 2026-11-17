@@ -65,6 +65,7 @@ type logViewMsg struct {
 	all     bool
 	events  bool
 	lines   []logLine
+	names   []string            // the every-service view's services, in order
 	tails   map[string][]string // the every-service view's new tails
 	err     error
 }
@@ -127,31 +128,45 @@ func (m Model) fetchLogView() tea.Cmd {
 			names = append(names, s.Name)
 		}
 	}
-	last := lv.last
+	// Only the tails are read here; what is new in them is worked out when
+	// they're applied, against the tails applied last. Reads overlap (the
+	// view ticks every second whether or not the last one answered), and two
+	// diffed against the same earlier tails would both add the same lines.
 	return func() tea.Msg {
 		tails := map[string][]string{}
-		var lines []logLine
 		for _, name := range names {
 			text, err := read(name, logAllLines)
 			if err != nil {
 				continue // no log yet
 			}
-			cur := splitLines(text)
-			tails[name] = cur
-			fresh := cur
-			if last != nil {
-				fresh = newSince(last[name], cur)
-			} else if len(fresh) > 20 {
-				// Opening on every service: enough of each to see where it
-				// is, not two hundred lines of each.
-				fresh = fresh[len(fresh)-20:]
-			}
-			for _, l := range fresh {
-				lines = append(lines, logLine{svc: name, text: l})
-			}
+			tails[name] = splitLines(text)
 		}
-		return logViewMsg{all: true, lines: lines, tails: tails}
+		return logViewMsg{all: true, names: names, tails: tails}
 	}
+}
+
+// freshLines is what tails add to the every-service view since last, in
+// names' order.
+func freshLines(names []string, last, tails map[string][]string) []logLine {
+	var lines []logLine
+	for _, name := range names {
+		cur, ok := tails[name]
+		if !ok {
+			continue
+		}
+		fresh := cur
+		if last != nil {
+			fresh = newSince(last[name], cur)
+		} else if len(fresh) > 20 {
+			// Opening on every service: enough of each to see where it
+			// is, not two hundred lines of each.
+			fresh = fresh[len(fresh)-20:]
+		}
+		for _, l := range fresh {
+			lines = append(lines, logLine{svc: name, text: l})
+		}
+	}
+	return lines
 }
 
 func eventLine(e supervisor.EventRecord) string {
@@ -210,26 +225,54 @@ func (m Model) updateLogView(msg logViewMsg) Model {
 	case msg.err != nil:
 		lv.err = msg.err.Error()
 	case msg.all && !msg.events:
-		grown := len(msg.lines)
-		lv.lines = append(lv.lines, msg.lines...)
+		fresh := freshLines(msg.names, lv.last, msg.tails)
+		had := len(lv.lines)
+		lv.lines = append(lv.lines, fresh...)
+		dropped := 0
 		if over := len(lv.lines) - logKeep; over > 0 {
-			lv.lines = lv.lines[over:]
+			lv.lines, dropped = lv.lines[over:], over
 		}
 		lv.last, lv.err = msg.tails, ""
-		if !lv.follow {
-			// Hold the view still while new lines arrive below it.
-			lv.offset += grown
-		}
+		lv.hold(had, len(fresh), dropped)
 	default:
-		if !lv.follow && len(msg.lines) > len(lv.lines) {
-			lv.offset += len(msg.lines) - len(lv.lines)
+		// A log longer than the read is a window that slides, so what's new
+		// is found by matching, not by the count growing.
+		grown := len(msg.lines)
+		if len(lv.lines) > 0 {
+			grown = len(newSince(logTexts(lv.lines), logTexts(msg.lines)))
 		}
+		lv.hold(len(lv.lines), grown, len(lv.lines)+grown-len(msg.lines))
 		lv.lines, lv.err = msg.lines, ""
 	}
 	if lv.pattern != "" && lv.match >= len(lv.lines) {
 		lv.match = -1
 	}
 	return m
+}
+
+// hold keeps a scrolled-back view on the same lines, and the search on the
+// same match, when grown lines arrive at the end of the had there were and
+// dropped go from the front.
+func (lv *logView) hold(had, grown, dropped int) {
+	if !lv.follow {
+		lv.offset += grown
+	}
+	// A match at or past had is the search's "none found yet" mark, not a
+	// line, and moving it would land it on one.
+	if lv.match >= 0 && lv.match < had {
+		lv.match -= max(dropped, 0)
+		if lv.match < 0 {
+			lv.match = -1
+		}
+	}
+}
+
+func logTexts(lines []logLine) []string {
+	out := make([]string, len(lines))
+	for i, l := range lines {
+		out[i] = l.text
+	}
+	return out
 }
 
 // handleLogKey is the logs view's keys.
