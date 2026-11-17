@@ -41,14 +41,35 @@ func TestChanged_FiresOnEventAndPersist(t *testing.T) {
 		t.Fatal("applying and starting a service did not close Changed")
 	}
 
-	// persist alone, without an event alongside it.
+	// persist alone, without an event alongside it, of a record that changed.
 	ch = h.sup.Changed()
 	_, _ = h.sup.submit(context.Background(), func(s *Supervisor) (any, error) {
+		s.tracked["alpha"].restartCount++
 		s.persist(s.tracked["alpha"])
 		return nil, nil
 	})
 	if !closed(ch) {
 		t.Fatal("persist did not close Changed")
+	}
+}
+
+// The health check persists every healthy service each tick; a persist that
+// writes the same record again must not wake watchers, or each one re-lists
+// the services on every tick.
+func TestChanged_QuietWhenPersistChangesNothing(t *testing.T) {
+	h := newHarness(t)
+	h.writeManifest("alpha", "")
+	h.apply()
+	h.tick()
+
+	ch := h.sup.Changed()
+	_, _ = h.sup.submit(context.Background(), func(s *Supervisor) (any, error) {
+		s.persist(s.tracked["alpha"])
+		s.persist(s.tracked["alpha"])
+		return nil, nil
+	})
+	if closed(ch) {
+		t.Fatal("persisting an unchanged record closed Changed")
 	}
 }
 
@@ -69,5 +90,30 @@ func TestChanged_NotifyWithoutWatchers(t *testing.T) {
 	h.sup.changes.notify()
 	if closed(h.sup.Changed()) {
 		t.Fatal("a change before anyone watched is delivered to a later watcher")
+	}
+}
+
+// A tailnet node changing state persists nothing, but the list shows it, so
+// the next tick wakes watchers; a tick where no node changed does not.
+func TestChanged_FiresWhenATailnetNodeChanges(t *testing.T) {
+	h := newHarness(t)
+	rt := &reportingTailnet{fakeTailnet: newFakeTailnet(), nodes: map[string]TailnetStatus{
+		"alpha": {State: TailnetStarting},
+	}}
+	h.sup.tailnet = rt
+	h.writeManifest("alpha", "")
+	h.apply()
+	h.tick()
+	h.tick()
+
+	ch := h.sup.Changed()
+	h.tick()
+	if closed(ch) {
+		t.Fatal("a tick with no node changing closed Changed")
+	}
+	rt.nodes["alpha"] = TailnetStatus{State: TailnetOn, Host: "alpha.example.ts.net"}
+	h.tick()
+	if !closed(ch) {
+		t.Fatal("a node coming up did not close Changed")
 	}
 }
