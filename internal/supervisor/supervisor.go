@@ -180,6 +180,10 @@ type Supervisor struct {
 	// cache that a restart simply fills again, so it stays out of the state
 	// store. Reconcile-loop goroutine only.
 	releases map[string]*knownRelease
+
+	// changes wakes Changed's watchers. Its own lock, not loopMu, so a
+	// watcher never waits on a busy loop just to learn there is news.
+	changes changes
 }
 
 // svcState is what the supervisor remembers about one service between ticks.
@@ -988,6 +992,7 @@ func (s *Supervisor) persist(st *svcState) {
 	if err := s.store.UpsertService(rec); err != nil {
 		s.logf("outpost: persist %s: %v", st.svc.Name, err)
 	}
+	s.changes.notify()
 }
 
 // halt records that the supervisor has stopped trying to keep a service up.
@@ -1008,6 +1013,7 @@ func (s *Supervisor) event(service, kind, message string) {
 	if err := s.store.AppendEvent(service, kind, message); err != nil {
 		s.logf("outpost: record %s event for %q: %v", kind, service, err)
 	}
+	s.changes.notify()
 }
 
 func (s *Supervisor) recordError(service, msg string) {

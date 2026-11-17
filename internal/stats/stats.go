@@ -73,6 +73,11 @@ type Usage struct {
 	// reading; In and Out its total.
 	CPUSeries, RSSSeries, StorageSeries, InSeries, OutSeries []float64
 
+	// Each Recent series is the last RecentSlots 30-second samples as taken,
+	// oldest first, ending with the current one, with gaps as in the
+	// quarter-hour series.
+	RecentCPU, RecentRSS, RecentIn, RecentOut []float64
+
 	// Since is the oldest sample the series draw on, so a page can say how
 	// much of the day it knows about.
 	Since time.Time
@@ -182,6 +187,18 @@ func (s *Sampler) Usage(name string) (Usage, bool) {
 	defer s.snapMu.RUnlock()
 	u, ok := s.snaps[name]
 	return u, ok
+}
+
+// All is the latest snapshot of every service, keyed by name. The map is the
+// caller's; the Usages in it share their slices with other readers.
+func (s *Sampler) All() map[string]Usage {
+	s.snapMu.RLock()
+	defer s.snapMu.RUnlock()
+	out := make(map[string]Usage, len(s.snaps))
+	for name, u := range s.snaps {
+		out[name] = u
+	}
+	return out
 }
 
 // Run samples every 30 seconds, and walks storage every 10 minutes, until ctx
@@ -387,6 +404,7 @@ func (svc *service) usage(now time.Time) Usage {
 		InSeries:       ser.in,
 		OutSeries:      ser.out,
 	}
+	u.RecentCPU, u.RecentRSS, u.RecentIn, u.RecentOut = svc.samples.recent(now)
 	if ser.since != 0 {
 		u.Since = time.Unix(ser.since, 0)
 	}

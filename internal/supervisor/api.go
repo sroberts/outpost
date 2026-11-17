@@ -409,6 +409,9 @@ func (s *Supervisor) mutate(ctx context.Context, name string, fn func(*Superviso
 		if err := fn(s); err != nil {
 			return nil, err
 		}
+		// What was asked for is in the list too, whether or not the
+		// reconcile below gets as far as persisting anything.
+		defer s.changes.notify()
 		s.reconcileService(ctx, s.desired[name])
 		return nil, nil
 	})
@@ -461,6 +464,8 @@ func (s *Supervisor) Forget(ctx context.Context, name string) error {
 		if tracked {
 			s.stopUndeclaredLocked(ctx, name, st)
 		}
+		// The row leaving the list is a change, though nothing is persisted.
+		defer s.changes.notify()
 		return nil, s.store.DeleteService(name)
 	})
 	return err

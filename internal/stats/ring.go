@@ -26,6 +26,10 @@ const (
 	bucketWidth = window / Buckets
 )
 
+// RecentSlots is how many of the latest 30-second samples Recent* hold: half
+// an hour.
+const RecentSlots = 60
+
 // slot is one 30-second sample. Slots are reused as the ring wraps, so at
 // says which interval a slot currently holds; a slot whose at isn't the one
 // being asked for holds nothing for it.
@@ -183,6 +187,42 @@ func (r *ring) summarize(now time.Time) series {
 		}
 	}
 	return out
+}
+
+// recent is the last RecentSlots slots unreduced, for a live graph that a
+// quarter-hour bucket would barely move. Gaps follow summarize's rules, so
+// the two views of the same interval agree.
+func (r *ring) recent(now time.Time) (cpu, rss, in, out []float64) {
+	cpu, rss, in, out = nanSlots(), nanSlots(), nanSlots(), nanSlots()
+	step := int64(sampleEvery / time.Second)
+	first := slotStart(now, sampleEvery) - int64(RecentSlots-1)*step
+	for i := range RecentSlots {
+		s, ok := r.get(first+int64(i)*step, now)
+		if !ok {
+			continue
+		}
+		if s.up || s.in > 0 || s.out > 0 {
+			in[i], out[i] = float64(s.in), float64(s.out)
+		}
+		if !s.up {
+			continue
+		}
+		if !isNaN32(s.cpu) {
+			cpu[i] = float64(s.cpu)
+		}
+		if s.mem {
+			rss[i] = float64(s.rss)
+		}
+	}
+	return cpu, rss, in, out
+}
+
+func nanSlots() []float64 {
+	s := make([]float64, RecentSlots)
+	for i := range s {
+		s[i] = math.NaN()
+	}
+	return s
 }
 
 // summarize reduces the storage ring to the largest reading in each quarter
