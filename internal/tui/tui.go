@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/charmbracelet/bubbles/help"
@@ -132,6 +133,7 @@ func New(client Client, logs LogReader) Model {
 		ctx:    ctx,
 		cancel: cancel,
 		lv:     logView{follow: true},
+		ov:     overviewState{scanning: new(atomic.Bool)},
 		// Init subscribes; without this a tick landing before that answers
 		// would subscribe a second time and leak the first stream.
 		watchRetry: watchRetryTicks,

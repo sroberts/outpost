@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -22,6 +23,13 @@ type overviewState struct {
 	// it lists a directory per service.
 	backups  map[string]time.Time
 	backupAt time.Time
+	// backupNames is the services the last complete read covered; a list
+	// that has changed since (the first read can run before the list has
+	// loaded) is read again without waiting out backupsEvery.
+	backupNames string
+	// scanning is set while a read is out, so ticks don't pile more on; a
+	// pointer, so every copy of the model sees the one flag.
+	scanning *atomic.Bool
 	activity []supervisor.EventRecord
 	signIns  []supervisor.EventRecord
 }
@@ -33,6 +41,8 @@ type overviewMsg struct {
 	activity []supervisor.EventRecord
 	signIns  []supervisor.EventRecord
 	backups  map[string]time.Time // nil: not read this time
+	names    string               // the services read, joined
+	partial  bool                 // some reads failed; backups has the rest
 }
 
 // fetchOverview reads the activity feeds, and the backups if it's time.
@@ -40,13 +50,16 @@ func (m Model) fetchOverview() tea.Cmd {
 	client := m.client
 	ops, hasOps := m.serviceOps()
 	_, hasGateway := m.extras()
-	readBackups := hasOps && time.Since(m.ov.backupAt) > backupsEvery
 	names := make([]string, 0, len(m.services))
 	for _, s := range m.services {
 		if s.Status != supervisor.StatusRemoved && s.Storage != "" {
 			names = append(names, s.Name)
 		}
 	}
+	joined := strings.Join(names, "\x00")
+	scanning := m.ov.scanning
+	readBackups := hasOps && m.services != nil && scanning != nil &&
+		(joined != m.ov.backupNames || time.Since(m.ov.backupAt) > backupsEvery)
 	return func() tea.Msg {
 		var msg overviewMsg
 		// Decoration, as the detail pane's feed is: a failure leaves the
@@ -55,11 +68,18 @@ func (m Model) fetchOverview() tea.Cmd {
 		if hasGateway {
 			msg.signIns, _ = client.Events(gateway.ActivityService, 5)
 		}
-		if readBackups {
-			msg.backups = map[string]time.Time{}
+		// Claimed here, when the read runs, so a command never run can't
+		// hold it.
+		if readBackups && scanning.CompareAndSwap(false, true) {
+			defer scanning.Store(false)
+			msg.backups, msg.names = map[string]time.Time{}, joined
 			for _, name := range names {
 				list, err := ops.Backups(name)
-				if err != nil || len(list) == 0 {
+				if err != nil {
+					msg.partial = true
+					continue
+				}
+				if len(list) == 0 {
 					continue
 				}
 				newest := list[0].CreatedAt
@@ -82,8 +102,22 @@ func (m Model) updateOverview(msg overviewMsg) Model {
 	if msg.signIns != nil {
 		m.ov.signIns = msg.signIns
 	}
-	if msg.backups != nil {
-		m.ov.backups, m.ov.backupAt = msg.backups, time.Now()
+	switch {
+	case msg.backups == nil:
+	case msg.partial:
+		// Keep what the failed reads last found rather than show "never"
+		// for a service whose backups just couldn't be listed; with the
+		// time left alone, the next tick reads again.
+		merged := make(map[string]time.Time, len(m.ov.backups)+len(msg.backups))
+		for k, v := range m.ov.backups {
+			merged[k] = v
+		}
+		for k, v := range msg.backups {
+			merged[k] = v
+		}
+		m.ov.backups = merged
+	default:
+		m.ov.backups, m.ov.backupAt, m.ov.backupNames = msg.backups, time.Now(), msg.names
 	}
 	return m
 }
@@ -217,10 +251,10 @@ func (m Model) tiles() []tile {
 			}
 			lines = append(lines, pad(truncate(name, nameW), nameW)+"  "+age)
 		}
-		if m.ov.backupAt.IsZero() {
-			lines = []string{labelStyle.Render("reading…")}
-		} else if len(lines) == 0 {
+		if len(lines) == 0 {
 			lines = []string{labelStyle.Render("No service has storage to back up.")}
+		} else if m.ov.backupAt.IsZero() && len(m.ov.backups) == 0 {
+			lines = []string{labelStyle.Render("reading…")}
 		}
 		ts = append(ts, tile{title: "backups", lines: lines, to: viewServices})
 	}

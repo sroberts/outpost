@@ -63,3 +63,23 @@ func linesOf(text string) []logLine {
 	}
 	return out
 }
+
+// A log that repeats a line must still show what was written after it.
+func TestNewSince_RepeatedLines(t *testing.T) {
+	cases := []struct {
+		prev, cur, want []string
+	}{
+		{[]string{"x", "x", "x"}, []string{"x", "x", "x", "x"}, []string{"x"}}, // grew, uncapped
+		{[]string{"a", "x", "x"}, []string{"x", "x", "x"}, []string{"x"}},      // capped window slid by one
+		{[]string{"x", "x", "x"}, []string{"x", "x", "x", "b"}, []string{"b"}}, // something new after repeats
+		{[]string{"a", "b", "a", "b"}, []string{"a", "b", "a", "b", "a", "b"}, []string{"a", "b"}},
+		{[]string{"a", "b"}, []string{"a", "b"}, nil},                         // nothing written
+		{[]string{"old"}, []string{"new1", "new2"}, []string{"new1", "new2"}}, // rotated
+	}
+	for _, c := range cases {
+		got := newSince(c.prev, c.cur)
+		if len(got) != len(c.want) || (len(got) > 0 && !equalLines(got, c.want)) {
+			t.Errorf("newSince(%v, %v) = %v, want %v", c.prev, c.cur, got, c.want)
+		}
+	}
+}

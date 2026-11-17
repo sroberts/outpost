@@ -242,7 +242,7 @@ func (m Model) graphLines(name string, width int, tall int) []string {
 
 	cpuS := m.series(u.RecentCPU, u.CPUSeries)
 	rssS := m.series(u.RecentRSS, u.RSSSeries)
-	cpuNow, memNow := "down", "-"
+	cpuNow, memNow := "-", "-"
 	if u.Measured {
 		cpuNow, memNow = fmtCPU(u.CPU), fmtBytes(float64(u.RSS))
 	}

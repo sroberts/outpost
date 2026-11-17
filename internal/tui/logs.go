@@ -182,20 +182,19 @@ func splitLines(text string) []string {
 }
 
 // newSince is the lines cur has after the end of prev: the tail of a log
-// read twice, the second time with more written. It anchors on prev's last
-// few lines, the latest place they appear in cur; with no anchor (the log
-// rotated, or more was written than a tail holds) all of cur is new.
+// read twice, the second time with more written. A tail is a window that
+// slides forward, so cur is prev with its first d lines gone and the new ones
+// after; the smallest such d is the answer. Matching the whole overlap, not
+// a few anchor lines, keeps a log that repeats itself ("GET /up 200" every
+// second) from reading as if nothing were written. With no overlap (the log
+// rotated, or more was written than a tail holds) all of cur is new. A full
+// window of one repeated line can't show whether more was written; that
+// reads as nothing new.
 func newSince(prev, cur []string) []string {
-	if len(prev) == 0 {
-		return cur
-	}
-	for _, k := range []int{3, 1} {
-		k = min(k, len(prev))
-		tail := prev[len(prev)-k:]
-		for at := len(cur) - k; at >= 0; at-- {
-			if equalLines(cur[at:at+k], tail) {
-				return cur[at+k:]
-			}
+	for d := range len(prev) {
+		n := len(prev) - d
+		if n <= len(cur) && equalLines(cur[:n], prev[d:]) {
+			return cur[n:]
 		}
 	}
 	return cur
