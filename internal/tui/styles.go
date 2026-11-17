@@ -34,6 +34,9 @@ var (
 	noticeStyle = lipgloss.NewStyle().Foreground(colAccent)
 	ruleStyle   = lipgloss.NewStyle().Foreground(colSubtle)
 	logStyle    = lipgloss.NewStyle().Foreground(colDim)
+	graphStyle  = lipgloss.NewStyle().Foreground(colAccent)
+	matchStyle  = lipgloss.NewStyle().Reverse(true)
+	focusStyle  = lipgloss.NewStyle().Bold(true).Foreground(colText)
 )
 
 // statusStyle colours a status word by what it means, so a glance is enough.
