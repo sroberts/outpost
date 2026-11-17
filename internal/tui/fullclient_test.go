@@ -71,7 +71,7 @@ func (c *fullClient) TokenCreate(r ipc.TokenRequest) (string, ipc.TokenInfo, str
 	c.ops = append(c.ops, "token:"+r.Username)
 	return "opat_secret", ipc.TokenInfo{ID: 8, Username: r.Username}, "", nil
 }
-func (c *fullClient) TokenList(string) ([]ipc.TokenInfo, error)    { return c.tokens, nil }
+func (c *fullClient) TokenList(string) ([]ipc.TokenInfo, error)     { return c.tokens, nil }
 func (c *fullClient) TokenRevoke(id int64) (string, error)          { return "revoked", nil }
 func (c *fullClient) TokenClients(string) ([]ipc.ClientInfo, error) { return nil, nil }
 func (c *fullClient) TokenRevokeClient(int64) (string, error)       { return "disconnected", nil }
