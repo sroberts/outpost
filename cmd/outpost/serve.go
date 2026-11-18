@@ -270,17 +270,22 @@ func (a *app) cmdServe(args []string) error {
 	srv.UseConfig(a.config.Fingerprint())
 
 	var gw *gateway.Gateway
-	// Only the gateway's catalog shows usage, so without it there is nothing
-	// to sample for and no ps or storage walks to pay for.
-	var sampler *stats.Sampler
+	// The TUI shows usage as well as the gateway's catalog, so the sampler
+	// exists whether or not the gateway does; without the gateway it only
+	// runs once a client asks for usage (demandStats). It reads the service
+	// list like any other client; traffic comes from the gateway when there
+	// is one, which exists by the time the sampler starts.
+	sampler := stats.New(stats.Options{
+		Services: sup,
+		Traffic: func() map[string]stats.Bytes {
+			if gw == nil {
+				return nil
+			}
+			return gw.Traffic()
+		},
+		Logf: func(format string, v ...any) { fmt.Fprintf(a.out, format+"\n", v...) },
+	})
 	if a.config.Gateway.Enabled {
-		// Reads the service list like any other client; traffic comes from
-		// the gateway, which exists by the time Run starts the sampler.
-		sampler = stats.New(stats.Options{
-			Services: sup,
-			Traffic:  func() map[string]stats.Bytes { return gw.Traffic() },
-			Logf:     func(format string, v ...any) { fmt.Fprintf(a.out, format+"\n", v...) },
-		})
 		watch.at("starting the gateway")
 		gw, err = gateway.New(gateway.Options{
 			Config:   a.config.Gateway,
@@ -345,6 +350,15 @@ func (a *app) cmdServe(args []string) error {
 	fmt.Fprintf(a.out, "outpost: supervising %d service(s) from %s\n", len(sup.Services()), a.servicesDir())
 	fmt.Fprintf(a.out, "outpost: listening on %s\n", srv.Addr())
 	watch.finished()
+
+	// Registered before Serve, since the stats command starts it. The
+	// gateway's catalog wants usage from the start, so with the gateway on it
+	// starts now.
+	usage := newDemandStats(ctx, sampler)
+	srv.UseStats(usage)
+	if gw != nil {
+		usage.start()
+	}
 
 	// The socket server runs alongside the loop; its handlers reach the
 	// supervisor through the command queue, so the loop stays single-threaded.
@@ -414,22 +428,13 @@ func (a *app) cmdServe(args []string) error {
 		defer close(checksDone)
 		sup.RunReleaseChecks(ctx)
 	}()
-	// Also off the loop; it lists services, so it too must stop before the
-	// stores close.
-	statsDone := make(chan struct{})
-	if sampler != nil {
-		go func() {
-			defer close(statsDone)
-			sampler.Run(ctx)
-		}()
-	} else {
-		close(statsDone)
-	}
 
 	// Run reloads manifests each tick and stops every service on the way out.
 	runErr := sup.Run(ctx)
 	<-checksDone
-	<-statsDone
+	// The sampler is off the loop too, and lists services, so it must stop
+	// before the stores close.
+	usage.stop()
 	srv.Close()
 	if err := <-serveErr; err != nil {
 		fmt.Fprintf(a.err, "outpost: socket server: %v\n", err)

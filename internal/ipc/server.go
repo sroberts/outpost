@@ -32,6 +32,7 @@ type Server struct {
 	secrets *secrets.Store
 	ai      gateway.AIModels
 	gateway GatewayStatus
+	stats   StatsSource
 	config  string
 	started time.Time
 	path    string
@@ -39,6 +40,10 @@ type Server struct {
 	logf    func(string, ...any)
 
 	wg sync.WaitGroup
+	// closing ends watch streams at Close, which would otherwise outlive the
+	// listener for as long as their clients stayed.
+	closing   chan struct{}
+	closeOnce sync.Once
 }
 
 // Listen binds the socket at path. A socket left behind by a dead daemon is
@@ -79,7 +84,7 @@ func Listen(path string, sup *supervisor.Supervisor, logf func(string, ...any)) 
 		return nil, fmt.Errorf("chmod socket: %w", err)
 	}
 
-	return &Server{sup: sup, started: time.Now(), path: path, ln: ln, logf: logf}, nil
+	return &Server{sup: sup, started: time.Now(), path: path, ln: ln, logf: logf, closing: make(chan struct{})}, nil
 }
 
 // UseAuth enables the user.* and auth.* commands. Call it before Serve. It's
@@ -129,6 +134,7 @@ func (s *Server) Serve(ctx context.Context) error {
 
 // Close stops listening and removes the socket file.
 func (s *Server) Close() error {
+	s.closeOnce.Do(func() { close(s.closing) })
 	err := s.ln.Close()
 	os.Remove(s.path)
 	return err
@@ -148,6 +154,10 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 	req, err := decodeRequest(body)
 	if err != nil {
 		writeResponse(conn, errorResponse(fmt.Errorf("malformed request: %w", err)))
+		return
+	}
+	if req.Command == CmdWatch {
+		s.watch(ctx, conn)
 		return
 	}
 
@@ -262,6 +272,9 @@ func (s *Server) dispatch(ctx context.Context, req Request) Response {
 		}
 		st := s.gateway.Status()
 		return Response{OK: true, Gateway: &st}
+
+	case CmdStats:
+		return s.dispatchStats(req)
 
 	case CmdBackups:
 		archives, err := s.sup.ListBackups(ctx, req.Service)

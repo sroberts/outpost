@@ -5,7 +5,9 @@
 // The wire format is one JSON request per connection and one JSON response
 // back. That is enough for the control commands; log following stays a direct
 // file read on the client side, since streaming it would need a framed
-// protocol for no practical gain on a single-machine socket.
+// protocol for no practical gain on a single-machine socket. The exception is
+// watch, which answers with newline-delimited responses for as long as the
+// client stays, so a TUI hears of a change instead of polling for it.
 package ipc
 
 import (
@@ -33,6 +35,11 @@ const (
 	CmdBackup  = "backup"
 	CmdRestore = "restore"
 	CmdBackups = "backups"
+	// CmdStats reports usage from the sampler; CmdWatch streams the service
+	// list as it changes, the one command that answers with more than one
+	// response.
+	CmdStats = "stats"
+	CmdWatch = "watch"
 
 	CmdUserAdd     = "user.add"
 	CmdUserPasswd  = "user.passwd"
@@ -209,6 +216,8 @@ type Response struct {
 	AI *ai.Overview `json:"ai,omitempty"`
 	// AITest is ai.test's result.
 	AITest *ai.TestResult `json:"ai_test,omitempty"`
+	// Usage is stats' result, keyed by service name.
+	Usage map[string]UsageInfo `json:"usage,omitempty"`
 }
 
 // errorResponse builds a failure reply.

@@ -180,6 +180,13 @@ type Supervisor struct {
 	// cache that a restart simply fills again, so it stays out of the state
 	// store. Reconcile-loop goroutine only.
 	releases map[string]*knownRelease
+
+	// changes wakes Changed's watchers. Its own lock, not loopMu, so a
+	// watcher never waits on a busy loop just to learn there is news.
+	changes changes
+	// tailnetSeen is each node's state as of the last tick, so a node
+	// changing state, which persists nothing, still wakes watchers.
+	tailnetSeen map[string]TailnetStatus
 }
 
 // svcState is what the supervisor remembers about one service between ticks.
@@ -206,6 +213,10 @@ type svcState struct {
 	// secretRev is the revision of the secrets the running instance was
 	// started with.
 	secretRev string
+	// persisted is the record persist last wrote, so a write that changes
+	// nothing doesn't wake every watcher; persistedOK says there is one.
+	persisted   state.ServiceRecord
+	persistedOK bool
 }
 
 // New builds a Supervisor. It does not touch the runtime or load manifests;
@@ -526,6 +537,8 @@ func (s *Supervisor) reloadAndTick(ctx context.Context) {
 		s.logf("outpost: manifests not reloaded, previous set still in force: %v", err)
 	case changed:
 		s.logf("outpost: reloaded manifests (%d service(s))", len(s.desired))
+		// The list carries manifest fields, which persist doesn't record.
+		s.changes.notify()
 	}
 	s.tickLocked(ctx)
 }
@@ -546,6 +559,7 @@ func (s *Supervisor) tickLocked(ctx context.Context) {
 		s.reconcileService(ctx, svc)
 	}
 	s.probes = nil
+	s.noticeTailnetLocked()
 
 	if s.ticks%eventPruneEvery == 0 {
 		if err := s.store.PruneEvents(eventPruneAge, eventPruneRows); err != nil {
@@ -988,6 +1002,20 @@ func (s *Supervisor) persist(st *svcState) {
 	if err := s.store.UpsertService(rec); err != nil {
 		s.logf("outpost: persist %s: %v", st.svc.Name, err)
 	}
+	// The health check persists every healthy service on every tick; only a
+	// record that differs from the last one is news to a watcher.
+	if st.persistedOK && sameRecord(st.persisted, rec) {
+		return
+	}
+	st.persisted, st.persistedOK = rec, true
+	s.changes.notify()
+}
+
+// sameRecord compares what persist writes, with times compared as instants.
+func sameRecord(a, b state.ServiceRecord) bool {
+	return a.Name == b.Name && a.Runtime == b.Runtime && a.Status == b.Status &&
+		a.InstanceID == b.InstanceID && a.RestartCount == b.RestartCount &&
+		a.LastStartedAt.Equal(b.LastStartedAt)
 }
 
 // halt records that the supervisor has stopped trying to keep a service up.
@@ -1008,6 +1036,7 @@ func (s *Supervisor) event(service, kind, message string) {
 	if err := s.store.AppendEvent(service, kind, message); err != nil {
 		s.logf("outpost: record %s event for %q: %v", kind, service, err)
 	}
+	s.changes.notify()
 }
 
 func (s *Supervisor) recordError(service, msg string) {
