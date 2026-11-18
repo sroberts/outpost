@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"io"
@@ -39,7 +40,7 @@ func (a *app) cmdTUI(args []string) error {
 		}
 		running, err := c.DaemonConfig()
 		return err == nil && running != "" && running != cfg.Fingerprint()
-	})
+	}).WithRunner(a.runForTUI).WithOverview()
 
 	// The alt screen keeps the dashboard from scrolling the user's scrollback
 	// away.
@@ -53,9 +54,31 @@ func (a *app) cmdTUI(args []string) error {
 // The dashboard shows users, the gateway and the AI models through the same
 // client.
 var (
-	_ tui.Extras   = (*ipc.Client)(nil)
-	_ tui.AIExtras = (*ipc.Client)(nil)
+	_ tui.Extras        = (*ipc.Client)(nil)
+	_ tui.AIExtras      = (*ipc.Client)(nil)
+	_ tui.StatsClient   = (*ipc.Client)(nil)
+	_ tui.Watcher       = (*ipc.Client)(nil)
+	_ tui.ServiceOps    = (*ipc.Client)(nil)
+	_ tui.UserOps       = (*ipc.Client)(nil)
+	_ tui.TokenOps      = (*ipc.Client)(nil)
+	_ tui.SecretOps     = (*ipc.Client)(nil)
+	_ tui.AIRegenerator = (*ipc.Client)(nil)
+	_ tui.DaemonInfo    = (*ipc.Client)(nil)
 )
+
+// runForTUI runs an outpost subcommand for the dashboard's palette, as the
+// portal's add and update pages run theirs: the same code a shell would run,
+// its output captured rather than written over the dashboard. The palette
+// only asks for commands that don't read the terminal (a purge is passed
+// --yes once the dashboard has asked), since Bubble Tea owns it.
+func (a *app) runForTUI(args ...string) (string, error) {
+	var out bytes.Buffer
+	if a.home != "" {
+		args = append([]string{"--home", a.home}, args...)
+	}
+	err := run(args, &out, &out)
+	return out.String(), err
+}
 
 // tailWindow is how much of the end of a log file tailLog reads. Logs rotate at
 // 10 MiB, and the dashboard re-reads them every couple of seconds, so it reads a

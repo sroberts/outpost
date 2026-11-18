@@ -31,18 +31,60 @@ const (
 	viewUsers
 	viewGateway
 	viewAI
+	viewOverview
+	viewSecrets
+	viewTokens
+	viewLogs
 )
 
-var viewNames = []string{"Services", "Users", "Gateway", "AI"}
+var viewNames = []string{"Services", "Users", "Gateway", "AI", "Overview", "Secrets", "Tokens", "Logs"}
 
-// views are the views this client can show: the AI view only with
-// AIExtras.
+// views are the views this client can show, in tab order. Each beyond the
+// first three needs the part of the API it draws on, so a client without it
+// is never shown a page that can only fail: the AI view needs AIExtras, the
+// overview usage stats, and so on. The logs view needs a LogReader.
 func (m Model) views() []view {
-	v := []view{viewServices, viewUsers, viewGateway}
+	var v []view
+	if _, ok := m.statsClient(); ok {
+		v = append(v, viewOverview)
+	}
+	v = append(v, viewServices, viewUsers, viewGateway)
 	if _, ok := m.aiClient(); ok {
 		v = append(v, viewAI)
 	}
+	if _, ok := m.secretOps(); ok {
+		v = append(v, viewSecrets)
+	}
+	if _, ok := m.tokenOps(); ok {
+		v = append(v, viewTokens)
+	}
+	if m.logs != nil {
+		v = append(v, viewLogs)
+	}
 	return v
+}
+
+// enterView switches to v and fetches what it shows.
+func (m Model) enterView(v view) (Model, tea.Cmd) {
+	m.view = v
+	m.confirm, m.notice = "", ""
+	switch v {
+	case viewAI:
+		m.ai.mode = aiBrowse
+		return m, tea.Batch(m.refreshExtras(), m.fetchAI())
+	case viewLogs:
+		if m.lv.service == "" && !m.lv.all {
+			m.lv.service = m.selectedName()
+		}
+		var cmd tea.Cmd
+		m, cmd = m.startLogTicks()
+		return m, tea.Batch(m.refreshExtras(), m.fetchLogView(), cmd)
+	}
+	var usage tea.Cmd
+	if m.usageShown() {
+		usage = m.fetchUsage()
+	}
+	return m, tea.Batch(m.refreshExtras(), m.enterCmd(), usage)
 }
 
 // WithConfigCheck has the header say when config.toml no longer matches
@@ -209,13 +251,8 @@ func (m Model) handleExtraKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		if msg.String() == "shift+tab" {
 			step = len(vs) - 1
 		}
-		m.view = vs[(at+step)%len(vs)]
-		m.confirm, m.notice = "", ""
-		if m.view == viewAI {
-			m.ai.mode = aiBrowse
-			return m, tea.Batch(m.refreshExtras(), m.fetchAI()), true
-		}
-		return m, m.refreshExtras(), true
+		next, cmd := m.enterView(vs[(at+step)%len(vs)])
+		return next, cmd, true
 	}
 	if m.view == viewServices {
 		return m, nil, false
@@ -259,7 +296,7 @@ func (m Model) handleExtraKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return m, m.signOut(user), true
 	case msg.String() == "R":
 		m.notice = ""
-		return m, tea.Batch(m.fetchServices(), m.refreshExtras()), true
+		return m, tea.Batch(m.fetchServices(), m.refreshExtras(), m.refreshMore(), m.fetchUsage()), true
 	case msg.String() == "s" || msg.String() == "x" || msg.String() == "r" || msg.String() == "l":
 		// The services view's actions mean nothing here; they mustn't act
 		// on a service the operator can't see.
@@ -275,19 +312,35 @@ func (m Model) selectedUser() string {
 	return m.users[m.userCursor].Username
 }
 
-// tabs is the line naming the views, the current one marked.
+// tabs is the line naming the views, the current one marked. With more
+// views than fit, it tightens up before it gives anything away, and as a
+// last resort numbers the others, which the digit keys jump to.
 func (m Model) tabs() string {
 	vs := m.views()
-	parts := make([]string, 0, len(vs))
-	for _, v := range vs {
-		name := viewNames[v]
-		if v == m.view {
-			parts = append(parts, selectedRow.Render("▸ "+name))
-		} else {
-			parts = append(parts, labelStyle.Render("  "+name))
+	build := func(sep, hint string, numbered bool) string {
+		parts := make([]string, 0, len(vs))
+		for i, v := range vs {
+			name := viewNames[v]
+			switch {
+			case v == m.view:
+				parts = append(parts, selectedRow.Render("▸ "+name))
+			case numbered:
+				parts = append(parts, labelStyle.Render(fmt.Sprintf("%d", i+1)))
+			default:
+				parts = append(parts, labelStyle.Render("  "+name))
+			}
+		}
+		return "  " + strings.Join(parts, sep) + hint
+	}
+	for _, line := range []string{
+		build("  ", "  "+labelStyle.Render("(tab)"), false),
+		build(" ", "", false),
+	} {
+		if lipgloss.Width(line) <= m.width {
+			return line
 		}
 	}
-	return "  " + strings.Join(parts, "  ") + "  " + labelStyle.Render("(tab)")
+	return build(" ", "  "+labelStyle.Render("(tab, 1-9)"), true)
 }
 
 // configBanner says the daemon is running settings the file no longer has.
@@ -481,6 +534,25 @@ func joinCells(row []string, widths []int) string {
 	return strings.TrimRight(strings.Join(cells, "  "), " ")
 }
 
+// fitHelp cuts a hand-written help line to the terminal, at a separator
+// where it can, rather than letting it wrap.
+func (m Model) fitHelp(h string) string {
+	limit := m.width - 4
+	if lipgloss.Width(h) <= limit {
+		return h
+	}
+	sep := m.help.Styles.ShortSeparator.Render(" • ")
+	parts := strings.Split(h, sep)
+	for len(parts) > 1 && lipgloss.Width(strings.Join(parts, sep)+" …") > limit {
+		parts = parts[:len(parts)-1]
+	}
+	out := strings.Join(parts, sep)
+	if lipgloss.Width(out) > limit {
+		return lipgloss.NewStyle().MaxWidth(max(limit, 1)).Render(out)
+	}
+	return out + " …"
+}
+
 // helpLine is the key help for the view on screen. The services view keeps
 // its generated bar, adding the key that leaves it; the others say only
 // what works there, since a start or stop would mean nothing.
@@ -492,8 +564,18 @@ func (m Model) helpLine() string {
 		return m.help.Styles.ShortKey.Render(k) + " " + m.help.Styles.ShortDesc.Render(what)
 	}
 	sep := m.help.Styles.ShortSeparator.Render(" • ")
+	if h := m.overlayHelp(key, sep); h != "" {
+		return h
+	}
+	if h := m.moreHelp(key, sep); h != "" {
+		return m.fitHelp(h)
+	}
 	switch m.view {
 	case viewUsers:
+		if _, ok := m.userOps(); ok {
+			return m.fitHelp(strings.Join([]string{key("↑/↓", "move"), key("a", "add"), key("p", "password"), key("g", "groups"),
+				key("A", "admin"), key("d", "disable"), key("L", "sign out"), key(":", "commands"), key("q", "quit")}, sep))
+		}
 		return strings.Join([]string{key("↑/k", "up"), key("↓/j", "down"),
 			key("L", "sign out everywhere"), key("tab", "next view"), key("R", "refresh"), key("q", "quit")}, sep)
 	case viewGateway:
@@ -504,7 +586,39 @@ func (m Model) helpLine() string {
 	// The generated bar gives up items to leave room for this one, rather
 	// than the line running past the terminal.
 	more := sep + key("tab", "views")
+	if len(m.views()) > 3 {
+		// The full dashboard: its extra keys go ahead of the generated ones,
+		// which give way first when the line is short.
+		var extra []string
+		if m.logs != nil {
+			extra = append(extra, key("L", "full log"))
+		}
+		if len(m.usage) > 0 {
+			extra = append(extra, key("g", "24h/30m"))
+		}
+		extra = append(extra, key("z", "zoom"), key(":", "commands"))
+		more = sep + strings.Join(extra, sep) + more
+		if m.width-4-lipgloss.Width(more) < 30 {
+			more = sep + key(":", "commands") + sep + key("tab", "views")
+		}
+	}
 	h := m.help
 	h.Width = m.width - 4 - lipgloss.Width(more)
-	return h.View(m.keys) + more
+	if len(m.views()) <= 3 {
+		return h.View(m.keys) + more
+	}
+	// Trimmed here rather than by help's own Width: when the ellipsis just
+	// misses fitting, that stops trimming and keeps every item after it.
+	h.Width = 0
+	limit := m.width - 4 - lipgloss.Width(more)
+	parts := strings.Split(h.View(m.keys), sep)
+	cut := false
+	for len(parts) > 1 && lipgloss.Width(strings.Join(parts, sep))+2 > limit {
+		parts, cut = parts[:len(parts)-1], true
+	}
+	out := strings.Join(parts, sep)
+	if cut {
+		out += " …"
+	}
+	return out + more
 }
