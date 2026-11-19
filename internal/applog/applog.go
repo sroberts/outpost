@@ -190,6 +190,23 @@ func take(fields map[string]string, keys ...string) string {
 // improved") isn't a level.
 var leading = regexp.MustCompile(`^(?:[\d/:.\-T Z+]+\s+)?(?:\[(?i:(trace|debug|info|warn|warning|error|err|fatal|panic|crit|critical))\]|(TRACE|DEBUG|INFO|WARN|WARNING|ERROR|ERR|FATAL|PANIC|CRIT|CRITICAL)\b)`)
 
+// TrimLevel drops what leadingLevel read from the start of a plain line,
+// the level word and any timestamp before it, for a view that already shows
+// both in their own columns: "ERROR db locked" reads "db locked" beside an
+// error tag rather than repeating the word. A line with nothing else after
+// the level is left as it is.
+func TrimLevel(s string) string {
+	m := leading.FindStringIndex(s)
+	if m == nil {
+		return s
+	}
+	rest := strings.TrimLeft(s[m[1]:], " \t:-|")
+	if rest == "" {
+		return s
+	}
+	return rest
+}
+
 func leadingLevel(s string) string {
 	m := leading.FindStringSubmatch(s)
 	if m == nil {
