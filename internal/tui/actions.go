@@ -582,7 +582,7 @@ func actions() []action {
 		{id: "daemon-restart", group: "System", title: "restart daemon", about: "through its autostart service, waiting for it to come back",
 			needs: hasRunner, confirm: func(vals) string { return "Restart the daemon? Every service restarts with it." },
 			run: func(m Model, v vals) (Model, tea.Cmd) {
-				return busy(m, "restarting the daemon", m.cli("daemon restart", "daemon", "restart"))
+				return busy(m, "restarting the daemon", m.inTerminal("daemon restart", "daemon", "restart"))
 			}, covers: []string{"cli:daemon restart"}},
 		{id: "self-check", group: "System", title: "check for an Outpost update", about: "whether a newer Outpost is out",
 			needs: hasRunner,
@@ -594,7 +594,7 @@ func actions() []action {
 				return "Update Outpost? The daemon and every service restart onto the new build."
 			},
 			run: func(m Model, v vals) (Model, tea.Cmd) {
-				return busy(m, "updating Outpost", m.cli("update --self", "update", "--self"))
+				return busy(m, "updating Outpost", m.inTerminal("update --self", "update", "--self"))
 			}, covers: []string{"cli:update"}},
 	}
 }

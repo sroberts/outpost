@@ -43,7 +43,7 @@ func TestLogs_EveryServiceOverlappingReadsDontDuplicate(t *testing.T) {
 func TestLogs_ScrolledBackHoldsAsTheWindowSlides(t *testing.T) {
 	window := func(from int) string {
 		var b strings.Builder
-		for i := from; i < from+10; i++ {
+		for i := from; i < from+100; i++ { // longer than the screen
 			fmt.Fprintf(&b, "line %d\n", i)
 		}
 		return b.String()
@@ -81,5 +81,45 @@ func TestNewSince_RepeatedLines(t *testing.T) {
 		if len(got) != len(c.want) || (len(got) > 0 && !equalLines(got, c.want)) {
 			t.Errorf("newSince(%v, %v) = %v, want %v", c.prev, c.cur, got, c.want)
 		}
+	}
+}
+
+// g goes to the top of the log with the screen full, not to the first line
+// alone above blank rows; scrolling up can't go past that either.
+func TestLogs_TopFillsTheScreen(t *testing.T) {
+	var b strings.Builder
+	for i := range 500 {
+		fmt.Fprintf(&b, "line %d\n", i)
+	}
+	m := logViewOn(t, b.String())
+	rows := logRows(m.bodyHeight(), false)
+
+	m = press(t, m, "g")
+	shown := m.visibleLogLines(rows)
+	if len(shown) != rows {
+		t.Fatalf("top of the log shows %d rows, want a full %d", len(shown), rows)
+	}
+	if !strings.Contains(plainText(shown[0]), "line 0") {
+		t.Errorf("top row = %q, want line 0", plainText(shown[0]))
+	}
+	top := m.lv.offset
+	m = press(t, m, "up", "pgup")
+	if m.lv.offset != top {
+		t.Errorf("scrolled past the top: offset %d, top is %d", m.lv.offset, top)
+	}
+
+	// Wrapped, each line takes two rows, so the top is further down.
+	long := strings.Repeat("x", m.width) // wider than the text area
+	b.Reset()
+	for range 500 {
+		b.WriteString(long + "\n")
+	}
+	m = logViewOn(t, b.String())
+	m = press(t, m, "w", "g")
+	if got := len(m.visibleLogLines(rows)); got != rows {
+		t.Errorf("wrapped top shows %d rows, want %d", got, rows)
+	}
+	if want := 500 - (rows+1)/2; m.lv.offset != want {
+		t.Errorf("wrapped top offset %d, want %d", m.lv.offset, want)
 	}
 }
