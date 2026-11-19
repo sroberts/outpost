@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/sroberts/outpost/internal/applog"
 	"github.com/sroberts/outpost/internal/supervisor"
 )
 
@@ -41,6 +42,9 @@ type logView struct {
 	offset int // lines scrolled up from the end
 	follow bool
 	wrap   bool
+
+	// minLevel hides lines below it: "", warn or error, cycled with v.
+	minLevel string
 
 	searching bool
 	query     field
@@ -224,7 +228,7 @@ func (m Model) updateLogView(msg logViewMsg) Model {
 	case msg.err != nil:
 		lv.err = msg.err.Error()
 	case msg.all && !msg.events:
-		fresh := freshLines(msg.names, lv.last, msg.tails)
+		fresh := atLevel(freshLines(msg.names, lv.last, msg.tails), lv.minLevel)
 		had := len(lv.lines)
 		lv.lines = append(lv.lines, fresh...)
 		dropped := 0
@@ -234,6 +238,9 @@ func (m Model) updateLogView(msg logViewMsg) Model {
 		lv.last, lv.err = msg.tails, ""
 		lv.hold(had, len(fresh), dropped)
 	default:
+		if !msg.events {
+			msg.lines = atLevel(msg.lines, lv.minLevel)
+		}
 		// A log longer than the read is a window that slides, so what's new
 		// is found by matching, not by the count growing.
 		grown := len(msg.lines)
@@ -264,6 +271,32 @@ func (lv *logView) hold(had, grown, dropped int) {
 			lv.match = -1
 		}
 	}
+}
+
+// atLevel keeps the lines at min or above, read from the level tag each
+// line carries (applog.Text); "" keeps them all.
+func atLevel(lines []logLine, min string) []logLine {
+	if min == "" {
+		return lines
+	}
+	var out []logLine
+	for _, l := range lines {
+		if applog.AtLeast(applog.TextLevel(l.text), min) && applog.TextLevel(l.text) != applog.LevelNone {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// lineStyle colours a line by the level it's tagged with.
+func lineStyle(text string) lipgloss.Style {
+	switch applog.TextLevel(text) {
+	case applog.LevelError:
+		return errorStyle
+	case applog.LevelWarn:
+		return noticeStyle
+	}
+	return logStyle
 }
 
 func logTexts(lines []logLine) []string {
@@ -337,6 +370,13 @@ func (m Model) handleLogKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		if !lv.all && lv.service == "" {
 			lv.service = m.selectedName()
 		}
+		lv.reset()
+		return m, m.fetchLogView(), true
+	case "v":
+		if lv.events {
+			return m, nil, true // the activity feed has no levels
+		}
+		lv.minLevel = map[string]string{"": applog.LevelWarn, applog.LevelWarn: applog.LevelError}[lv.minLevel]
 		lv.reset()
 		return m, m.fetchLogView(), true
 	case "[", "]":
@@ -418,6 +458,9 @@ func (m Model) logViewPane(height int) string {
 	}
 	if lv.wrap {
 		flags = append(flags, "wrapped")
+	}
+	if lv.minLevel != "" {
+		flags = append(flags, lv.minLevel+" and up")
 	}
 	if lv.pattern != "" {
 		flags = append(flags, "/"+lv.pattern)
@@ -508,7 +551,7 @@ func (m Model) visibleLogLines(rows int) []string {
 		}
 		out := make([]string, len(parts))
 		for j, p := range parts {
-			style := logStyle
+			style := lineStyle(l.text)
 			if i == lv.match {
 				style = focusStyle
 			}
@@ -583,5 +626,5 @@ func (m Model) logHelp(key func(k, what string) string, sep string) string {
 		return strings.Join([]string{key("enter", "search"), key("esc", "cancel")}, sep)
 	}
 	return strings.Join([]string{key("↑/↓", "scroll"), key("f", "follow"), key("/", "search"), key("n/N", "next/prev"),
-		key("w", "wrap"), key("[/]", "service"), key("a", "all"), key("e", "activity"), key(":", "commands"), key("q", "quit")}, sep)
+		key("v", "level"), key("w", "wrap"), key("[/]", "service"), key("a", "all"), key("e", "activity"), key(":", "commands"), key("q", "quit")}, sep)
 }

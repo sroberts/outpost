@@ -620,10 +620,14 @@ func orEvery(name string) string {
 func Covers() map[string]bool {
 	out := map[string]bool{
 		// Not actions, but what the dashboard does on its own.
-		"ipc:Available":  true, // every fetch asks it first
-		"ipc:Stats":      true, // the graphs and the overview
-		"ipc:Watch":      true, // the pushed service list
-		"ipc:Identity":   true, // plumbing for daemon restart's wait, reached through it
+		"ipc:Available": true, // every fetch asks it first
+		"ipc:Stats":     true, // the graphs and the overview
+		"ipc:Watch":     true, // the pushed service list
+		"ipc:Identity":  true, // plumbing for daemon restart's wait, reached through it
+		// The dashboard reads the same log files directly, as `outpost logs`
+		// does, so its logs view works with the daemon down; the socket's
+		// Logs is for the portal, its API and its MCP server.
+		"ipc:Logs":       true,
 		"cli:tui":        true, // this
 		"cli:list":       true, // the services view
 		"cli:logs":       true, // the logs view

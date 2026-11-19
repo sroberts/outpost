@@ -444,7 +444,10 @@ outpost remove <name> [--purge]  undeclare a service, optionally deleting its da
 outpost apply                    validate manifests and reconcile
 outpost list                     table of services and their status
 outpost status <service>         health, restart count and recent events
-outpost logs <service> [-f]      show or follow a service's logs
+outpost logs <service> [-f]      show or follow a service's output: --level warn,
+                                 --since 10m, --grep text, --stream err, -n 500,
+                                 --json, --raw (see Logs)
+outpost logs --all [-f]          every service's output, interleaved by time
 outpost logs <service> --events  show the service's recent activity
 outpost start <service>          start a stopped service
 outpost stop <service>           stop a running service
@@ -598,6 +601,54 @@ It refreshes every two seconds, and an action refreshes immediately rather than
 waiting for the next tick. Status is carried by both colour and a glyph, so it
 reads correctly without colour. With no daemon running it says so and explains
 how to start one, then reconnects on its own once one appears.
+
+## Logs
+
+Outpost keeps two kinds of log.
+
+**Your apps' output.** Everything a service writes to stdout and stderr goes
+to `~/.outpost/logs/<name>.log`, each line stored after the time it arrived
+and the stream it came on. Outpost reads a level and a message from a JSON
+line (`{"level":"warn","msg":"slow"}`), a logfmt line (`level=warn msg=slow`)
+or a line that starts with a level word (`ERROR could not open db`), so lines
+can be filtered by level; [the service contract](outpost-service-spec.md) §7
+says what apps should write. The same lines, with the same filters, are in:
+
+- **the CLI**: `outpost logs <name>`, or `--all` for every service by time,
+  with `--level warn`, `--since 10m` (or a time), `--grep text`,
+  `--stream err`, `-n 500`, `-f` to follow, and `--json` or `--raw` for the
+  output. It reads the files directly, so it works with the daemon stopped.
+- **the dashboard**: `L` on a service opens its full log; `a` shows every
+  service's, `v` cycles the level filter, `/` searches. Lines are coloured
+  by level.
+- **the portal**: an admin's **Logs** page, linked from the catalog.
+- **a JSON API**: `GET /.outpost/api/logs` on the portal, with `service`,
+  `level`, `stream`, `q`, `lines` (up to 2000) and `since` (RFC 3339 or a
+  length of time such as `15m`). It answers `{"logs":[...]}`, each line with
+  its `time`, `service`, `stream`, `level`, `message`, `fields` and `line`
+  as written.
+- **an MCP server**: `POST /.outpost/mcp` on the portal, for an AI client,
+  with the tools `list_services`, `read_logs` and `recent_errors`.
+
+Logs can hold anything an app prints, so only admins read them. The page
+takes an admin's portal session. The API takes an admin's session or an
+admin's access token (`Authorization: Bearer opat_…`); the MCP server takes
+only a token, since a cookie would let another site's form call it. A token
+made for some apps reads only those apps' logs, and an internet token is
+refused. A token that doesn't check out is refused outright, never retried
+as the cookie.
+
+**The daemon's own log** goes where the service manager puts the daemon's
+output (`~/.outpost/logs/outpost.{out,err}.log` on macOS, the journal on
+Linux). Each line has a time, a level and the part of the daemon it came
+from, and trouble goes to stderr. `[log]` in `config.toml` sets how much and
+in what form, and takes a daemon restart:
+
+```toml
+[log]
+level  = "info"   # debug, info, warn or error
+format = "text"   # text (coloured on a terminal), json or logfmt
+```
 
 ## Configuration
 
@@ -1261,7 +1312,8 @@ Everything lives under `~/.outpost` (or `$OUTPOST_HOME`, or `--home`):
 ~/.outpost/
   services/<name>.toml     service manifests — the source of truth
   data/<name>/             default location for service storage
-  logs/<name>.log          combined stdout/stderr, rotated at 10 MiB, 3 kept
+  logs/<name>.log          stdout and stderr, each line stamped with its time and
+                           stream, rotated at 10 MiB, 3 kept
   backups/<name>/<ts>.tar.gz
   tsnet/<name>/            per-service Tailscale node identity
   state.db                 SQLite observed state and event log

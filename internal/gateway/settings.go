@@ -536,6 +536,7 @@ func (g *Gateway) renderHome(w http.ResponseWriter, r *http.Request, u auth.User
 	d.SecretsLink = u.Admin && g.secrets != nil
 	d.AILink = u.Admin && g.ai != nil
 	d.MailLink = u.Admin && g.mail != nil
+	d.LogsLink = u.Admin && g.logs != nil
 	if u.Admin && g.control != nil {
 		d.Poll = g.manage(d.Stations)
 	}

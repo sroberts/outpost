@@ -12,7 +12,7 @@ const (
 	defaultLogBackups  = 3
 )
 
-// rotatingWriter writes a service's combined stdout/stderr to
+// rotatingWriter writes a service's stdout and stderr, as applog records, to
 // <dir>/<service>.log, rolling the file over once it exceeds MaxBytes and
 // keeping Backups previous generations as <service>.log.1 … .log.N.
 //

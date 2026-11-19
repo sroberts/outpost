@@ -290,7 +290,7 @@ func (d *daemon) log() string { d.mu.Lock(); defer d.mu.Unlock(); return d.out.S
 
 // started counts how often the daemon has said it started name.
 func (d *daemon) started(name string) int {
-	return len(regexp.MustCompile(`(?m)^started `+regexp.QuoteMeta(name)+` `).FindAllString(d.log(), -1))
+	return len(regexp.MustCompile(`(?m)(?:^|\s)started `+regexp.QuoteMeta(name)+` `).FindAllString(d.log(), -1))
 }
 
 func startDaemon(t *testing.T) *daemon {
@@ -361,7 +361,9 @@ healthcheck = "/up"
 			if m := setupRe.FindStringSubmatch(line); m != nil {
 				d.setupURL = m[1]
 			}
-			up := d.setupURL != "" && strings.HasPrefix(line, "started echo ")
+			// The supervisor's line, after the logger's time, level and
+			// prefix; " started", so a "restarted echo" can't count.
+			up := d.setupURL != "" && (strings.HasPrefix(line, "started echo ") || strings.Contains(line, " started echo "))
 			d.mu.Unlock()
 			if up {
 				once.Do(func() { close(ready) })

@@ -682,3 +682,28 @@ label.check input {
 .mail-apps a:hover .mail-app { text-decoration: underline; }
 .mail-apps .mail-app { font-weight: 550; }
 .mail-apps .tag { font-size: 12px; font-weight: 550; letter-spacing: 0; text-transform: none; }
+
+/* Logs: a filter row, then the lines, monospaced so columns of output line
+   up, each wrapping rather than pushing the page sideways. */
+.log-filter { grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); align-items: end; gap: 0.75rem; }
+.log-filter select {
+  font: inherit; color: var(--porcelain); background: var(--night);
+  min-height: 46px; padding: 0.6rem 0.75rem;
+  border: 1px solid var(--field-edge); border-radius: 6px;
+}
+.log-filter select:hover { border-color: var(--beam); }
+.log-filter select:focus-visible { outline-offset: 1px; border-color: var(--lamp); }
+.log-filter input, .log-filter select { width: 100%; min-width: 0; }
+.log-lines { list-style: none; margin: 1rem 0 0; padding: 0; }
+.log-line { padding: 0.5rem 0; border-top: 1px solid var(--rule); }
+.log-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.2rem 0.5rem; font-size: 12px; color: var(--dim); }
+.log-meta time, .log-stream { font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
+.log-svc { color: var(--beam); font-weight: 550; }
+.log-msg, .log-fields {
+  margin: 0.2rem 0 0; font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.log-fields { color: var(--dim); font-size: 12px; }
+.lv-warn .tag.lv { color: var(--lamp); border-color: var(--lamp); }
+.lv-error .tag.lv { color: var(--down-ink); border-color: var(--down-ink); }
+.lv-error .log-msg { color: var(--down-ink); }

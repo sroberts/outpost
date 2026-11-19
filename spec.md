@@ -19,7 +19,7 @@ Non-goals: Outpost is not a DNS/TLS manager (Tailscale covers that), not a gener
 - Run and supervise declared services, each either a native process or an OCI container
 - Put each service on the tailnet with its own MagicDNS name via `tsnet`
 - Healthcheck-based status (`GET /up` or equivalent)
-- Structured logs per service, retained locally
+- Structured logs per service, retained locally: each line of a service's output stamped with its time and stream, with its level read from JSON, logfmt or a leading level word, and readable from the CLI, the TUI, the portal, its JSON API and Outpost's MCP server (§12a)
 - CLI to add/remove/start/stop/restart/list/inspect services
 - Manifest-driven, declarative: the manifest is the source of truth, `outpost apply` reconciles running state to it
 - Backups of each service's declared storage path
@@ -167,7 +167,7 @@ type Handle interface {
 }
 ```
 
-`ProcessRuntime.Start` does `exec.CommandContext`, wires stdout/stderr to a rotating log file under `~/.outpost/logs/<service>.log`, and records the PID in the state store. `ContainerRuntime.Start` shells out to the chosen engine's CLI (`podman run -d --name outpost-<service> --restart=<policy> -v <storage>:/data -p 127.0.0.1:<port>:<container-port> <image> <container_args>`), since driving Podman's CLI directly is simpler and more debuggable than binding its Go client library for a v1.
+`ProcessRuntime.Start` does `exec.CommandContext`, wires stdout and stderr, each through a line splitter that stores every line as `<UTC time> <out|err> <line>` (`internal/applog`), to a rotating log file under `~/.outpost/logs/<service>.log`, and records the PID in the state store. `ContainerRuntime.Start` shells out to the chosen engine's CLI (`podman run -d --name outpost-<service> --restart=<policy> -v <storage>:/data -p 127.0.0.1:<port>:<container-port> <image> <container_args>`), since driving Podman's CLI directly is simpler and more debuggable than binding its Go client library for a v1.
 
 Reconcile loop (`supervisor.Run`, ticks every few seconds and on manifest-change fsnotify events):
 
@@ -222,7 +222,8 @@ Source for the generated content: same annotated tool/endpoint descriptions the 
 outpost apply                 # reconcile running state to manifests (start/stop/restart as needed)
 outpost list                  # table: name, runtime, status, uptime, tailscale name
 outpost status <service>      # detail view: health, restart count, recent events
-outpost logs <service> [-f]   # tail or follow
+outpost logs <service> [-f]   # tail or follow; --level, --since, --grep, --stream, -n, --json, --raw
+outpost logs --all [-f]       # every service's output, interleaved by time
 outpost start <service>
 outpost stop <service>
 outpost restart <service>
@@ -233,6 +234,23 @@ outpost tui                   # launch the Bubble Tea dashboard
 ```
 
 Every subcommand talks to the running `outpost` daemon over a local Unix socket (`~/.outpost/outpost.sock`) rather than touching the state store or manifests directly, so the CLI, the TUI, and any future integration all go through one code path (`internal/supervisor`'s public API) instead of duplicating logic — same "one core, multiple interfaces" principle the parent spec applies to individual utilities, applied here to Outpost itself.
+
+### 12a. Logs
+
+Outpost has two kinds of log, and keeps them apart.
+
+**The daemon's own log** goes through `charmbracelet/log` (`internal/logging`): every line has a time, a level and the part of the daemon it came from (`supervisor`, `gateway`, `tailnet`, …), as text for a person, coloured on a terminal, or as JSON or logfmt for a collector, set by `[log] level` and `[log] format` in `config.toml`. It goes where the service manager puts the daemon's output: `~/.outpost/logs/outpost.{out,err}.log` under launchd, the journal under systemd.
+
+**A service's log** is what the service writes to stdout and stderr, captured as `outpost-service-spec.md` §7 describes. It is read in one place, `internal/applog`, which every surface shares:
+
+- the CLI, `outpost logs`, which reads the files directly so it works with the daemon down;
+- the TUI's logs view and detail pane, which also read the files, with a level filter (`v`) and lines coloured by level;
+- the socket's `logs` command, for any client of the daemon;
+- the portal's admin-only Logs page;
+- the portal's JSON API, `GET /.outpost/api/logs`, for an admin's session or an admin's access token;
+- Outpost's own MCP server, `POST /.outpost/mcp`, whose tools list services and read and search their logs, for an admin's access token.
+
+Each takes the same filters: a service or every service, the newest N lines, a minimum level, a stream, text to look for, and a time to start from. Logs can hold anything an app prints, so nothing outside the host reads them but an admin.
 
 ## 13. Testing
 
