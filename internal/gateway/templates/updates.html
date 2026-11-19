@@ -3,9 +3,46 @@
 <main class="page">
 <p class="back"><a href="{{.Home}}">Back to apps</a></p>
 <h1>Updates</h1>
-<p class="lede">Updating an app backs up its data, installs the latest release and restarts it, so it's briefly unavailable. If the new release doesn't come up healthy, the previous one goes back.{{if .Self}} Updating Outpost itself restarts every app.{{end}}</p>
-{{with .Self}}<ul class="updates self">
-<li>
+<p class="lede">Each app is backed up first, and goes back to the release it had if the new one doesn't come up healthy.{{if .Self}} Updating Outpost itself restarts every app.{{end}}</p>
+{{if or .UpdateRows .Self}}<div class="up-sum">
+<p class="up-status">{{if .AllRunning}}Updating.{{else if .AllCount}}{{.AllCount}} {{if eq .AllCount 1}}app has a newer release{{else}}apps have newer releases{{end}}{{else}}No app updates waiting{{end}}{{with .Checked}}<span class="hint"> · {{.}}</span>{{end}}</p>
+<form class="recheck" method="post" action="/updates">
+<input type="hidden" name="action" value="check">
+<button class="quiet-btn" type="submit">Check now</button>
+</form>
+</div>
+{{if and (gt .AllCount 1) (not .AllRunning)}}{{if .SelfBusy}}<button type="button" class="up-all" disabled><span>Update all {{.AllCount}} apps</span></button>
+{{else}}<details class="confirm up-all">
+<summary class="pill"><span>Update all {{.AllCount}} apps…</span></summary>
+<p>One at a time, each backed up first. If one doesn't come up healthy, it goes back to the release it had and the rest wait.</p>
+<form method="post" action="/updates">
+<input type="hidden" name="action" value="all">
+<button type="submit"><span>Update all {{.AllCount}} apps</span></button>
+</form>
+<noscript><p class="hint">Tap Update all… again to cancel.</p></noscript>
+</details>
+{{end}}{{end}}{{end}}
+{{if or .UpdateRows (and .Self (or (ne .Self.State "current") .Self.Summary))}}<ul class="updates">
+{{range .UpdateRows}}{{if eq .Group "act"}}<li>
+<span class="top"><span class="name">{{.Title}}</span></span>
+<span class="addr">{{.Installed}} from {{.Source}}</span>
+{{if eq .State "running"}}<p class="notice" role="status">Updating. This page refreshes until it's done.</p>
+{{else if eq .State "queued"}}<p class="hint">Waiting its turn for {{.Latest}}.</p>
+{{else if eq .State "available"}}<p class="notice">{{.Latest}} is available.</p>
+{{if or $.SelfBusy $.AllRunning}}<button type="button" disabled><span>Update<span class="sr"> {{.Title}} to {{.Latest}}</span></span></button>
+<p class="hint">{{if $.SelfBusy}}Once Outpost is back.{{else}}Once the update under way is done.{{end}}</p>
+{{else}}<details class="confirm"><summary class="pill"><span>Update<span class="sr"> {{.Title}} to {{.Latest}}</span>…</span></summary>
+<p>{{.Title}} is backed up, then restarted on {{.Latest}}. If it isn't healthy, the old release goes back.</p>
+<form method="post" action="/updates">
+<input type="hidden" name="action" value="update">
+<input type="hidden" name="service" value="{{.Name}}">
+<button type="submit"><span>Update<span class="sr"> {{.Title}}</span> to {{.Latest}}</span></button>
+</form>
+<noscript><p class="hint">Tap Update… again to cancel.</p></noscript>
+</details>
+{{end}}{{end}}{{if .Failed}}<p class="error output" role="alert">{{.Result}}</p>{{else if .Result}}<details class="log"><summary>Updated{{with .Was}} from {{.}}{{end}}: what happened</summary><pre class="output">{{.Result}}</pre></details>{{end}}
+</li>
+{{end}}{{end}}{{with .Self}}{{if or (ne .State "current") .Summary}}<li class="self">
 <span class="top"><span class="name">Outpost</span></span>
 <span class="addr">{{.Installed}} from sroberts/outpost</span>
 {{if ne .State "running"}}{{if .Summary}}<p class="{{if .Failed}}error{{else}}notice{{end}} outcome"{{if .Alert}} role="alert"{{end}}>{{.Summary}}</p>{{end}}
@@ -15,53 +52,38 @@
 <p class="hint" id="self-slow" hidden>Still not back after ten minutes. Reload, or check the log{{if .Log}}: <code>{{.Log}}</code>{{end}}.</p>
 <script src="{{$.SelfJS}}" defer></script>
 {{else if eq .State "available"}}<p class="notice">{{.Latest}} is available.</p>
-<details class="confirm"><summary class="pill"><span>Update Outpost to {{.Latest}}…</span></summary>
+{{if $.AllRunning}}<button type="button" disabled><span>Update Outpost</span></button>
+<p class="hint">Once the apps are done.</p>
+{{else}}<details class="confirm"><summary class="pill"><span>Update Outpost…</span></summary>
 <p>Every app stops and starts again with Outpost. If {{.Latest}} doesn't come up, the previous release goes back.</p>
 <form method="post" action="/updates">
 <input type="hidden" name="action" value="self">
 <button type="submit"><span>Update Outpost to {{.Latest}}</span></button>
 </form>
 <noscript><p class="hint">Tap Update Outpost… again to cancel.</p></noscript>
-</details>
+</details>{{end}}
 {{else if eq .State "refused"}}<p class="hint">{{.Latest}} is available, but can't be installed from here: {{.Detail}}</p>
 {{else if eq .State "current"}}<p class="hint">{{if .Detail}}{{.Detail}}{{else}}Up to date.{{end}}</p>
 {{else if eq .State "checking"}}<p class="hint">Checking.</p>
-{{else if .Detail}}<p class="error">{{.Detail}}</p>
+{{else if .Detail}}<p class="check-err">{{.Detail}}</p>
 {{else}}<p class="hint">Not checked yet.</p>
 {{end}}</li>
-</ul>{{end}}
-{{if .UpdateRows}}<ul class="updates">
-{{range .UpdateRows}}<li>
+{{end}}{{end}}{{range .UpdateRows}}{{if eq .Group "check"}}<li>
 <span class="top"><span class="name">{{.Title}}</span></span>
 <span class="addr">{{.Installed}} from {{.Source}}</span>
-{{if eq .State "running"}}<p class="notice" role="status">Updating. This page refreshes until it's done.</p>
-{{else if eq .State "available"}}<p class="notice">{{.Latest}} is available.</p>
-{{if $.SelfBusy}}<button type="button" disabled><span>Update<span class="sr"> {{.Title}}</span> to {{.Latest}}</span></button>
-<p class="hint">Once Outpost is back.</p>
-{{else}}<details class="confirm"><summary class="pill"><span>Update<span class="sr"> {{.Title}}</span> to {{.Latest}}…</span></summary>
-<p>{{.Title}} is backed up, then restarted on {{.Latest}}. If it isn't healthy, the old release goes back.</p>
-<form method="post" action="/updates">
-<input type="hidden" name="action" value="update">
-<input type="hidden" name="service" value="{{.Name}}">
-<button type="submit"><span>Update<span class="sr"> {{.Title}}</span> to {{.Latest}}</span></button>
-</form>
-<noscript><p class="hint">Tap Update… again to cancel.</p></noscript>
-</details>
-{{end}}{{else if eq .State "current"}}<p class="hint">{{if .Detail}}{{.Detail}}{{else}}Up to date.{{end}}</p>
-{{else if eq .State "checking"}}<p class="hint">Checking.</p>
-{{else if .Detail}}<p class="error">{{.Detail}}</p>
+{{if eq .State "checking"}}<p class="hint">Checking.</p>
+{{else if .Detail}}<p class="check-err">{{.Detail}}</p>
 {{else}}<p class="hint">Not checked yet.</p>
-{{end}}{{if .Result}}<p class="{{if .Failed}}error{{else}}notice{{end}} output"{{if .Failed}} role="alert"{{end}}>{{.Result}}</p>{{end}}
-</li>
-{{end}}</ul>
-{{else if and .Self (not .ByHand)}}<p class="empty">No apps were installed from a release.</p>
-{{else if .Self}}
-{{else}}<p class="empty">No apps were installed from a release, so there's nothing to update from here.</p>{{end}}
-{{if or .UpdateRows .Self}}<form class="recheck" method="post" action="/updates">
-<input type="hidden" name="action" value="check">
-<button class="plain" type="submit">Check now</button>
-{{if .Checked}}<span class="hint">{{.Checked}}</span>{{end}}
-</form>{{end}}
-{{if .ByHand}}<p class="hint byhand">Not installed from a release: {{.ByHand}}. <code>outpost update &lt;name&gt; --from owner/repo</code> links one to its release.</p>{{end}}
+{{end}}</li>
+{{end}}{{end}}</ul>{{end}}
+{{if or (and .Self (eq .Self.State "current") (not .Self.Summary)) .UpdateRows}}{{$current := false}}{{range .UpdateRows}}{{if eq .Group "current"}}{{$current = true}}{{end}}{{end}}{{if or $current (and .Self (eq .Self.State "current") (not .Self.Summary))}}<h2 class="up-group">Up to date</h2>
+<ul class="up-current">
+{{with .Self}}{{if and (eq .State "current") (not .Summary)}}<li><span class="name">Outpost</span> <span class="addr">{{.Installed}} from sroberts/outpost</span>{{with .Detail}}<span class="hint">{{.}}</span>{{end}}</li>
+{{end}}{{end}}{{range .UpdateRows}}{{if eq .Group "current"}}<li><span class="name">{{.Title}}</span> <span class="addr">{{.Installed}} from {{.Source}}</span>{{if .Was}}<span class="hint">Updated from {{.Was}}</span>{{else if .Detail}}<span class="hint">{{.Detail}}</span>{{end}}{{if .Result}}<details class="log"><summary>What happened</summary><pre class="output">{{.Result}}</pre></details>{{end}}</li>
+{{end}}{{end}}</ul>{{end}}{{end}}
+{{if not (or .UpdateRows .Self)}}<p class="empty">No apps were installed from a release, so there's nothing to update from here.</p>
+{{else if and (not .UpdateRows) (not .ByHand)}}<p class="empty">No apps were installed from a release.</p>{{end}}
+{{if .ByHand}}<p class="hint byhand">Not installed from a release: {{.ByHand}}. To link one to its release:</p>
+<code class="cmd">outpost update &lt;name&gt; --from owner/repo</code>{{end}}
 </main>
 {{end}}

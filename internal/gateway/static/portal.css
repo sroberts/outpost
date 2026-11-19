@@ -278,6 +278,7 @@ button.small { padding: 0 0.95rem; font-size: 14px; }
 .updates li + li { border-top: 1px solid var(--rule); }
 .updates p { margin: 0.35rem 0 0; }
 .updates form { margin-top: 0.5rem; justify-self: start; }
+.updates li > button { justify-self: start; margin-top: 0.5rem; }
 .output { font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
 /* Outpost's own update: a sentence for how it ended, and the helper's whole
    output behind it, since that is a machine's account, read only when the
@@ -304,6 +305,45 @@ button.small { padding: 0 0.95rem; font-size: 14px; }
 .adding pre.error.output { color: var(--down-ink); }
 .adding pre.notice.output { color: var(--porcelain); }
 .recheck { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; }
+/* The page's answer first: how many apps have a release waiting and when
+   that was asked, with asking again beside it as a quiet control, then
+   one button for all of them. */
+.up-sum { display: flex; flex-wrap: wrap; align-items: center; gap: 0 0.75rem; margin-top: 1.1rem; }
+.up-status { margin: 0; font-weight: 550; }
+.up-status .hint { font-weight: 400; }
+.up-sum .recheck { margin: 0; }
+button.quiet-btn {
+  min-height: 44px; padding: 0 0.95rem; border: 1px solid var(--rule); border-radius: 999px;
+  background: none; color: var(--dim); font-size: 14px; font-weight: 400;
+}
+button.quiet-btn:hover { background: none; color: var(--porcelain); border-color: var(--beam); }
+.up-all { margin-top: 0.75rem; }
+.up-all > summary.pill { border-color: var(--porcelain); font-weight: 600; }
+.up-all > p { margin: 0.6rem 0 0; max-width: 34rem; }
+/* A check that didn't get an answer isn't an app that's down: said
+   plainly, at the size of the line it's about. */
+.check-err { margin: 0.35rem 0 0; font-size: 14px; color: var(--down-ink); }
+/* What needs nothing, a line each. */
+.up-group { margin: 1.75rem 0 0; font-size: 15px; font-weight: 600; color: var(--dim); letter-spacing: 0; }
+.up-current { list-style: none; margin: 0.4rem 0 0; padding: 0; }
+.up-current li {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.1rem 0.75rem;
+  padding: 0.55rem 0; border-top: 1px solid var(--rule);
+}
+.up-current .name { font-size: 16px; font-weight: 600; }
+.up-current .addr { color: var(--dim); }
+.up-current .hint { flex-basis: 100%; }
+.up-current details.log { flex-basis: 100%; margin: 0; }
+.up-current details.log summary {
+  display: inline-flex; align-items: center; min-height: 32px;
+  color: var(--dim); font-size: 13px; cursor: pointer;
+  text-decoration: underline; text-decoration-color: var(--beam); text-underline-offset: 3px;
+}
+.up-current pre.output {
+  margin: 0.25rem 0 0; padding: 0 0 0 0.85rem; border-left: 1px solid var(--rule);
+  font-size: 12px; line-height: 1.55; color: var(--dim);
+}
+.byhand + .cmd { display: inline-block; max-width: 100%; margin-top: 0.4rem; overflow-wrap: anywhere; }
 button.plain { background: none; color: var(--porcelain); border: 1px solid var(--field-edge); }
 button.plain:hover { background: none; border-color: var(--beam); }
 .byhand { margin: 1.25rem 0 0; }
