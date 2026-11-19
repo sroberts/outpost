@@ -4,7 +4,7 @@
 <p class="back"><a href="{{.Home}}">Back to apps</a></p>
 <h1>Logs</h1>
 {{with .Logs}}<p class="lede">What your apps wrote to their output, oldest at the top and newest at the bottom.</p>
-<form class="log-filter" method="get" action="/logs">
+<form id="filters" class="log-filter" method="get" action="/logs#newest">
 <label for="log-service">App
 <select id="log-service" name="service">
 <option value=""{{if eq .Service ""}} selected{{end}}>Every app</option>
@@ -17,6 +17,10 @@
 {{range .Levels}}<option value="{{.}}"{{if eq . $.Logs.Level}} selected{{end}}>{{.}} and above</option>
 {{end}}</select>
 </label>
+<button type="submit"><span>Show</span></button>
+<details class="log-more"{{if .More}} open{{end}}>
+<summary>More filters</summary>
+<div class="log-more-fields">
 <label for="log-stream">Stream
 <select id="log-stream" name="stream">
 <option value=""{{if eq .Stream ""}} selected{{end}}>Both</option>
@@ -24,25 +28,26 @@
 <option value="err"{{if eq .Stream "err"}} selected{{end}}>stderr</option>
 </select>
 </label>
-<label for="log-q">Containing
-<input id="log-q" name="q" type="search" value="{{.Contains}}" autocomplete="off" spellcheck="false">
-</label>
 <label for="log-lines">Lines
 <input id="log-lines" name="lines" type="number" min="1" max="2000" value="{{.Lines}}">
 </label>
-<button type="submit"><span>Show</span></button>
+<label for="log-q" class="log-q">Containing
+<input id="log-q" name="q" type="search" value="{{.Contains}}" autocomplete="off" spellcheck="false">
+</label>
+</div>
+</details>
 </form>
 {{if .Error}}<p class="error" role="alert">{{.Error}}</p>
-{{else}}<p class="hint"><a href="{{.Self}}#newest">Refresh</a>{{if .Rows}} · {{len .Rows}} {{if eq (len .Rows) 1}}line{{else}}lines{{end}} · <a href="#newest">Jump to newest</a>{{end}}</p>
-{{if .Rows}}<ol class="log-lines">
+{{else}}<p class="hint log-count">{{if .Rows}}{{len .Rows}} {{if eq (len .Rows) 1}}line{{else}}lines{{end}} · <a href="#newest">Jump to newest</a> · {{end}}<a href="{{.Self}}#newest">Refresh</a></p>
+{{if .Rows}}<ol class="log-lines{{if .All}} all{{end}}">
 {{range .Rows}}<li class="log-line{{if .Level}} lv-{{.Level}}{{end}}">
-<div class="log-meta">{{if .When}}<time datetime="{{.Stamp}}">{{.When}}</time>{{end}}{{if $.Logs.All}} <span class="log-svc">{{.Title}}</span>{{end}}{{if .Level}} <span class="tag lv">{{.Level}}</span>{{end}}{{if .Stream}} <span class="log-stream">{{.Stream}}</span>{{end}}</div>
+<div class="log-meta">{{if .When}}<time datetime="{{.Stamp}}">{{.When}}</time>{{end}}{{if $.Logs.All}}<span class="log-svc">{{.Title}}</span>{{end}}{{if .Level}}<span class="tag lv">{{.Level}}</span>{{else if eq .Stream "err"}}<span class="log-stream">stderr</span>{{end}}</div>
 <p class="log-msg">{{.Message}}</p>
 {{if .Fields}}<p class="log-fields">{{.Fields}}</p>{{end}}
 </li>
 {{end}}</ol>
 {{else}}<p class="empty">No lines match.</p>{{end}}
-<p id="newest" class="hint">Newest above. The same lines are at <code class="whole">/.outpost/api/logs</code> as JSON, for an admin's session or access token.</p>{{end}}
+<p id="newest" class="hint log-foot">Newest above. <a href="{{.Self}}#newest">Refresh</a> · <a href="#filters">Filters</a>. The same lines are at <code class="whole">/.outpost/api/logs</code> as JSON, for an admin's session or access token.</p>{{end}}
 {{end}}
 </main>
 {{end}}

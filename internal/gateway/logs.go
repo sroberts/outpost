@@ -413,6 +413,7 @@ type logsView struct {
 	Lines    int
 	Rows     []logRow
 	All      bool // reading every service, so each row names its own
+	More     bool // a filter behind "More filters" is set, so it opens
 	Error    string
 	Self     string // this view's URL, to refresh it
 }
@@ -446,6 +447,7 @@ func (g *Gateway) logsPage(w http.ResponseWriter, r *http.Request) {
 
 	q := r.URL.Query()
 	v.Service, v.Level, v.Stream, v.Contains = q.Get("service"), q.Get("level"), q.Get("stream"), q.Get("q")
+	v.More = v.Stream != "" || v.Contains != "" || q.Has("lines")
 	lr, perr := parseLogsQuery(q)
 	switch {
 	case perr != nil:
@@ -487,6 +489,11 @@ func logRows(recs []applog.Record, titles map[string]string) []logRow {
 		}
 		if row.Message == "" {
 			row.Message = rec.Line
+		}
+		// The level has its own column; a plain line that opened with it
+		// would otherwise say it twice.
+		if row.Level != "" && row.Message == rec.Line {
+			row.Message = applog.TrimLevel(row.Message)
 		}
 		keys := make([]string, 0, len(rec.Fields))
 		for k := range rec.Fields {

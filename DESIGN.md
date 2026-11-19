@@ -196,7 +196,7 @@ A cold enamel night lit by exactly two warm things: the amber lamp and, when som
 ### Tertiary
 - **Signal Red** (down): the ring of a down station. Nothing else.
 - **Signal Red Plate** (down-plate): the fill behind the porcelain DOWN label, darkened from Signal Red so porcelain text on it stays legible (about 4.9:1).
-- **Signal Red Ink** (down-ink): readable red text on night: a down station's reason, form error messages, the border of an invalid field, and the destructive ghost button.
+- **Signal Red Ink** (down-ink): readable red text on night: a down station's reason, form error messages, the border of an invalid field, the destructive ghost button, and the tag of an error-level line on the Logs page (the tag only; the line itself stays porcelain).
 
 ### Neutral
 - **Enamel Night** (night): the ground of every page, the input fill, and the hollow centre of starting and down stations. Also the browser `theme-color`.
@@ -303,6 +303,9 @@ An ordered list; each station draws the stretch of line above it, so the line en
 
 ### Command chip
 `outpost status <app>` in 12px porcelain monospace on Raised Enamel, 1px rule border, 4px radius, selectable as a whole with one tap.
+
+### Logs
+The one page that leaves the 40rem measure: at the breakpoint it, its rail and its footer widen to 72rem, because log output is long and wrapping it wastes the screen. App, Level and Show share one row; Stream, Lines and Containing fold under a "More filters" disclosure that opens itself when one of them is set. Lines are monospaced; at the breakpoint they become columns (time, app when showing every app, level, message, with fields beneath the message) shared down the list through a subgrid, and below it each line keeps a wrapping meta row above its message. A level is a plain 12px word in a rule outline, not a status label: dim for info, porcelain on a field-edge outline for a warning, Signal Red Ink for an error. Amber marks no level.
 
 ### Filter
 Once the line is long, a "Filter apps" search field appears above it; it is present in the markup hidden and revealed by the one external script, so the page works without it.
