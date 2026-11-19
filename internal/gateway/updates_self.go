@@ -294,7 +294,7 @@ func (g *Gateway) startSelfUpdate(w http.ResponseWriter, r *http.Request, userna
 	g.claim.Lock()
 	s := &g.updateState
 	s.mu.Lock()
-	apps := len(s.running) > 0
+	apps := len(s.running) > 0 || len(s.queue) > 0
 	s.mu.Unlock()
 	if apps {
 		g.claim.Unlock()

@@ -108,6 +108,8 @@ type pageData struct {
 	Logs        *logsView
 	UpdateRows  []updateRow
 	ByHand      string // apps not from a release, in words
+	AllCount    int    // apps "Update all" would update
+	AllRunning  bool   // an update of one or more apps is under way
 	Checked     string // when releases were last checked, in words
 	Refresh     bool   // reload while something on the page is in progress
 	// Icons draws the sprite the usage figures and actions use, when any show.

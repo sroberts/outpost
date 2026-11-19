@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -64,6 +65,9 @@ type updateState struct {
 	daemonAt  map[string]time.Time // the daemon's latest answer taken into checks
 	running   map[string]bool
 	results   map[string]updateResult
+	// queue is what an "Update all" has left to do, the app it's updating
+	// first; it empties as each finishes, or at once when one fails.
+	queue []string
 
 	// Outpost's own check, made with the apps', and whether it can be
 	// updated from the page at all, in words if not.
@@ -307,6 +311,7 @@ const (
 	updateAvailable = "available"
 	updateCurrent   = "current"
 	updateChecking  = "checking"
+	updateQueued    = "queued"
 	updateUnknown   = "unknown"
 )
 
@@ -321,6 +326,32 @@ type updateRow struct {
 	Detail    string // a note or a failed check, in words
 	Result    string // what the last update did
 	Failed    bool
+}
+
+// Group is where the page puts the row: what wants doing first, then what
+// couldn't be checked, then the apps that need nothing, said in one line each.
+func (r updateRow) Group() string {
+	switch {
+	case r.State == updateRunning || r.State == updateQueued || r.State == updateAvailable || r.Failed:
+		return "act"
+	case r.State == updateCurrent:
+		return "current"
+	}
+	return "check"
+}
+
+// Was is the release a successful update replaced, from its own report
+// ("… (was v1.2.4)"), for saying so in words beside the new one.
+func (r updateRow) Was() string {
+	if r.Failed || r.Result == "" {
+		return ""
+	}
+	if i := strings.LastIndex(r.Result, "(was "); i >= 0 {
+		if j := strings.Index(r.Result[i:], ")"); j > 0 {
+			return r.Result[i+len("(was ") : i+j]
+		}
+	}
+	return ""
 }
 
 // updateRows lists the apps from a release, and names those that aren't.
@@ -347,6 +378,9 @@ func (g *Gateway) updateRows() (rows []updateRow, byHand []string, busy bool) {
 		switch {
 		case s.running[rt.Name]:
 			row.State = updateRunning
+			busy = true
+		case slices.Contains(s.queue, rt.Name):
+			row.State, row.Latest = updateQueued, c.Latest
 			busy = true
 		case known && c.Err != "":
 			row.Detail = c.Err
@@ -409,6 +443,14 @@ func (g *Gateway) updatesPage(w http.ResponseWriter, r *http.Request) {
 		Refresh:    busy,
 		Self:       g.selfUpdateRow(),
 	}
+	for _, row := range rows {
+		switch row.State {
+		case updateAvailable:
+			d.AllCount++
+		case updateQueued, updateRunning:
+			d.AllRunning = true
+		}
+	}
 	if d.Self != nil && d.Self.State == updateRunning {
 		// A meta refresh would land on the browser's own error page while
 		// Outpost is down, and stop there; the script waits it out instead.
@@ -449,6 +491,9 @@ func (g *Gateway) updatesSubmit(w http.ResponseWriter, r *http.Request) {
 		g.startCheck()
 	case "self":
 		g.startSelfUpdate(w, r, u.Username)
+		return
+	case "all":
+		g.startUpdateAll(w, r, u.Username)
 		return
 	case "update":
 		// Only a service in the route table with a recorded source. This is

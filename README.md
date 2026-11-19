@@ -246,8 +246,12 @@ nothing.
 With the [login gateway](#the-login-gateway) on, an admin can do the same from
 a phone. When an update is waiting, the catalog says so and links to
 `/updates`; with nothing to install there's no link, but the page is still there.
-The page shows each app installed from a release, what it runs and what's
-available, with a button to update. Outpost itself has a row there too: see
+The page puts the apps with a newer release first, each with a button to
+update it, then any it couldn't check, then the ones already up to date, a line
+each. With two or more waiting, **Update all** does what `outpost update --all`
+does: one at a time, each backed up first, stopping at the first that doesn't
+come up healthy. Outpost isn't one of "all", since restarting it would cut the
+rest short; it has its own row, after the apps: see
 [Updating Outpost itself](#updating-outpost-itself).
 
 That button runs `outpost update <service>` inside the daemon, over its own
