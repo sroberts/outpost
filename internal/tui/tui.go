@@ -117,6 +117,7 @@ type Model struct {
 	out *outputPane   // a command's output, over the body
 
 	runner        Runner
+	terminal      TerminalRunner
 	daemonVersion string
 }
 

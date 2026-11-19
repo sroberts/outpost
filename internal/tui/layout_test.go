@@ -265,12 +265,19 @@ func TestLogs_SearchFindsAndHighlights(t *testing.T) {
 }
 
 func TestLogs_FollowHoldsStillWhenScrolledUp(t *testing.T) {
-	m := logViewOn(t, "a\nb\nc\n")
+	// Longer than the screen: a log that fits has nowhere to scroll.
+	var lines []logLine
+	var b strings.Builder
+	for i := range 100 {
+		fmt.Fprintf(&b, "line %d\n", i)
+		lines = append(lines, logLine{text: fmt.Sprintf("line %d", i)})
+	}
+	m := logViewOn(t, b.String())
 	m = press(t, m, "up")
 	if m.lv.follow || m.lv.offset != 1 {
 		t.Fatalf("up: follow=%v offset=%d", m.lv.follow, m.lv.offset)
 	}
-	m = m.updateLogView(logViewMsg{service: "notes", lines: []logLine{{text: "a"}, {text: "b"}, {text: "c"}, {text: "d"}}})
+	m = m.updateLogView(logViewMsg{service: "notes", lines: append(lines, logLine{text: "line 100"})})
 	if m.lv.offset != 2 {
 		t.Errorf("offset %d after a line arrived; want 2, the same lines on screen", m.lv.offset)
 	}

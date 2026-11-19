@@ -21,6 +21,32 @@ func (m Model) WithRunner(r Runner) Model {
 	return m
 }
 
+// TerminalRunner prepares an outpost subcommand to run on the terminal
+// itself, for the few that can stop to ask something there: restarting the
+// daemon, directly or by updating Outpost, can run launchctl or systemctl
+// under sudo. The dashboard steps aside while it runs (tea.Exec) and puts
+// what it printed, which output returns once it has run, in the output pane.
+type TerminalRunner func(args ...string) (cmd tea.ExecCommand, output func() string)
+
+// WithTerminal lets the dashboard hand the terminal to the commands that
+// may need it. Without one, they run through the Runner like the rest.
+func (m Model) WithTerminal(t TerminalRunner) Model {
+	m.terminal = t
+	return m
+}
+
+// inTerminal runs an outpost subcommand with the terminal handed to it, or
+// through the Runner when there's no TerminalRunner.
+func (m Model) inTerminal(title string, args ...string) tea.Cmd {
+	if m.terminal == nil {
+		return m.cli(title, args...)
+	}
+	cmd, output := m.terminal(args...)
+	return tea.Exec(cmd, func(err error) tea.Msg {
+		return outputMsg{title: title, text: output(), err: err}
+	})
+}
+
 // fieldKind is how a form field takes input.
 type fieldKind int
 

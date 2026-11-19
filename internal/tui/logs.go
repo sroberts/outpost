@@ -291,8 +291,9 @@ func (m Model) handleLogKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return m, nil, true
 	}
 	page := max(m.height-8, 1)
+	top := m.maxLogOffset()
 	scroll := func(by int) {
-		lv.offset = max(min(lv.offset+by, max(len(lv.lines)-1, 0)), 0)
+		lv.offset = max(min(lv.offset+by, top), 0)
 		lv.follow = lv.offset == 0
 	}
 	switch msg.String() {
@@ -305,7 +306,7 @@ func (m Model) handleLogKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	case "pgdown", " ", "ctrl+d":
 		scroll(-page)
 	case "g", "home":
-		scroll(len(lv.lines))
+		scroll(top)
 	case "G", "end":
 		lv.offset, lv.follow = 0, true
 	case "f":
@@ -388,7 +389,7 @@ func (m *Model) findMatch(dir int) {
 		if strings.Contains(strings.ToLower(lv.lines[i].text), needle) {
 			lv.match = i
 			// Put the match a third of the way up the screen.
-			lv.offset = max(len(lv.lines)-1-i-max((m.height-8)/3, 0), 0)
+			lv.offset = min(max(len(lv.lines)-1-i-max((m.height-8)/3, 0), 0), m.maxLogOffset())
 			lv.follow = false
 			m.notice = ""
 			return
@@ -422,10 +423,7 @@ func (m Model) logViewPane(height int) string {
 		flags = append(flags, "/"+lv.pattern)
 	}
 	b.WriteString("  " + m.rule(what+" · "+strings.Join(flags, " · ")) + "\n")
-	rows := max(height-1, 1)
-	if lv.searching {
-		rows = max(rows-1, 1)
-	}
+	rows := logRows(height, lv.searching)
 	switch {
 	case lv.err != "" && len(lv.lines) == 0:
 		b.WriteString("  " + labelStyle.Render(lv.err) + "\n")
@@ -444,27 +442,63 @@ func (m Model) logViewPane(height int) string {
 	return b.String()
 }
 
+// logRows is how many rows of log a pane of height shows: less its title,
+// and the search field while it's open.
+func logRows(height int, searching bool) int {
+	rows := max(height-1, 1)
+	if searching {
+		rows = max(rows-1, 1)
+	}
+	return rows
+}
+
+// logWidths is the service column's width in the every-service view (0
+// otherwise) and the cells left for each line's text.
+func (m Model) logWidths() (prefixW, avail int) {
+	width := max(m.width-4, 1)
+	if !m.lv.all {
+		return 0, width
+	}
+	for _, l := range m.lv.lines {
+		prefixW = max(prefixW, lipgloss.Width(l.svc))
+	}
+	prefixW = min(prefixW, 16)
+	return prefixW, max(width-prefixW-1, 1)
+}
+
+// maxLogOffset is the furthest up the log view scrolls: the offset that puts
+// the first line at the top of a full screen. Further would show the first
+// line alone above blank rows. Wrapped lines count for the rows they take.
+func (m Model) maxLogOffset() int {
+	lv := m.lv
+	rows := logRows(m.bodyHeight(), lv.searching)
+	_, avail := m.logWidths()
+	used := 0
+	for k := range lv.lines {
+		used++
+		if lv.wrap {
+			used += len(wrapCells(lv.lines[k].text, avail)) - 1
+		}
+		if used >= rows {
+			return len(lv.lines) - (k + 1)
+		}
+	}
+	return 0 // it all fits
+}
+
 // visibleLogLines are the rows on screen, bottom aligned, offset lines up
 // from the end, each cut or wrapped to the width.
 func (m Model) visibleLogLines(rows int) []string {
 	lv := m.lv
-	width := max(m.width-4, 1)
-	prefixW := 0
-	if lv.all {
-		for _, l := range lv.lines {
-			prefixW = max(prefixW, lipgloss.Width(l.svc))
-		}
-		prefixW = min(prefixW, 16)
-	}
+	prefixW, textW := m.logWidths()
 	needle := strings.ToLower(lv.pattern)
 	render := func(i int) []string {
 		l := lv.lines[i]
 		body := l.text
-		avail := width
+		avail := textW
 		prefix := ""
 		if lv.all {
 			prefix = countStyle.Render(pad(truncate(l.svc, prefixW), prefixW)) + " "
-			avail = max(width-prefixW-1, 1)
 		}
 		var parts []string
 		if lv.wrap {
