@@ -37,7 +37,7 @@ Commands:
   apply                    validate manifests and reconcile
   list                     table of services and their status
   status <service>         health, restart count and recent events
-  logs <service> [-f]      show or follow a service's logs
+  logs <service> [-f]      show or follow a service's output (--level, --since, --grep; --all for every service)
   logs <service> --events  show the service's recent activity
   start <service>          start a stopped service
   stop <service>           stop a running service

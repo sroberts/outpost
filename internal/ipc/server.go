@@ -33,6 +33,7 @@ type Server struct {
 	ai      gateway.AIModels
 	gateway GatewayStatus
 	stats   StatsSource
+	logDir  string
 	config  string
 	started time.Time
 	path    string
@@ -275,6 +276,9 @@ func (s *Server) dispatch(ctx context.Context, req Request) Response {
 
 	case CmdStats:
 		return s.dispatchStats(req)
+
+	case CmdLogs:
+		return s.dispatchLogs(ctx, req)
 
 	case CmdBackups:
 		archives, err := s.sup.ListBackups(ctx, req.Service)

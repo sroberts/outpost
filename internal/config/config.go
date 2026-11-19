@@ -29,6 +29,9 @@ type Config struct {
 	// Mail is the Gmail account apps get mail through. Left out of
 	// Fingerprint's JSON in the same way as AI.
 	Mail Mail `toml:"mail" json:"-"`
+	// Log is how the daemon writes its own log. Left out of Fingerprint's
+	// JSON in the same way as AI.
+	Log Log `toml:"log" json:"-"`
 }
 
 // Tailscale settings.
@@ -106,6 +109,9 @@ func (c Config) Validate() error {
 	}
 	if err := c.Mail.validate(); err != nil {
 		return fmt.Errorf("mail: %w", err)
+	}
+	if err := c.Log.validate(); err != nil {
+		return fmt.Errorf("log: %w", err)
 	}
 	if c.Gateway.TailscaleName != "" && (!c.Gateway.Enabled || !c.TailscaleEnabled()) {
 		return errors.New("gateway: tailscale_name puts the portal on the tailnet, so it needs both the gateway " +
@@ -214,6 +220,11 @@ func (c Config) Fingerprint() string {
 			return "" // can't happen: Mail is plain data
 		}
 		body = append(append(body, "mail"...), more...)
+	}
+	// The level and format take a restart to apply, so a daemon running
+	// with other ones is stale.
+	if lg := (Log{Level: c.Log.LevelName(), Format: c.Log.FormatName()}); lg != (Log{Level: "info", Format: "text"}) {
+		body = append(body, "log"+lg.Level+"/"+lg.Format...)
 	}
 	sum := sha256.Sum256(body)
 	return hex.EncodeToString(sum[:8])

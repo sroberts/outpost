@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/sroberts/outpost/internal/ai"
+	"github.com/sroberts/outpost/internal/applog"
 	"github.com/sroberts/outpost/internal/auth"
 	"github.com/sroberts/outpost/internal/backup"
 	"github.com/sroberts/outpost/internal/gateway"
@@ -126,6 +127,8 @@ type Request struct {
 	Secret *SecretRequest `json:"secret,omitempty"`
 	// AI carries the ai.* commands' arguments.
 	AI *AIRequest `json:"ai,omitempty"`
+	// Logs carries the logs command's arguments.
+	Logs *LogsRequest `json:"logs,omitempty"`
 }
 
 // UserRequest is the argument to a user.* command. Password is in clear: it
@@ -218,6 +221,8 @@ type Response struct {
 	AITest *ai.TestResult `json:"ai_test,omitempty"`
 	// Usage is stats' result, keyed by service name.
 	Usage map[string]UsageInfo `json:"usage,omitempty"`
+	// Logs is the logs command's result, oldest first.
+	Logs []applog.Record `json:"logs,omitempty"`
 }
 
 // errorResponse builds a failure reply.

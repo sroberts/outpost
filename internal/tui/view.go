@@ -535,7 +535,7 @@ func (m Model) logPane() string {
 		lines = lines[len(lines)-rows:]
 	}
 	for _, line := range lines {
-		b.WriteString("  " + logStyle.Render(truncate(line, m.width-4)) + "\n")
+		b.WriteString("  " + lineStyle(line).Render(truncate(line, m.width-4)) + "\n")
 	}
 	return b.String()
 }

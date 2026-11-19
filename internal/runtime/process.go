@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/sroberts/outpost/internal/applog"
 	"github.com/sroberts/outpost/internal/manifest"
 )
 
@@ -44,6 +45,9 @@ type processHandle struct {
 	cmd     *exec.Cmd
 	logPath string
 	logFile *rotatingWriter
+	// streams are the service's stdout and stderr, each cut into lines
+	// that are stored stamped with the time and the stream (applog).
+	streams [2]*applog.LineWriter
 
 	done chan struct{}
 
@@ -166,8 +170,9 @@ func (r *ProcessRuntime) Start(ctx context.Context, svc *manifest.Service) (Hand
 	// files set to the Outpost home: an app writing ./config.toml must not
 	// overwrite Outpost's.
 	cmd.Dir = svc.ExpandStorage()
-	cmd.Stdout = lw
-	cmd.Stderr = lw
+	stdout, stderr := applog.NewLineWriter(lw, applog.Stdout), applog.NewLineWriter(lw, applog.Stderr)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	cmd.Env = buildEnv(svc, r.Env)
 	// Own process group, so Stop can signal the service and anything it spawns.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -177,6 +182,7 @@ func (r *ProcessRuntime) Start(ctx context.Context, svc *manifest.Service) (Hand
 		cmd:      cmd,
 		logPath:  logPath,
 		logFile:  lw,
+		streams:  [2]*applog.LineWriter{stdout, stderr},
 		done:     make(chan struct{}),
 		status:   StatusStarting,
 		exitCode: -1,
@@ -208,6 +214,11 @@ func (h *processHandle) reap() {
 	}
 	h.mu.Unlock()
 
+	// Wait has copied everything the service wrote; a last line without
+	// its newline is still in a stream's buffer.
+	for _, s := range h.streams {
+		_ = s.Flush() // the log is closing; a failed write has nowhere better to go
+	}
 	h.logFile.Close()
 	close(h.done)
 }

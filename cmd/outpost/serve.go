@@ -14,11 +14,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/charmbracelet/log"
+
 	"github.com/sroberts/outpost/internal/ai"
 	"github.com/sroberts/outpost/internal/auth"
 	"github.com/sroberts/outpost/internal/exposure"
 	"github.com/sroberts/outpost/internal/gateway"
 	"github.com/sroberts/outpost/internal/ipc"
+	"github.com/sroberts/outpost/internal/logging"
 	"github.com/sroberts/outpost/internal/mail"
 	"github.com/sroberts/outpost/internal/manifest"
 	"github.com/sroberts/outpost/internal/runtime"
@@ -47,9 +50,23 @@ func (a *app) cmdServe(args []string) error {
 		return err
 	}
 
+	// The daemon's own log: leveled and timestamped, in [log]'s format.
+	// Trouble goes to stderr, as it did, which launchd keeps in a file of
+	// its own. Every line is at least a warning there.
+	lg := logging.New(a.out, a.config.Log.LevelName(), a.config.Log.FormatName())
+	lgErr := logging.New(a.err, a.config.Log.LevelName(), a.config.Log.FormatName())
+	say := logging.Logf(lg)
+	sayErr := func(format string, v ...any) {
+		if msg := fmt.Sprintf(format, v...); logging.Classify(msg) == log.ErrorLevel {
+			lgErr.Error(msg)
+		} else {
+			lgErr.Warn(msg)
+		}
+	}
+
 	// Before anything else the daemon says, so ~/.outpost/logs opens by
 	// recording which build produced everything underneath it.
-	fmt.Fprintf(a.out, "outpost: %s starting\n", version.Short())
+	say("%s starting", version.Short())
 
 	// Everything up to the socket accepting connections runs under a
 	// deadline (#30). Its stage names are what the log reports if it fires.
@@ -70,7 +87,7 @@ func (a *app) cmdServe(args []string) error {
 		// inside the startup deadline.
 		if tailnetSet {
 			err = a.saveTailscale(*tailnet)
-			fmt.Fprintf(a.out, "outpost: new Outpost home at %s; Tailscale is %s, from --tailnet\n", a.home, onOff(*tailnet))
+			say("new Outpost home at %s; Tailscale is %s, from --tailnet", a.home, onOff(*tailnet))
 		} else {
 			err = a.firstRunTailscale(false)
 		}
@@ -112,7 +129,7 @@ func (a *app) cmdServe(args []string) error {
 
 	watch.at("opening the AI store")
 	aiService, err := ai.Open(aiOptions(a.config.AI, a.aiPath(), secretKeys{secretStore},
-		func(format string, v ...any) { fmt.Fprintf(a.out, format+"\n", v...) }))
+		logging.Logf(lg.WithPrefix("ai"))))
 	if err != nil {
 		return err
 	}
@@ -122,7 +139,7 @@ func (a *app) cmdServe(args []string) error {
 	// their AI requests fail until the daemon restarts on a free one.
 	aiLn, err := net.Listen("tcp", a.config.AI.ListenAddr())
 	if err != nil {
-		fmt.Fprintf(a.err, "outpost: AI endpoint: %v; apps can't reach their models until [ai] listen names a free port and the daemon restarts\n", err)
+		sayErr("AI endpoint: %v; apps can't reach their models until [ai] listen names a free port and the daemon restarts", err)
 		aiLn = nil
 	} else {
 		defer func() { _ = aiLn.Close() }() // Serve has stopped by then, or never started
@@ -130,7 +147,7 @@ func (a *app) cmdServe(args []string) error {
 
 	watch.at("opening the mail store")
 	mailService, err := mail.Open(mailOptions(a.config.Mail, a.mailPath(), secretKeys{secretStore},
-		func(format string, v ...any) { fmt.Fprintf(a.out, format+"\n", v...) }))
+		logging.Logf(lg.WithPrefix("mail"))))
 	if err != nil {
 		return err
 	}
@@ -139,7 +156,7 @@ func (a *app) cmdServe(args []string) error {
 	// reason a port already taken isn't fatal.
 	mailLn, err := net.Listen("tcp", a.config.Mail.ListenAddr())
 	if err != nil {
-		fmt.Fprintf(a.err, "outpost: mail endpoint: %v; apps can't reach their mail until [mail] listen names a free port and the daemon restarts\n", err)
+		sayErr("mail endpoint: %v; apps can't reach their mail until [mail] listen names a free port and the daemon restarts", err)
 		mailLn = nil
 	} else {
 		defer func() { _ = mailLn.Close() }() // Serve has stopped by then, or never started
@@ -184,7 +201,7 @@ func (a *app) cmdServe(args []string) error {
 			StateDir: a.tsnetDir(),
 			AuthKey:  authKey,
 			Verbose:  *tsVerbose,
-			Logf:     func(format string, v ...any) { fmt.Fprintf(a.out, format+"\n", v...) },
+			Logf:     logging.Logf(lg.WithPrefix("tailnet")),
 		}
 		// With the gateway on, a service's tailnet address goes through its
 		// login like every other way in, rather than straight to the service.
@@ -203,11 +220,11 @@ func (a *app) cmdServe(args []string) error {
 		tsRouter = r
 
 		if authKey == "" {
-			fmt.Fprintln(a.out, "outpost: no Tailscale auth key; a service's node that needs a login shows the URL in `outpost status <service>`")
-			fmt.Fprintln(a.out, "outpost: set one with `outpost config --authkey`, or run without Tailscale via `outpost config --tailscale off`")
+			say("no Tailscale auth key; a service's node that needs a login shows the URL in `outpost status <service>`")
+			say("set one with `outpost config --authkey`, or run without Tailscale via `outpost config --tailscale off`")
 		}
 	} else {
-		fmt.Fprintln(a.out, "outpost: Tailscale is disabled; services stay on loopback")
+		say("Tailscale is disabled; services stay on loopback")
 	}
 
 	watch.at("loading manifests")
@@ -228,7 +245,7 @@ func (a *app) cmdServe(args []string) error {
 		CheckRelease:    (&releaseChecks{a: a}).check,
 		Secrets:         withAI{secrets: secretStore, ai: aiService, mail: mailService},
 		Exposure:        exposureStore,
-		Logf:            func(format string, v ...any) { fmt.Fprintf(a.out, format+"\n", v...) },
+		Logf:            logging.Logf(lg.WithPrefix("supervisor")),
 	})
 	if err != nil {
 		return err
@@ -250,16 +267,14 @@ func (a *app) cmdServe(args []string) error {
 	// replacements, or every one of them restart-loops on a bound port.
 	watch.at("reclaiming orphans from a previous run")
 	if reclaimed, err := sup.ReclaimOrphans(context.Background()); err != nil {
-		fmt.Fprintf(a.err, "outpost: orphan reclaim: %v\n", err)
+		sayErr("orphan reclaim: %v", err)
 	} else if len(reclaimed) > 0 {
-		fmt.Fprintf(a.out, "outpost: reclaimed %d service(s) from a previous run: %s\n",
+		say("reclaimed %d service(s) from a previous run: %s",
 			len(reclaimed), strings.Join(reclaimed, ", "))
 	}
 
 	watch.at("opening the control socket")
-	srv, err := ipc.Listen(a.socketPath(), sup, func(format string, v ...any) {
-		fmt.Fprintf(a.err, format+"\n", v...)
-	})
+	srv, err := ipc.Listen(a.socketPath(), sup, logging.Logf(lgErr.WithPrefix("socket")))
 	if err != nil {
 		return err
 	}
@@ -268,6 +283,7 @@ func (a *app) cmdServe(args []string) error {
 	srv.UseSecrets(secretStore)
 	srv.UseAI(aiService)
 	srv.UseConfig(a.config.Fingerprint())
+	srv.UseLogs(a.logsDir())
 
 	var gw *gateway.Gateway
 	// The TUI shows usage as well as the gateway's catalog, so the sampler
@@ -283,7 +299,7 @@ func (a *app) cmdServe(args []string) error {
 			}
 			return gw.Traffic()
 		},
-		Logf: func(format string, v ...any) { fmt.Fprintf(a.out, format+"\n", v...) },
+		Logf: logging.Logf(lg.WithPrefix("stats")),
 	})
 	if a.config.Gateway.Enabled {
 		watch.at("starting the gateway")
@@ -292,7 +308,7 @@ func (a *app) cmdServe(args []string) error {
 			Auth:     authStore,
 			Services: sup,
 			Events:   sup,
-			Logf:     func(format string, v ...any) { fmt.Fprintf(a.out, format+"\n", v...) },
+			Logf:     logging.Logf(lg.WithPrefix("gateway")),
 
 			TailnetHosts: tailnetHosts,
 			PortalNode:   portalNodeStatus(tsRouter),
@@ -305,6 +321,7 @@ func (a *app) cmdServe(args []string) error {
 			Mail:         mailService,
 			Control:      sup,
 			Stats:        sampler,
+			Logs:         logsSource{dir: a.logsDir(), services: sup},
 			NodeSecret:   nodeSecret,
 		})
 		if err != nil {
@@ -319,23 +336,23 @@ func (a *app) cmdServe(args []string) error {
 		// not by the reconcile loop. Non-blocking, like a service's.
 		if name := a.config.Gateway.TailscaleName; name != "" {
 			if tsRouter == nil {
-				fmt.Fprintf(a.out, "outpost: [gateway] tailscale_name = %q, but this daemon runs without Tailscale, so the portal stays off the tailnet\n", name)
+				say("[gateway] tailscale_name = %q, but this daemon runs without Tailscale, so the portal stays off the tailnet", name)
 			} else if err := tsRouter.AttachPortal(context.Background(), name, gw.PortalHost()); err != nil {
-				fmt.Fprintf(a.err, "outpost: portal: %v\n", err)
+				sayErr("portal: %v", err)
 			}
 		}
 	}
 
 	if users, err := authStore.ListUsers(); err != nil {
-		fmt.Fprintf(a.err, "outpost: auth store: %v\n", err)
+		sayErr("auth store: %v", err)
 	} else if len(users) == 0 {
 		if gw != nil && gw.SetupURL() != "" {
 			// The link carries a secret, but only to this log, and it's
 			// dead once an admin exists or the daemon restarts.
-			fmt.Fprintf(a.out, "outpost: no users yet; create the first admin at %s\n", gw.SetupURL())
-			fmt.Fprintln(a.out, `outpost: or run "outpost user add <name> --admin"`)
+			say("no users yet; create the first admin at %s", gw.SetupURL())
+			say(`or run "outpost user add <name> --admin"`)
 		} else {
-			fmt.Fprintln(a.out, `outpost: no users yet; create the first admin with "outpost user add <name> --admin"`)
+			say(`no users yet; create the first admin with "outpost user add <name> --admin"`)
 		}
 	}
 
@@ -347,8 +364,8 @@ func (a *app) cmdServe(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	fmt.Fprintf(a.out, "outpost: supervising %d service(s) from %s\n", len(sup.Services()), a.servicesDir())
-	fmt.Fprintf(a.out, "outpost: listening on %s\n", srv.Addr())
+	say("supervising %d service(s) from %s", len(sup.Services()), a.servicesDir())
+	say("listening on %s", srv.Addr())
 	watch.finished()
 
 	// Registered before Serve, since the stats command starts it. The
@@ -367,17 +384,17 @@ func (a *app) cmdServe(args []string) error {
 
 	gwDone := make(chan struct{})
 	if gw != nil {
-		fmt.Fprintf(a.out, "outpost: gateway at %s, listening on %s\n", gw.PortalURL(), gw.Addr())
+		say("gateway at %s, listening on %s", gw.PortalURL(), gw.Addr())
 		// Ends with ctx, as Serve does; nothing it serves outlives the stores.
 		go func() {
 			if err := gw.ServePublic(ctx, publicLn); err != nil {
-				fmt.Fprintf(a.err, "outpost: gateway public listener: %v\n", err)
+				sayErr("gateway public listener: %v", err)
 			}
 		}()
 		go func() {
 			defer close(gwDone)
 			if err := gw.Serve(ctx); err != nil {
-				fmt.Fprintf(a.err, "outpost: gateway: %v\n", err)
+				sayErr("gateway: %v", err)
 			}
 		}()
 	} else {
@@ -386,11 +403,11 @@ func (a *app) cmdServe(args []string) error {
 
 	aiDone := make(chan struct{})
 	if aiLn != nil {
-		fmt.Fprintf(a.out, "outpost: AI endpoint at %s, models from Ollama at %s\n", aiService.URL(), aiService.OllamaURL())
+		say("AI endpoint at %s, models from Ollama at %s", aiService.URL(), aiService.OllamaURL())
 		go func() {
 			defer close(aiDone)
 			if err := aiService.Serve(ctx, aiLn); err != nil {
-				fmt.Fprintf(a.err, "outpost: AI endpoint: %v\n", err)
+				sayErr("AI endpoint: %v", err)
 			}
 		}()
 		// Said once at start, off the startup path: a model config.toml
@@ -404,11 +421,11 @@ func (a *app) cmdServe(args []string) error {
 	// The endpoint reads and writes mail.db too, so it is waited for as well.
 	mailServeDone := make(chan struct{})
 	if mailLn != nil {
-		fmt.Fprintf(a.out, "outpost: mail endpoint at %s\n", mailService.URL())
+		say("mail endpoint at %s", mailService.URL())
 		go func() {
 			defer close(mailServeDone)
 			if err := mailService.Serve(ctx, mailLn); err != nil {
-				fmt.Fprintf(a.err, "outpost: mail endpoint: %v\n", err)
+				sayErr("mail endpoint: %v", err)
 			}
 		}()
 	} else {
@@ -437,14 +454,14 @@ func (a *app) cmdServe(args []string) error {
 	usage.stop()
 	srv.Close()
 	if err := <-serveErr; err != nil {
-		fmt.Fprintf(a.err, "outpost: socket server: %v\n", err)
+		sayErr("socket server: %v", err)
 	}
 	<-gwDone
 	<-aiDone
 	<-mailDone
 	<-mailServeDone
 
-	fmt.Fprintln(a.out, "outpost: stopped")
+	say("stopped")
 	if runErr != nil && ctx.Err() == nil {
 		return runErr
 	}

@@ -5,8 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -269,103 +267,6 @@ func availableLine(st supervisor.ServiceStatus) string {
 		line += "; the latest check failed: " + st.ReleaseCheckError
 	}
 	return line
-}
-
-// cmdLogs shows or follows a service's log file.
-//
-// Unlike the control commands this reads the log file directly: the file is
-// local, and streaming a follow over the socket would need a framed protocol
-// for no practical gain.
-func (a *app) cmdLogs(args []string) error {
-	fs := flag.NewFlagSet("logs", flag.ContinueOnError)
-	fs.SetOutput(a.err)
-	follow := fs.Bool("f", false, "follow the log as it grows")
-	events := fs.Bool("events", false, "show the activity feed instead of the log file")
-	limit := fs.Int("n", 20, "number of events to show with --events")
-	name, err := parseServiceCommand(fs, "logs", args)
-	if err != nil {
-		return err
-	}
-
-	// The activity feed lives in the state store and comes from the daemon,
-	// unlike the log file, which is read directly (§8).
-	if *events {
-		return a.showEvents(name, *limit)
-	}
-
-	path := filepath.Join(a.logsDir(), name+".log")
-	f, err := os.Open(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("no logs for %s yet (expected %s)", name, path)
-		}
-		return err
-	}
-	defer f.Close()
-
-	if _, err := io.Copy(a.out, f); err != nil {
-		return err
-	}
-	if !*follow {
-		return nil
-	}
-	return a.followLog(f, path)
-}
-
-// showEvents prints a service's recent lifecycle events.
-func (a *app) showEvents(name string, limit int) error {
-	c := a.client()
-	if !c.Available() {
-		return errNoDaemon()
-	}
-	events, err := c.Events(name, limit)
-	if err != nil {
-		return err
-	}
-	if len(events) == 0 {
-		fmt.Fprintf(a.out, "no recorded activity for %s\n", name)
-		return nil
-	}
-	for i := len(events) - 1; i >= 0; i-- {
-		e := events[i]
-		fmt.Fprintf(a.out, "%s  %-12s %s\n",
-			e.At.Format("2006-01-02 15:04:05"), e.Kind, e.Message)
-	}
-	return nil
-}
-
-// followLog polls the open file for growth, reopening it if it is rotated or
-// replaced underneath us.
-func (a *app) followLog(f *os.File, path string) error {
-	const poll = 300 * time.Millisecond
-	current := f
-
-	for {
-		time.Sleep(poll)
-
-		if _, err := io.Copy(a.out, current); err != nil {
-			return err
-		}
-
-		onDisk, err := os.Stat(path)
-		if err != nil {
-			continue
-		}
-		here, err := current.Stat()
-		if err != nil {
-			continue
-		}
-		if !os.SameFile(onDisk, here) || onDisk.Size() < here.Size() {
-			reopened, err := os.Open(path)
-			if err != nil {
-				continue
-			}
-			if current != f {
-				current.Close()
-			}
-			current = reopened
-		}
-	}
 }
 
 // cmdStart, cmdStop and cmdRestart act on the running daemon.

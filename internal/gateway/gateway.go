@@ -70,6 +70,10 @@ type Options struct {
 	Control Control
 	// Stats, when set, is where each app's usage is read from.
 	Stats Stats
+	// Logs, when set, gives admins a page for reading services' output, the
+	// same as JSON at /.outpost/api/logs, and Outpost's own MCP server at
+	// /.outpost/mcp.
+	Logs LogSource
 	// PortalNode, when set, reports the portal's own tailnet node, for the
 	// gateway's status. It reports false while there is none.
 	PortalNode func() (PortalNode, bool)
@@ -105,6 +109,7 @@ type Gateway struct {
 	claim   sync.Mutex
 	stats   Stats
 	traffic trafficMeter
+	logs    LogSource
 
 	scheme       string // public_url's scheme
 	portalHost   string // public_url's host name, lower case
@@ -185,6 +190,7 @@ func New(opts Options) (*Gateway, error) {
 		mail:         opts.Mail,
 		control:      opts.Control,
 		stats:        opts.Stats,
+		logs:         opts.Logs,
 		scheme:       u.Scheme,
 		portalHost:   strings.ToLower(u.Hostname()),
 		portalOrigin: u.Scheme + "://" + strings.ToLower(u.Host),
@@ -316,6 +322,16 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// endpoint, which takes nothing else.
 		if strings.HasPrefix(r.URL.Path, mcpPrefix) {
 			g.serveMCP(w, r)
+			return
+		}
+		// Outpost's own log API and MCP server, which take an admin's
+		// token, so they come before tokens are refused too.
+		if isOwnAPIPath(r.URL.Path) {
+			if r.URL.Path == ownMCPPath {
+				g.serveOwnMCP(w, r)
+			} else {
+				g.serveLogsAPI(w, r)
+			}
 			return
 		}
 		// The contract and this server's description, for whoever is

@@ -11,6 +11,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/sroberts/outpost/internal/applog"
 	"github.com/sroberts/outpost/internal/config"
 	"github.com/sroberts/outpost/internal/ipc"
 	"github.com/sroberts/outpost/internal/tui"
@@ -162,6 +163,11 @@ func (a *app) tailLog(service string, n int) (string, error) {
 	}
 	if len(lines) > n {
 		lines = lines[len(lines)-n:]
+	}
+	// Stored lines carry when they were written and on which stream; the
+	// dashboard shows them as `outpost logs` does, with the level tagged.
+	for i, l := range lines {
+		lines[i] = applog.Text(applog.Parse(l))
 	}
 	return strings.Join(lines, "\n"), nil
 }

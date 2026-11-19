@@ -376,17 +376,56 @@ Restarts must be routine and non-destructive, never something requiring repair.
 ## 7. Log to stdout and stderr
 
 Outpost captures both streams into `~/.outpost/logs/<service>.log`, rotating at
-10 MiB and keeping 3 previous files.
+10 MiB and keeping 3 previous files. Each line is stored as you wrote it, after
+the UTC time Outpost received it and the stream it came on:
+
+```
+2026-11-18T16:16:38.123456Z out listening on :8080
+2026-11-18T16:16:39.004211Z err {"level":"error","msg":"db locked","table":"users"}
+```
+
+A line is stored when its newline arrives, or at 64 KiB if it is longer than
+that, or when the process exits without finishing it. You don't need to
+timestamp your own lines; Outpost's time is the one every view shows.
+
+What you write is shown, filtered and searched in `outpost logs`, the
+dashboard's logs view, the portal's Logs page, the portal's JSON API
+(`/.outpost/api/logs`) and Outpost's MCP server (`/.outpost/mcp`), all of
+which are for admins only.
 
 - **Write to stdout/stderr, not to your own log file.** A file you manage
-  yourself is not captured, not rotated, and not visible to `outpost logs`.
+  yourself is not captured, not rotated, and not visible to any of those.
 - **Do not buffer heavily.** A log line that sits in a buffer for a minute is
   useless while diagnosing a crash loop. Line-buffered or unbuffered.
+- **One event per line.** A stack trace or a pretty-printed object spans
+  lines, and each is then its own entry with no level of its own.
+- **Say each line's level, so it can be filtered.** Outpost reads a level, and
+  a message, from any of these, and from nothing else:
+  - **JSON**, one object per line, with the level under `level`, `lvl`,
+    `severity`, `loglevel` or `log.level`, and the message under `msg`,
+    `message` or `event`. The object's other keys are kept as fields and shown
+    beside the message. This is the recommended form:
+    `{"level":"warn","msg":"slow query","ms":812}`
+  - **logfmt**, with a `level=` (or `lvl=`, `severity=`) key and the message
+    under `msg=`: `level=warn msg="slow query" ms=812`
+  - **A level word** at the start of the line, after an optional timestamp,
+    in capitals or brackets: `ERROR could not open db`,
+    `2026/11/18 12:00:00 [warn] cache cold`. A lower-case word in prose
+    ("error handling improved") is not taken as a level.
+
+  The levels are `debug` (also `trace`), `info` (also `notice`), `warn`
+  (`warning`) and `error` (also `fatal`, `panic`, `critical`). A line with no
+  level Outpost can read is shown without one; a filter for warnings or errors
+  leaves it out, so an app that never says its level can't be filtered.
+- **Use stderr for trouble.** A line with no level that came on stderr is
+  marked as such, which is the only hint there is.
 - **No ANSI colour, no progress bars, no cursor control.** The destination is a
   file, not a terminal. Detect that you are not on a TTY, or simply never emit
-  escape sequences.
-- Structured output (one JSON object per line) is a good default, but Outpost
-  does not parse your logs and does not care either way.
+  escape sequences. Colour codes are stripped before a level is looked for,
+  but they still clutter the file.
+- **Never log a secret.** Logs are readable by every admin, through the
+  portal and the API as well as on the host, and are kept until they rotate
+  out. Tokens, passwords and keys don't belong in them.
 
 ---
 
@@ -472,7 +511,7 @@ Do not build expecting any of this:
 | Scheduling or cron | Not yet decided (`spec.md` open question 2) |
 | Multiple instances, scaling, load balancing | Exactly one process per declared service |
 | Config file management | Read env and flags |
-| Log parsing, metrics, tracing | Logs are captured verbatim and nothing more |
+| Metrics, tracing, log shipping | Lines are captured, stamped and read for a level; nothing is sent anywhere |
 
 Outpost supervises **native processes only**. There is no container runtime and
 none is planned; `runtime` accepts only `"process"`.
@@ -546,7 +585,10 @@ A service conforms when all of these are true.
 **Logging**
 - [ ] Logs to stdout and stderr only
 - [ ] Does not buffer log output for long periods
+- [ ] Writes one event per line, saying its level (JSON with `level` and `msg` is best)
+- [ ] Puts trouble on stderr
 - [ ] Emits no ANSI escape sequences
+- [ ] Never logs a token, password or key
 
 ---
 
@@ -563,7 +605,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -576,21 +618,30 @@ import (
 )
 
 func main() {
+	// One JSON object per line, unbuffered and uncoloured, which Outpost
+	// stamps with the time and reads the level and message from. The time
+	// is Outpost's to add, so the handler leaves its own out.
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
+			if a.Key == slog.TimeKey {
+				return slog.Attr{}
+			}
+			return a
+		},
+	})))
+
 	// Accept the port from a flag, falling back to OUTPOST_PORT.
 	port := flag.Int("port", envInt("OUTPOST_PORT", 0), "TCP port to listen on")
 	flag.Parse()
 	if *port == 0 {
-		log.Fatal("no port: pass --port or set OUTPOST_PORT")
+		fatal("no port: pass --port or set OUTPOST_PORT")
 	}
 
 	// Storage is created 0700 before we start, so it always exists.
 	storage := os.Getenv("OUTPOST_STORAGE_DIR")
 	if storage == "" {
-		log.Fatal("OUTPOST_STORAGE_DIR is not set")
+		fatal("OUTPOST_STORAGE_DIR is not set")
 	}
-
-	// Unbuffered, no colour: this goes straight to a log file.
-	log.SetFlags(log.LstdFlags | log.LUTC)
 
 	var ready atomic.Bool
 
@@ -610,16 +661,16 @@ func main() {
 	// Loopback only: Tailscale, through the gateway, is the only way in.
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", *port))
 	if err != nil {
-		log.Fatalf("listen: %v", err) // non-zero exit: Outpost will restart us
+		fatal("listen", "err", err) // non-zero exit: Outpost will restart us
 	}
 	srv := &http.Server{Handler: mux}
 
 	go func() {
 		if err := initialise(storage); err != nil {
-			log.Fatalf("initialise: %v", err) // non-zero exit
+			fatal("initialise", "err", err)
 		}
 		ready.Store(true) // ends the startup grace window
-		log.Printf("ready on 127.0.0.1:%d, storage=%s", *port, storage)
+		slog.Info("ready", "addr", ln.Addr().String(), "storage", storage)
 	}()
 
 	// SIGTERM is a stop request. We have 10 seconds before SIGKILL.
@@ -628,20 +679,26 @@ func main() {
 
 	go func() {
 		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("serve: %v", err) // non-zero exit
+			fatal("serve", "err", err)
 		}
 	}()
 
 	<-ctx.Done()
-	log.Println("shutting down")
+	slog.Info("shutting down")
 
 	// Leave headroom inside Outpost's 10s grace.
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Printf("shutdown: %v", err)
+		slog.Warn("shutdown", "err", err)
 	}
-	log.Println("stopped")
+	slog.Info("stopped")
+}
+
+// fatal logs at error level and exits non-zero, which Outpost restarts.
+func fatal(msg string, args ...any) {
+	slog.Error(msg, args...)
+	os.Exit(1)
 }
 
 // initialise does the slow startup work: migrations, indexes, warmup.

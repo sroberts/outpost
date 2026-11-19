@@ -82,6 +82,13 @@ func (g *Gateway) servePortal(w http.ResponseWriter, r *http.Request) {
 		default:
 			g.secretsPage(w, r)
 		}
+	case "/logs":
+		if g.logs == nil {
+			g.message(w, r, http.StatusNotFound, "Nothing here",
+				"There's no page at this address.", g.portalLink(), "Back to apps")
+			return
+		}
+		g.logsPage(w, r)
 	case "/settings":
 		// An app's own settings are set from its Manage menu; this takes
 		// their forms.
