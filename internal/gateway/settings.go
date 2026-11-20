@@ -530,13 +530,7 @@ func (g *Gateway) renderHome(w http.ResponseWriter, r *http.Request, u auth.User
 	if u.Admin && g.updater != nil {
 		g.checkIfStale()
 		d.Waiting = g.waiting()
-		d.UpdatesLink = true
 	}
-	d.AddLink = u.Admin && g.adder != nil
-	d.SecretsLink = u.Admin && g.secrets != nil
-	d.AILink = u.Admin && g.ai != nil
-	d.MailLink = u.Admin && g.mail != nil
-	d.LogsLink = u.Admin && g.logs != nil
 	if u.Admin && g.control != nil {
 		d.Poll = g.manage(d.Stations)
 	}

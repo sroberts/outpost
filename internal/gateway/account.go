@@ -28,10 +28,6 @@ func (g *Gateway) accountPage(w http.ResponseWriter, r *http.Request) {
 
 func (g *Gateway) accountData(r *http.Request, u auth.User) pageData {
 	return pageData{
-		UpdatesLink: u.Admin && g.updater != nil,
-		AddLink:     u.Admin && g.adder != nil,
-		SecretsLink: u.Admin && g.secrets != nil,
-		LogsLink:    u.Admin && g.logs != nil,
 		Title:       "Account",
 		Who:         displayName(u),
 		Username:    u.Username,
