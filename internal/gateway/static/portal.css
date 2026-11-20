@@ -217,6 +217,20 @@ h2 { font-size: 19px; font-weight: 680; }
   max-width: calc(var(--measure) + 2 * var(--gutter)); margin: 0 auto; padding: 0 var(--gutter) 1.5rem;
   font-size: 12px; color: var(--dim); overflow-wrap: anywhere;
 }
+/* An admin's places: the same list at the foot of every page, after the
+   page's own work, so the catalog still leads with the line and any page
+   reaches any other in one tap. The page you're on is named, not linked. */
+.places { max-width: calc(var(--measure) + 2 * var(--gutter)); margin: 0 auto; padding: 0 var(--gutter) 0.75rem; }
+.places ul {
+  list-style: none; margin: 0; padding: 0.5rem 0 0; border-top: 1px solid var(--rule);
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr)); gap: 0 1rem;
+}
+.places a {
+  display: inline-flex; align-items: center; min-height: 44px;
+  font-size: 14px; color: var(--dim);
+}
+.places a:hover { color: var(--porcelain); }
+.places a[aria-current="page"] { color: var(--porcelain); font-weight: 600; text-decoration: none; }
 .panel > p { margin: 0.6rem 0 0; }
 .door .hub + .panel { margin-top: 1.5rem; }
 form { display: grid; gap: 1rem; margin-top: 1.1rem; }
@@ -636,6 +650,8 @@ label.check input {
 .page .panel.fold { margin-top: 1rem; padding-top: 0.5rem; }
 .ref[open] { padding-bottom: 0.5rem; }
 .ref > .hint { margin: 0.6rem 0 0; }
+/* Reference read once, in the hint's voice wherever it's folded. */
+.ref .set-list p { margin: 0; font-size: 14px; color: var(--dim); }
 .ai .calls { list-style: none; margin: 0.75rem 0 0; padding: 0; display: grid; gap: 0.75rem; }
 .ai .calls li { display: grid; gap: 2px; font-size: 14px; color: var(--dim); }
 .ai .calls .cmd { overflow-wrap: anywhere; }
@@ -757,6 +773,10 @@ label.check input {
 .log-more-fields .log-q { grid-column: 1 / -1; }
 .log-count { margin: 1rem 0 0; }
 .log-foot { margin: 1rem 0 0; }
+/* Small links in a line of words, each reaching past the 44px floor as the
+   tally's do, without pushing the lines apart. */
+.log-count a, .log-foot a { position: relative; }
+.log-count a::before, .log-foot a::before { content: ""; position: absolute; inset: -14px -6px; }
 .log-lines { list-style: none; margin: 0.6rem 0 0; padding: 0; }
 .log-line { padding: 0.4rem 0; border-top: 1px solid var(--rule); }
 .log-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.6rem; font-size: 12px; color: var(--dim); }
@@ -776,7 +796,7 @@ label.check input {
 .log-stream { color: var(--dim); }
 @media (min-width: 42rem) {
   /* The rail widens with it, so the host and the page share a left edge. */
-  .page.logs, body:has(.page.logs) :is(.rail-in, .foot) { max-width: calc(72rem + 2 * var(--gutter)); }
+  .page.logs, body:has(.page.logs) :is(.rail-in, .places, .foot) { max-width: calc(72rem + 2 * var(--gutter)); }
   .log-filter { grid-template-columns: repeat(2, minmax(0, 15rem)) auto; justify-content: start; }
   .log-more-fields { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 2fr); }
   .log-more-fields .log-q { grid-column: auto; }

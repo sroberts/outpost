@@ -2,12 +2,14 @@ package gateway
 
 import (
 	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
 	"html/template"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/sroberts/outpost/internal/version"
 )
@@ -55,8 +57,48 @@ func versioned(urlPath, file string) string {
 	if err != nil {
 		return urlPath
 	}
+	return urlPath + "?v=" + assetHash(body)
+}
+
+func assetHash(body []byte) string {
 	sum := sha256.Sum256(body)
-	return urlPath + "?v=" + hex.EncodeToString(sum[:6])
+	return hex.EncodeToString(sum[:6])
+}
+
+// staticAsset is an embedded file as it's served: its hash, and a gzipped
+// copy made once, since the files never change while the daemon runs.
+type staticAsset struct {
+	body, gz []byte
+	hash     string
+}
+
+var (
+	staticMu    sync.Mutex
+	staticCache = map[string]*staticAsset{}
+)
+
+func loadAsset(file string) (*staticAsset, error) {
+	staticMu.Lock()
+	defer staticMu.Unlock()
+	if a, ok := staticCache[file]; ok {
+		return a, nil
+	}
+	body, err := assets.ReadFile(file)
+	if err != nil {
+		return nil, err
+	}
+	a := &staticAsset{body: body, hash: assetHash(body)}
+	// The image is compressed already; the text is mostly repetition, and a
+	// phone on a slow link gets a quarter of it.
+	if !strings.HasSuffix(file, ".webp") {
+		var buf bytes.Buffer
+		zw, _ := gzip.NewWriterLevel(&buf, gzip.BestCompression) // a valid level can't fail
+		if _, err := zw.Write(body); err == nil && zw.Close() == nil && buf.Len() < len(body) {
+			a.gz = buf.Bytes()
+		}
+	}
+	staticCache[file] = a
+	return a, nil
 }
 
 func loadPages() (pages, error) {
@@ -75,6 +117,7 @@ func loadPages() (pages, error) {
 // pageData is everything any page shows.
 type pageData struct {
 	Title    string
+	Page     string // the template it's drawn with, so the admin's places can mark this one
 	Error    string
 	Notice   string // a quiet confirmation, such as being signed out
 	App      string
@@ -149,6 +192,17 @@ func (g *Gateway) render(w http.ResponseWriter, r *http.Request, status int, nam
 	d.Host = strings.TrimPrefix(strings.TrimPrefix(g.portalOrigin, "https://"), "http://")
 	d.Home = g.portalLink()
 	d.Version = version.Get().Version
+	d.Page = name
+	// Every page an admin sees links to the same places, from the same list
+	// at its foot, so getting from one to another never goes through home.
+	if d.Admin && d.Who != "" {
+		d.UpdatesLink = g.updater != nil
+		d.AddLink = g.adder != nil
+		d.SecretsLink = g.secrets != nil
+		d.AILink = g.ai != nil
+		d.MailLink = g.mail != nil
+		d.LogsLink = g.logs != nil
+	}
 	var buf bytes.Buffer
 	if err := g.pages[name].ExecuteTemplate(&buf, "layout", d); err != nil {
 		g.logf("gateway: render %s: %v", name, err)
@@ -177,16 +231,8 @@ func (g *Gateway) pageHeaders(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (g *Gateway) serveCSS(w http.ResponseWriter, _ *http.Request) {
-	body, err := assets.ReadFile("static/portal.css")
-	if err != nil {
-		http.Error(w, "not found", http.StatusNotFound)
-		return
-	}
-	w.Header().Set("Content-Type", "text/css; charset=utf-8")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Cache-Control", "public, max-age=3600")
-	_, _ = w.Write(body) // a client that hung up has nothing to be told
+func (g *Gateway) serveCSS(w http.ResponseWriter, r *http.Request) {
+	g.serveAsset(w, r, "static/portal.css", "text/css; charset=utf-8")
 }
 
 func (g *Gateway) serveJS(w http.ResponseWriter, r *http.Request) {
@@ -201,16 +247,47 @@ func (g *Gateway) serveArt(w http.ResponseWriter, r *http.Request) {
 	g.serveAsset(w, r, "static/lighthouse.webp", "image/webp")
 }
 
-func (g *Gateway) serveAsset(w http.ResponseWriter, _ *http.Request, file, contentType string) {
-	body, err := assets.ReadFile(file)
+func (g *Gateway) serveAsset(w http.ResponseWriter, r *http.Request, file, contentType string) {
+	a, err := loadAsset(file)
 	if err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Cache-Control", "public, max-age=3600")
+	h := w.Header()
+	h.Set("Content-Type", contentType)
+	h.Set("X-Content-Type-Options", "nosniff")
+	// Pages ask for each file by its hash, so a URL carrying the current
+	// one names these bytes for good, and a phone needn't ask again until an
+	// upgrade changes the hash. Anything else, an old hash or none, is kept
+	// an hour, as before.
+	if r.URL.Query().Get("v") == a.hash {
+		h.Set("Cache-Control", "public, max-age=31536000, immutable")
+	} else {
+		h.Set("Cache-Control", "public, max-age=3600")
+	}
+	body := a.body
+	if a.gz != nil {
+		h.Add("Vary", "Accept-Encoding")
+		if acceptsGzip(r) {
+			h.Set("Content-Encoding", "gzip")
+			body = a.gz
+		}
+	}
 	_, _ = w.Write(body) // a client that hung up has nothing to be told
+}
+
+// acceptsGzip is a loose reading of Accept-Encoding: any mention of gzip
+// that isn't explicitly refused with q=0.
+func acceptsGzip(r *http.Request) bool {
+	for _, part := range strings.Split(r.Header.Get("Accept-Encoding"), ",") {
+		name, params, _ := strings.Cut(strings.TrimSpace(part), ";")
+		if !strings.EqualFold(strings.TrimSpace(name), "gzip") {
+			continue
+		}
+		q := strings.ReplaceAll(strings.TrimSpace(params), " ", "")
+		return q != "q=0" && q != "q=0.0" && q != "q=0.00" && q != "q=0.000"
+	}
+	return false
 }
 
 // message shows a one-line explanation, with an optional way on.
