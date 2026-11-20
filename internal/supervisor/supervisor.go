@@ -154,6 +154,10 @@ type Supervisor struct {
 	// the loop exits so pending callers fail fast instead of hanging.
 	cmds    chan command
 	stopped chan struct{}
+	// exits names a service whose instance has just exited, so Run reaps it
+	// at once rather than on the next tick: until then the store still says
+	// running, and a service crashing on start reads as up in the meantime.
+	exits chan string
 	// loopRunning is true while Run is draining commands, so the exported API
 	// knows whether to hand work to the loop or run it inline.
 	loopRunning atomic.Bool
@@ -250,6 +254,7 @@ func New(opts Options) (*Supervisor, error) {
 		tracked:             map[string]*svcState{},
 		cmds:                make(chan command, 64),
 		stopped:             make(chan struct{}),
+		exits:               make(chan string, 64),
 		heartbeat:           newHeartbeat(heartbeatPeriod, stallThreshold),
 		checkRelease:        opts.CheckRelease,
 		releases:            map[string]*knownRelease{},
@@ -516,10 +521,33 @@ func (s *Supervisor) Run(ctx context.Context) error {
 				value, cmdErr := cmd.fn(s)
 				cmd.resp <- commandResult{value: value, err: cmdErr}
 			})
+		case name := <-s.exits:
+			s.withLoopLock(func() { s.reapExited(name) })
 		case <-ticker.C:
 			s.withLoopLock(func() { s.reloadAndTick(ctx) })
 		}
 	}
+}
+
+// watchExit tells the loop when h exits. The send never blocks: with no
+// loop draining exits, or the buffer full, the next tick reaps it as before.
+func (s *Supervisor) watchExit(name string, h runtime.Handle) {
+	<-h.Done()
+	select {
+	case s.exits <- name:
+	default:
+	}
+}
+
+// reapExited applies the restart policy to a service whose instance has
+// exited, ahead of the tick. A stale name is harmless: an instance stopped on
+// purpose has already been let go, and a newer one hasn't exited.
+func (s *Supervisor) reapExited(name string) {
+	st, ok := s.tracked[name]
+	if !ok || st.handle == nil || !exited(st.handle) {
+		return
+	}
+	s.handleExit(st)
 }
 
 // withLoopLock runs fn holding the lock that keeps inline API calls out.
@@ -791,6 +819,7 @@ func (s *Supervisor) maybeStart(ctx context.Context, st *svcState) {
 	}
 
 	st.handle = h
+	go s.watchExit(st.svc.Name, h)
 	st.secretRev = rev
 	st.reaped = false
 	st.status = runtime.StatusRunning
