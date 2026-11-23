@@ -137,47 +137,6 @@ func sparkline(vals []float64, width int, ceil float64) string {
 	return b.String()
 }
 
-// chart draws vals as a bar graph height rows tall and width cells wide,
-// top row first, each cell resolving an eighth of a row.
-func chart(vals []float64, width, height int, ceil float64) []string {
-	if width <= 0 || height <= 0 {
-		return nil
-	}
-	pts := resample(vals, width)
-	if ceil <= 0 {
-		ceil = ceiling(pts)
-	}
-	rows := make([]strings.Builder, height)
-	for _, v := range pts {
-		level := 0
-		if !math.IsNaN(v) && ceil > 0 {
-			level = int(math.Round(v / ceil * float64(height*8)))
-		}
-		for r := range rows {
-			fill := level - (height-1-r)*8
-			switch {
-			case math.IsNaN(v):
-				rows[r].WriteRune(' ')
-			case fill >= 8:
-				rows[r].WriteRune('█')
-			case fill > 0:
-				rows[r].WriteRune(sparkRunes[fill-1])
-			case r == height-1:
-				// A known zero still shows on the baseline, so idle and
-				// unknown look different.
-				rows[r].WriteRune('▁')
-			default:
-				rows[r].WriteRune(' ')
-			}
-		}
-	}
-	out := make([]string, height)
-	for i := range rows {
-		out[i] = rows[i].String()
-	}
-	return out
-}
-
 // fmtCPU shows cores as a percent of one, as top does.
 func fmtCPU(cores float64) string {
 	if math.IsNaN(cores) {
@@ -251,7 +210,7 @@ func (m Model) graphLines(name string, width int, tall int) []string {
 	}
 	draw := func(k, now string, vals []float64, peak string) {
 		if tall > 1 {
-			rows := chart(vals, graphW, tall, 0)
+			rows := barChart(vals, graphW, tall, graphStyle)
 			for i, r := range rows {
 				head := strings.Repeat(" ", 16)
 				switch i {
@@ -264,7 +223,7 @@ func (m Model) graphLines(name string, width int, tall int) []string {
 					// row of the chart out of line.
 					head = labelStyle.Render(pad("peak", 6) + pad(peak, 10))
 				}
-				out = append(out, head+"  "+graphStyle.Render(r))
+				out = append(out, head+"  "+r)
 			}
 			return
 		}
