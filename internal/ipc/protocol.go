@@ -19,6 +19,7 @@ import (
 	"github.com/sroberts/outpost/internal/auth"
 	"github.com/sroberts/outpost/internal/backup"
 	"github.com/sroberts/outpost/internal/gateway"
+	"github.com/sroberts/outpost/internal/mail"
 	"github.com/sroberts/outpost/internal/supervisor"
 )
 
@@ -79,6 +80,19 @@ const (
 	CmdAIApps       = "ai.apps"
 	CmdAIAppsReset  = "ai.apps-reset"
 	CmdAIKey        = "ai.key"
+
+	CmdMailStatus      = "mail.status"
+	CmdMailAccount     = "mail.account"
+	CmdMailCheck       = "mail.check"
+	CmdMailAliasAdd    = "mail.alias-add"
+	CmdMailAliasRemove = "mail.alias-rm"
+	CmdMailSend        = "mail.send"
+	CmdMailRegenerate  = "mail.regenerate"
+
+	CmdExposureSet      = "exposure.set"
+	CmdExposureReset    = "exposure.reset"
+	CmdExposureMCP      = "exposure.mcp"
+	CmdExposureMCPReset = "exposure.mcp-reset"
 )
 
 // Timeouts. Most commands are near-instant queries against the supervisor's
@@ -129,6 +143,10 @@ type Request struct {
 	AI *AIRequest `json:"ai,omitempty"`
 	// Logs carries the logs command's arguments.
 	Logs *LogsRequest `json:"logs,omitempty"`
+	// Mail carries the mail.* commands' arguments.
+	Mail *MailRequest `json:"mail,omitempty"`
+	// Exposure carries the exposure.* commands' arguments.
+	Exposure *ExposureRequest `json:"exposure,omitempty"`
 }
 
 // UserRequest is the argument to a user.* command. Password is in clear: it
@@ -223,6 +241,9 @@ type Response struct {
 	Usage map[string]UsageInfo `json:"usage,omitempty"`
 	// Logs is the logs command's result, oldest first.
 	Logs []applog.Record `json:"logs,omitempty"`
+	// Mail is mail.status's result; MailRoute the address mail.alias-add made.
+	Mail      *MailOverview `json:"mail,omitempty"`
+	MailRoute *mail.Route   `json:"mail_route,omitempty"`
 }
 
 // errorResponse builds a failure reply.

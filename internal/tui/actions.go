@@ -159,7 +159,7 @@ func plainText(s string) string {
 func actions() []action {
 	svcField := text("service", "service", "name")
 	userField := text("user", "user", "username")
-	return []action{
+	return append([]action{
 		// --- Services ---
 		{id: "start", group: "Services", title: "start", about: "start a stopped service",
 			fields: []formField{svcField}, prefill: selectedService,
@@ -596,7 +596,7 @@ func actions() []action {
 			run: func(m Model, v vals) (Model, tea.Cmd) {
 				return busy(m, "updating Outpost", m.inTerminal("update --self", "update", "--self"))
 			}, covers: []string{"cli:update"}},
-	}
+	}, append(mailActions(), exposureActions()...)...)
 }
 
 // globalOr turns the CLI's --global into the socket's empty service.
