@@ -120,3 +120,33 @@ func TestAssets_CachedForGoodByHashAndGzipped(t *testing.T) {
 		t.Errorf("art: %d, Content-Encoding %q", resp.StatusCode, resp.Header.Get("Content-Encoding"))
 	}
 }
+
+// The footer hands an admin the app spec for the release they're running,
+// at an address an assistant on the internet can read; a build with no tag
+// of its own links main.
+func TestFooter_AppSpecForAnAdminOnly(t *testing.T) {
+	for v, want := range map[string]string{
+		"v0.9.3":                               "https://raw.githubusercontent.com/sroberts/outpost/v0.9.3/outpost-service-spec.md",
+		"v0.9.4-0.20261120053402-42d3678abcde": "https://raw.githubusercontent.com/sroberts/outpost/main/outpost-service-spec.md",
+		"dev":                                  "https://raw.githubusercontent.com/sroberts/outpost/main/outpost-service-spec.md",
+	} {
+		if got := specLink(v); got != want {
+			t.Errorf("specLink(%q) = %q; want %q", v, got, want)
+		}
+	}
+
+	h, _ := logsHarness(t)
+	admin := h.client(true)
+	h.login(admin, "root", "", "/")
+	for _, path := range []string{"/", "/account", "/logs"} {
+		foot := between(body(t, h.get(admin, portal+path)), `<footer class="foot">`, `</footer>`)
+		if !strings.Contains(foot, `/outpost-service-spec.md">App spec</a>`) {
+			t.Errorf("%s: no app spec in the admin's footer: %s", path, foot)
+		}
+	}
+	user := h.client(true)
+	h.login(user, "alice", "", "/")
+	if page := body(t, h.get(user, portal+"/")); strings.Contains(page, "App spec") {
+		t.Error("a non-admin is shown the app spec")
+	}
+}

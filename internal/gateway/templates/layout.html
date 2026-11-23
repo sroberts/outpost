@@ -24,7 +24,7 @@
 {{end}}{{if .LogsLink}}<li><a href="/logs"{{if eq .Page "logs"}} aria-current="page"{{end}}>Logs</a></li>
 {{end}}</ul>
 </nav>
-{{end}}{{if .Who}}<footer class="foot">Outpost {{.Version}}</footer>
+{{end}}{{if .Who}}<footer class="foot">Outpost {{.Version}}{{if .SpecLink}} · <a href="{{.SpecLink}}">App spec</a>{{end}}</footer>
 {{end}}</body>
 </html>
 {{end}}

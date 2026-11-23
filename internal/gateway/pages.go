@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"html/template"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -183,6 +184,24 @@ type pageData struct {
 	Host                 string // the portal's address, for reading
 	Home                 string // the catalog's URL
 	Version              string // the build running, shown to anyone signed in
+	SpecLink             string // the app spec on GitHub, for an admin to hand to Claude
+}
+
+// specRelease is a version that names a release tag; anything else (a dev
+// build, a pseudo-version) has no tag of its own to link.
+var specRelease = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`)
+
+// specLink is the service spec as published with the running release, so
+// what an admin hands an assistant from the footer is the contract this
+// Outpost implements. GitHub's rather than the portal's own copy at
+// /.well-known: an assistant on the internet can reach it, and the portal
+// is on the tailnet only.
+func specLink(v string) string {
+	ref := "main"
+	if specRelease.MatchString(v) {
+		ref = v
+	}
+	return "https://raw.githubusercontent.com/sroberts/outpost/" + ref + "/outpost-service-spec.md"
 }
 
 // render writes a page with the headers every gateway page carries.
@@ -202,6 +221,7 @@ func (g *Gateway) render(w http.ResponseWriter, r *http.Request, status int, nam
 		d.AILink = g.ai != nil
 		d.MailLink = g.mail != nil
 		d.LogsLink = g.logs != nil
+		d.SpecLink = specLink(d.Version)
 	}
 	var buf bytes.Buffer
 	if err := g.pages[name].ExecuteTemplate(&buf, "layout", d); err != nil {

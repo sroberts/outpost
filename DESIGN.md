@@ -320,6 +320,8 @@ The rail: a full-width bar with a 1px rule beneath. Left, the host in 13px dim m
 
 An admin's places (Updates, Add an app, Secrets, AI models, Mail, Logs, each only when it's there) are one list at the foot of every page, above the footer and under a rule: 14px dim links with beam underlines on an even grid, 44px tall. The page you're on is porcelain, 600, not underlined, and marked `aria-current`. They sit at the foot so the catalog still leads with the line, and any page reaches any other in one tap.
 
+The footer carries the build and, for an admin, an "App spec" link: the service spec as published with the running release, on GitHub so an assistant on the internet can read it. It is as quiet as the build until pointed at, in the body face because it is a name, its target extended past 44px.
+
 ### The Hub (signature)
 The lamp (a 44px glowing amber disc) beside the portal name in headline type, with the tally beneath in 12px beam monospace ("3 running · 1 down · 1 stopped"). The tally is status only: the one link it may carry is updates waiting ("2 updates available"); places live in the list at the foot. The lamp sits in the same 44px column as the line, which starts just below it. On door pages without the line the hub may drop the lamp (sign-in, which carries the plate instead).
 

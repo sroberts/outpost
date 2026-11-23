@@ -285,6 +285,11 @@ func TestNoSelfUpdatesLeavesThePageAsItWas(t *testing.T) {
 	h.settled()
 
 	b := body(t, h.get(c, portal+"/updates"))
+	// The footer's app spec link names the repository on every page; it's
+	// the page above it that mustn't offer Outpost itself.
+	if i := strings.Index(b, `<footer class="foot">`); i >= 0 {
+		b = b[:i]
+	}
 	for _, unwanted := range []string{"Outpost itself", "sroberts/outpost", `value="self"`, selfJSPath} {
 		if strings.Contains(b, unwanted) {
 			t.Errorf("page has %q:\n%s", unwanted, b)
