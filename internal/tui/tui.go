@@ -115,6 +115,7 @@ type Model struct {
 	lv  logView       // the logs view (logs.go)
 	ov  overviewState // the overview (overview.go)
 	mg  manageState   // the secrets and tokens views (manage.go)
+	ml  mailState     // the mail view (mail.go)
 	pal palette       // the command palette and its forms (palette.go)
 	out *outputPane   // a command's output, over the body
 

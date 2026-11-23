@@ -89,6 +89,27 @@ the services that get it):
                            take it away again
   secret rm <name>         delete a secret
 
+Mail (apps get mail at addresses on one Gmail account, and may send as it):
+  mail                     the account, and each app's addresses
+  mail account <address>   set the account; the app password is read hidden
+                           (--password-stdin)
+  mail check               read the inbox now
+  mail alias add <service> make an app another address (--note N)
+  mail alias rm <service> <+route>
+                           take one away
+  mail send <service> on|off
+                           whether an app may send as the account
+  mail token <service>     give an app a new mail token; it restarts
+
+Internet access (over what a service's manifest says):
+  expose <service>         what skips the login, and what the internet reaches
+  expose <service> --path P... [--funnel]
+                           set the paths that skip the login, and whether
+                           Funnel puts them on the internet
+  expose <service> --reset go back to the manifest's
+  expose <service> --mcp on|off|reset
+                           whether the internet reaches its MCP endpoint
+
 AI models (one LLM and one System 1 model, from Ollama or a hosted provider,
 which apps reach at OUTPOST_AI_URL with their own OUTPOST_AI_TOKEN):
   ai                       the models in force, the providers, and usage
@@ -214,6 +235,10 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return a.cmdToken(cmdArgs)
 	case "secret", "secrets":
 		return a.cmdSecret(cmdArgs)
+	case "mail":
+		return a.cmdMail(cmdArgs)
+	case "expose":
+		return a.cmdExpose(cmdArgs)
 	case "ai":
 		return a.cmdAI(cmdArgs)
 	case "auth":

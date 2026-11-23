@@ -50,6 +50,8 @@ func (m Model) body(w, h int) []string {
 		return full("secrets", paneLines(m.secretsPane()), countNote(len(m.mg.secrets), "secret"))
 	case m.view == viewTokens:
 		return m.tokensBody(w, h)
+	case m.view == viewMail:
+		return m.mailBody(w, h)
 	case m.view == viewLogs:
 		return full(m.logViewTitle(), m.logViewLines(h-2), "")
 	case m.view == viewUsers:

@@ -35,9 +35,10 @@ const (
 	viewSecrets
 	viewTokens
 	viewLogs
+	viewMail
 )
 
-var viewNames = []string{"Services", "Users", "Gateway", "AI", "Overview", "Secrets", "Tokens", "Logs"}
+var viewNames = []string{"Services", "Users", "Gateway", "AI", "Overview", "Secrets", "Tokens", "Logs", "Mail"}
 
 // views are the views this client can show, in tab order. Each beyond the
 // first three needs the part of the API it draws on, so a client without it
@@ -60,6 +61,9 @@ func (m Model) views() []view {
 	}
 	if m.logs != nil {
 		v = append(v, viewLogs)
+	}
+	if _, ok := m.mailOps(); ok {
+		v = append(v, viewMail)
 	}
 	return v
 }
@@ -375,6 +379,7 @@ func (m Model) serviceGateway(s supervisor.ServiceStatus, kv func(k, v string)) 
 		access = append(access, "public: "+strings.Join(s.PublicPaths, " "))
 	}
 	kv("access", strings.Join(access, "; "))
+	kv("internet", reachWords(s))
 }
 
 // usersPane is the users view: everyone, then the selected user's sign-ins.
