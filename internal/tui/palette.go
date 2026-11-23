@@ -2,9 +2,13 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
+	"time"
 
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -56,22 +60,13 @@ const (
 	fieldChoice
 )
 
-// formField is one input on an action's form.
+// formField is one input on an action's form. The form itself is a huh
+// form built from these when the action opens.
 type formField struct {
 	name, label, placeholder string
 	kind                     fieldKind
 	choices                  []string
 	optional                 bool
-
-	input  field
-	choice int
-}
-
-func (f formField) value() string {
-	if f.kind == fieldChoice {
-		return f.choices[f.choice]
-	}
-	return strings.TrimSpace(f.input.Value())
 }
 
 func text(name, label, placeholder string) formField {
@@ -119,11 +114,16 @@ type palette struct {
 	form   *form
 }
 
-// form is an action being filled in.
+// form is an action being filled in: a huh form over the action's fields,
+// then, for anything that can't be undone, a question of its own.
+//
+// The question stays outside huh on purpose: it is answered with y and
+// cancelled by any other key, so a stray enter can never confirm a delete,
+// where a huh Confirm would take enter for whichever button is lit.
 type form struct {
 	act        action
-	fields     []formField
-	at         int
+	values     map[string]*string // what each huh field writes to
+	hf         *huh.Form
 	confirming bool
 	err        string
 }
@@ -149,6 +149,171 @@ type outputMsg struct {
 	then      func(m Model) (Model, tea.Cmd)
 	thenKey   string
 	thenLabel string
+}
+
+// formMsg carries a message one of the form's own commands produced back
+// to the form.
+type formMsg struct{ msg tea.Msg }
+
+// formCmdWait is how long a form's command is given to produce its
+// message. huh moves between fields with commands that answer at once;
+// the only ones that take longer are the cursor's blink timers, and those
+// are dropped, so the cursor stays lit rather than blinking. Dropping them
+// also keeps a form from scheduling work forever after it's gone.
+const formCmdWait = 100 * time.Millisecond
+
+// formCmd runs a command the form returned, handing its message back as a
+// formMsg; a batch has each of its commands handled the same way.
+func formCmd(cmd tea.Cmd) tea.Cmd {
+	if cmd == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		got := make(chan tea.Msg, 1)
+		go func() { got <- cmd() }()
+		var msg tea.Msg
+		select {
+		case msg = <-got:
+		case <-time.After(formCmdWait):
+			return nil
+		}
+		switch msg := msg.(type) {
+		case nil:
+			return nil
+		case tea.BatchMsg:
+			out := make(tea.BatchMsg, 0, len(msg))
+			for _, c := range msg {
+				out = append(out, formCmd(c))
+			}
+			return out
+		}
+		return formMsg{msg}
+	}
+}
+
+// formTheme is huh's base theme in the dashboard's colours, with fields
+// a line apart so a long form still fits a panel.
+func formTheme() *huh.Theme {
+	t := huh.ThemeBase()
+	t.FieldSeparator = lipgloss.NewStyle().SetString("\n")
+	t.Focused.Base = t.Focused.Base.BorderForeground(colAccent)
+	t.Focused.Title = t.Focused.Title.Foreground(colAccent).Bold(true)
+	t.Focused.Description = t.Focused.Description.Foreground(colDim)
+	t.Focused.ErrorIndicator = t.Focused.ErrorIndicator.Foreground(colErr)
+	t.Focused.ErrorMessage = t.Focused.ErrorMessage.Foreground(colErr)
+	t.Focused.SelectSelector = t.Focused.SelectSelector.Foreground(colAccent)
+	t.Focused.NextIndicator = t.Focused.NextIndicator.Foreground(colAccent)
+	t.Focused.PrevIndicator = t.Focused.PrevIndicator.Foreground(colAccent)
+	t.Focused.Option = t.Focused.Option.Foreground(colText)
+	t.Focused.SelectedOption = t.Focused.SelectedOption.Foreground(colAccent)
+	t.Focused.TextInput.Cursor = t.Focused.TextInput.Cursor.Foreground(colAccent)
+	t.Focused.TextInput.Placeholder = t.Focused.TextInput.Placeholder.Foreground(colDim)
+	t.Focused.TextInput.Prompt = t.Focused.TextInput.Prompt.Foreground(colAccent)
+	t.Blurred = t.Focused
+	t.Blurred.Base = t.Blurred.Base.BorderStyle(lipgloss.HiddenBorder())
+	t.Blurred.Title = t.Blurred.Title.Foreground(colDim).Bold(false)
+	t.Blurred.NextIndicator = lipgloss.NewStyle()
+	t.Blurred.PrevIndicator = lipgloss.NewStyle()
+	return t
+}
+
+// formKeys are huh's keys, plus space and the arrows to step through a
+// choice as the dashboard's forms always have, and without ctrl+c, which
+// quits the dashboard before the form sees it.
+func formKeys() *huh.KeyMap {
+	k := huh.NewDefaultKeyMap()
+	k.Quit = key.NewBinding(key.WithDisabled())
+	k.Select.Left = key.NewBinding(key.WithKeys("left", "h"))
+	k.Select.Right = key.NewBinding(key.WithKeys("right", "l", " "))
+	k.Input.Next = key.NewBinding(key.WithKeys("enter", "tab", "down"))
+	k.Input.Prev = key.NewBinding(key.WithKeys("shift+tab", "up"))
+	k.Select.Next = key.NewBinding(key.WithKeys("enter", "tab", "down"))
+	k.Select.Prev = key.NewBinding(key.WithKeys("shift+tab", "up"))
+	return k
+}
+
+// suggestions are what a field can be completed to with ctrl+e: the names
+// it's asking for, from what the dashboard already knows.
+func (m Model) suggestions(fl formField) []string {
+	var out []string
+	switch fl.name {
+	case "service":
+		for _, s := range m.services {
+			out = append(out, s.Name)
+		}
+	case "user":
+		for _, u := range m.users {
+			out = append(out, u.Username)
+		}
+	}
+	return out
+}
+
+// build makes the huh form for f's action, width cells wide, its fields
+// holding f's values.
+func (m Model) build(f *form, width int) {
+	// Inline inputs put the value right after the label, so the labels are
+	// padded to one width to line the values up.
+	labelW := 0
+	for _, fl := range f.act.fields {
+		labelW = max(labelW, lipgloss.Width(fl.label))
+	}
+	var fields []huh.Field
+	for _, fl := range f.act.fields {
+		p := f.values[fl.name]
+		if fl.kind == fieldChoice {
+			fields = append(fields, huh.NewSelect[string]().
+				Key(fl.name).Title(fl.label).Inline(true).
+				Options(huh.NewOptions(fl.choices...)...).Value(p))
+			continue
+		}
+		placeholder := fl.placeholder
+		if fl.optional && placeholder == "" {
+			placeholder = "optional"
+		}
+		in := huh.NewInput().Key(fl.name).Title(pad(fl.label, labelW)).Inline(true).
+			Prompt(" › ").Placeholder(placeholder).CharLimit(4096).Value(p)
+		if fl.kind == fieldSecret {
+			// Shown as dots, never the text: the screen may be shared.
+			in = in.EchoMode(huh.EchoModePassword)
+		}
+		if s := m.suggestions(fl); len(s) > 0 {
+			in = in.Suggestions(s)
+		}
+		if !fl.optional {
+			label := fl.label
+			in = in.Validate(func(s string) error {
+				if strings.TrimSpace(s) == "" {
+					return fmt.Errorf("%s is needed", label)
+				}
+				return nil
+			})
+		}
+		fields = append(fields, in)
+	}
+	f.hf = huh.NewForm(huh.NewGroup(fields...)).
+		WithTheme(formTheme()).WithKeyMap(formKeys()).
+		WithShowHelp(false).WithShowErrors(true).
+		WithWidth(max(width, 20))
+	// Init focuses the first field. What it returns only sizes the form to
+	// the window, which WithWidth has done, and starts the cursor blinking.
+	_ = f.hf.Init()
+}
+
+// values is the form filled in, text trimmed.
+func (f form) vals() vals {
+	v := vals{}
+	for _, fl := range f.act.fields {
+		s := ""
+		if p := f.values[fl.name]; p != nil {
+			s = *p
+		}
+		if fl.kind != fieldChoice {
+			s = strings.TrimSpace(s)
+		}
+		v[fl.name] = s
+	}
+	return v
 }
 
 // available are the actions this client can do.
@@ -207,33 +372,24 @@ func (m Model) openAction(id string) (Model, tea.Cmd) {
 	return m, nil
 }
 
+// formWidth is the room a form has inside the overlay's panel.
+func (m Model) formWidth() int { return boxInner(min(m.width, 120)) }
+
 func (m Model) begin(a action) (Model, tea.Cmd) {
 	m.pal.open = false
-	f := &form{act: a}
+	f := &form{act: a, values: map[string]*string{}}
 	var pre vals
 	if a.prefill != nil {
 		pre = a.prefill(m)
 	}
-	for _, tmpl := range a.fields {
-		fl := tmpl
-		fl.input = newInput(fl.placeholder, fl.kind == fieldSecret)
-		if fl.optional && fl.kind != fieldChoice && fl.placeholder == "" {
-			fl.input = newInput("optional", false)
+	for _, fl := range a.fields {
+		v := pre[fl.name]
+		if fl.kind == fieldChoice && !slices.Contains(fl.choices, v) {
+			v = fl.choices[0]
 		}
-		if v, ok := pre[fl.name]; ok {
-			if fl.kind == fieldChoice {
-				for i, c := range fl.choices {
-					if c == v {
-						fl.choice = i
-					}
-				}
-			} else {
-				fl.input.SetValue(v)
-			}
-		}
-		f.fields = append(f.fields, fl)
+		f.values[fl.name] = &v
 	}
-	if len(f.fields) == 0 {
+	if len(a.fields) == 0 {
 		if a.confirm != nil {
 			f.confirming = true
 			m.pal.form = f
@@ -242,6 +398,7 @@ func (m Model) begin(a action) (Model, tea.Cmd) {
 		m.pal.form = nil
 		return a.run(m, vals{})
 	}
+	m.build(f, m.formWidth())
 	m.pal.form = f
 	return m, nil
 }
@@ -280,6 +437,10 @@ func (m Model) handleOutputKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		o.offset = max(o.offset-10, 0)
 	case "pgdown", " ":
 		o.offset += 10
+	case "home", "g":
+		o.offset = 0
+	case "end", "G":
+		o.offset = 1 << 30
 	default:
 		if o.then != nil && msg.String() == o.thenKey {
 			m.out = nil
@@ -325,105 +486,67 @@ func (m Model) handlePaletteKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 
 func (m Model) handleFormKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	f := *m.pal.form
-	f.fields = append([]formField(nil), f.fields...)
 	if f.confirming {
 		m.pal.form = nil
 		if msg.String() == "y" || msg.String() == "Y" {
-			next, cmd := f.act.run(m, f.values())
+			next, cmd := f.act.run(m, f.vals())
 			return next, cmd, true
 		}
 		m.notice, m.noticeIsErr = "cancelled: "+strings.ToLower(f.act.title), false
 		return m, nil, true
 	}
-	cur := &f.fields[f.at]
-	switch msg.String() {
-	case "esc":
+	if msg.String() == "esc" {
 		m.pal.form = nil
 		return m, nil, true
-	case "tab", "down":
-		f.at = (f.at + 1) % len(f.fields)
-	case "shift+tab", "up":
-		f.at = (f.at + len(f.fields) - 1) % len(f.fields)
-	case "left", "right", " ":
-		if cur.kind == fieldChoice {
-			step := 1
-			if msg.String() == "left" {
-				step = len(cur.choices) - 1
-			}
-			cur.choice = (cur.choice + step) % len(cur.choices)
-		} else {
-			cur.input = cur.input.Update(msg)
-		}
-	case "enter":
-		if f.at < len(f.fields)-1 {
-			f.at++
-			break
-		}
-		for i, fl := range f.fields {
-			if !fl.optional && fl.value() == "" {
-				f.at, f.err = i, fl.label+" is needed"
-				m.pal.form = &f
-				return m, nil, true
-			}
-		}
-		v := f.values()
-		if f.act.confirm != nil {
-			f.confirming, f.err = true, ""
-			m.pal.form = &f
-			return m, nil, true
-		}
-		m.pal.form = nil
-		next, cmd := f.act.run(m, v)
-		return next, cmd, true
-	default:
-		if cur.kind != fieldChoice {
-			cur.input = cur.input.Update(msg)
-		}
 	}
+	next, cmd := m.stepForm(msg)
+	return next, cmd, true
+}
+
+// stepForm hands a message to the huh form, and once the form is filled
+// in, asks the action's question or runs it.
+func (m Model) stepForm(msg tea.Msg) (Model, tea.Cmd) {
+	f := *m.pal.form
 	f.err = ""
-	m.pal.form = &f
-	return m, nil, true
-}
-
-func (f form) values() vals {
-	v := vals{}
-	for _, fl := range f.fields {
-		v[fl.name] = fl.value()
+	next, cmd := f.hf.Update(msg)
+	f.hf = next.(*huh.Form)
+	if f.hf.State != huh.StateCompleted {
+		m.pal.form = &f
+		return m, formCmd(cmd)
 	}
-	return v
-}
-
-// overlay draws whatever is up over the body, in height rows; "" for none.
-func (m Model) overlay(height int) string {
-	switch {
-	case m.out != nil:
-		return m.outputView(height)
-	case m.pal.form != nil:
-		return m.formView()
-	case m.pal.open:
-		return m.paletteView(height)
+	v := f.vals()
+	// huh checks a field as it's left; one never visited can still be empty.
+	for _, fl := range f.act.fields {
+		if !fl.optional && fl.kind != fieldChoice && v[fl.name] == "" {
+			f.err = fl.label + " is needed"
+			m.build(&f, m.formWidth())
+			m.pal.form = &f
+			return m, nil
+		}
 	}
-	return ""
+	if f.act.confirm != nil {
+		f.confirming = true
+		m.pal.form = &f
+		return m, nil
+	}
+	m.pal.form = nil
+	return f.act.run(m, v)
 }
 
-func (m Model) paletteView(height int) string {
-	var b strings.Builder
-	b.WriteString("  " + m.rule("commands") + "\n")
-	b.WriteString("  " + m.pal.input.View() + "\n\n")
+// paletteLines is the palette inside its panel, rows tall, and a note
+// saying how many of the matches are shown.
+func (m Model) paletteLines(rows int) ([]string, string) {
+	out := []string{m.pal.input.View(), ""}
 	items := m.matching()
 	if len(items) == 0 {
-		b.WriteString("  " + labelStyle.Render("nothing matches") + "\n")
-		return b.String()
+		return append(out, labelStyle.Render("nothing matches")), ""
 	}
-	rows := max(height-4, 1)
-	if len(items) > rows {
-		rows = max(rows-1, 1) // for the count below
-	}
+	room := max(rows-len(out), 1)
 	start := 0
-	if m.pal.cursor >= rows {
-		start = m.pal.cursor - rows + 1
+	if m.pal.cursor >= room {
+		start = m.pal.cursor - room + 1
 	}
-	end := min(start+rows, len(items))
+	end := min(start+room, len(items))
 	groupW, titleW := 0, 0
 	for _, a := range items {
 		groupW = max(groupW, lipgloss.Width(a.group))
@@ -435,64 +558,39 @@ func (m Model) paletteView(height int) string {
 		if i == m.pal.cursor {
 			marker, style = "▸ ", selectedRow
 		}
-		line := marker + labelStyle.Render(pad(a.group, groupW)) + "  " + style.Render(pad(a.title, titleW)) + "  " + labelStyle.Render(a.about)
-		b.WriteString("  " + lipgloss.NewStyle().MaxWidth(max(m.width-4, 1)).Render(line) + "\n")
+		out = append(out, marker+labelStyle.Render(pad(a.group, groupW))+"  "+style.Render(pad(a.title, titleW))+"  "+labelStyle.Render(a.about))
 	}
-	if len(items) > rows {
-		b.WriteString("  " + countStyle.Render(fmt.Sprintf("%d of %d", end-start, len(items))) + "\n")
+	note := ""
+	if len(items) > room {
+		note = fmt.Sprintf("%d–%d of %d", start+1, end, len(items))
 	}
-	return b.String()
+	return out, note
 }
 
-func (m Model) formView() string {
+// formLines is the form inside its panel: what the action does, then its
+// fields, or once they're filled in, the question.
+func (m Model) formLines() []string {
 	f := m.pal.form
-	var b strings.Builder
-	b.WriteString("  " + m.rule(f.act.title) + "\n")
+	inner := boxInner(m.width)
+	var out []string
 	if f.act.about != "" {
-		b.WriteString("  " + labelStyle.Render(truncate(f.act.about, m.width-4)) + "\n")
+		out = append(out, labelStyle.Render(truncate(f.act.about, inner)), "")
 	}
-	b.WriteString("\n")
 	if f.confirming {
 		q := "Go ahead?"
 		if f.act.confirm != nil {
-			q = f.act.confirm(f.values())
+			q = f.act.confirm(f.vals())
 		}
 		for _, line := range strings.Split(q, "\n") {
-			b.WriteString("  " + errorStyle.Render(truncate(line, m.width-4)) + "\n")
+			out = append(out, errorStyle.Render(truncate(line, inner)))
 		}
-		b.WriteString("\n  " + valueStyle.Render("y to go ahead, any other key to cancel") + "\n")
-		return b.String()
+		return append(out, "", valueStyle.Render("y to go ahead, any other key to cancel"))
 	}
-	labelW := 0
-	for _, fl := range f.fields {
-		labelW = max(labelW, lipgloss.Width(fl.label))
-	}
-	for i, fl := range f.fields {
-		marker := "  "
-		lstyle := labelStyle
-		if i == f.at {
-			marker, lstyle = "▸ ", selectedRow
-		}
-		var v string
-		switch {
-		case fl.kind == fieldChoice:
-			v = "‹ " + fl.value() + " ›"
-		case i == f.at:
-			v = fl.input.View()
-		case fl.input.Value() == "":
-			v = labelStyle.Render(fl.input.placeholder)
-		case fl.kind == fieldSecret:
-			v = strings.Repeat("•", min(len([]rune(fl.input.Value())), 32))
-		default:
-			v = fl.input.Value()
-		}
-		line := marker + lstyle.Render(pad(fl.label, labelW)) + "  " + v
-		b.WriteString("  " + lipgloss.NewStyle().MaxWidth(max(m.width-4, 1)).Render(line) + "\n")
-	}
+	out = append(out, strings.Split(strings.TrimRight(f.hf.View(), "\n"), "\n")...)
 	if f.err != "" {
-		b.WriteString("\n  " + errorStyle.Render(f.err) + "\n")
+		out = append(out, "", errorStyle.Render(f.err))
 	}
-	return b.String()
+	return out
 }
 
 // layout is the pane's lines, and how many of them fit in height rows.
@@ -501,44 +599,49 @@ func (o outputPane) layout(height int) ([]string, int) {
 	if strings.TrimSpace(o.text) == "" {
 		lines = []string{"(no output)"}
 	}
-	rows := max(height-2, 1)
+	rows := max(height, 1)
 	if o.then != nil {
 		rows = max(rows-2, 1)
 	}
 	return lines, rows
 }
 
-func (m Model) outputView(height int) string {
+// outputLines is a command's output inside its panel, height rows, and a
+// note saying which of its lines are on screen.
+func (m Model) outputLines(height int) ([]string, string) {
 	o := m.out
-	var b strings.Builder
-	b.WriteString("  " + m.rule(o.title) + "\n")
 	lines, rows := o.layout(height)
 	off := min(o.offset, max(len(lines)-rows, 0))
 	style := valueStyle
 	if o.isErr {
 		style = errorStyle
 	}
+	var out []string
 	for _, line := range lines[off:min(off+rows, len(lines))] {
-		b.WriteString("  " + style.Render(truncate(line, m.width-4)) + "\n")
+		out = append(out, style.Render(truncate(line, boxInner(m.width))))
 	}
+	note := ""
 	if len(lines) > rows {
-		b.WriteString("  " + countStyle.Render(fmt.Sprintf("lines %d–%d of %d", off+1, min(off+rows, len(lines)), len(lines))) + "\n")
+		note = fmt.Sprintf("lines %d–%d of %d", off+1, min(off+rows, len(lines)), len(lines))
 	}
 	if o.then != nil {
-		b.WriteString("\n  " + noticeStyle.Render(o.thenKey+" "+o.thenLabel) + "\n")
+		for len(out) < rows {
+			out = append(out, "")
+		}
+		out = append(out, "", noticeStyle.Render(o.thenKey+" "+o.thenLabel))
 	}
-	return b.String()
+	return out, note
 }
 
 // overlayHelp is the key help while an overlay is up.
 func (m Model) overlayHelp(key func(k, what string) string, sep string) string {
 	switch {
 	case m.out != nil:
-		return strings.Join([]string{key("↑/↓", "scroll"), key("esc", "close")}, sep)
+		return strings.Join([]string{key("↑/↓", "scroll"), key("g/G", "top/end"), key("esc", "close")}, sep)
 	case m.pal.form != nil && m.pal.form.confirming:
 		return strings.Join([]string{key("y", "go ahead"), key("any key", "cancel")}, sep)
 	case m.pal.form != nil:
-		return strings.Join([]string{key("enter", "next/run"), key("tab", "move"), key("←/→", "choose"), key("esc", "cancel")}, sep)
+		return strings.Join([]string{key("enter", "next/run"), key("tab", "move"), key("←/→", "choose"), key("ctrl+e", "complete"), key("esc", "cancel")}, sep)
 	case m.pal.open:
 		return strings.Join([]string{key("enter", "choose"), key("↑/↓", "move"), key("esc", "close")}, sep)
 	}

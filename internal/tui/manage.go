@@ -194,6 +194,8 @@ func (m Model) secretsPane() string {
 	return b.String()
 }
 
+// tokensPane is the access tokens; clientsPane the connected OAuth
+// clients. They share one cursor, the tokens first.
 func (m Model) tokensPane() string {
 	var b strings.Builder
 	switch {
@@ -202,35 +204,39 @@ func (m Model) tokensPane() string {
 	case m.mg.tokens == nil && m.mg.clients == nil:
 		return "  " + labelStyle.Render("loading…") + "\n"
 	}
-	b.WriteString("  " + m.rule("access tokens") + "\n")
 	if len(m.mg.tokens) == 0 {
 		b.WriteString("  " + labelStyle.Render("None. Press n to make one.") + "\n")
-	} else {
-		rows := [][]string{{"ID", "USER", "NAME", "APPS", "EXPIRES", "LAST USED"}}
-		for _, t := range m.mg.tokens {
-			apps := strings.Join(t.Apps, ",")
-			if apps == "" {
-				apps = "any"
-			}
-			if t.Internet {
-				apps += " (internet)"
-			}
-			exp := when(t.ExpiresAt, "never")
-			if t.Expired {
-				exp = "expired"
-			}
-			name := t.Name
-			if name == "" {
-				name = "-"
-			}
-			rows = append(rows, []string{fmt.Sprintf("%d", t.ID), t.Username, name, apps, exp, when(t.LastUsedAt, "never")})
-		}
-		b.WriteString(m.grid(rows, m.mg.tokenCursor))
-	}
-	b.WriteString("\n  " + m.rule("connected clients") + "\n")
-	if len(m.mg.clients) == 0 {
-		b.WriteString("  " + labelStyle.Render("No OAuth clients connected.") + "\n")
 		return b.String()
+	}
+	rows := [][]string{{"ID", "USER", "NAME", "APPS", "EXPIRES", "LAST USED"}}
+	for _, t := range m.mg.tokens {
+		apps := strings.Join(t.Apps, ",")
+		if apps == "" {
+			apps = "any"
+		}
+		if t.Internet {
+			apps += " (internet)"
+		}
+		exp := when(t.ExpiresAt, "never")
+		if t.Expired {
+			exp = "expired"
+		}
+		name := t.Name
+		if name == "" {
+			name = "-"
+		}
+		rows = append(rows, []string{fmt.Sprintf("%d", t.ID), t.Username, name, apps, exp, when(t.LastUsedAt, "never")})
+	}
+	b.WriteString(m.grid(rows, m.mg.tokenCursor))
+	return b.String()
+}
+
+func (m Model) clientsPane() string {
+	if m.mg.tokensErr != nil || (m.mg.tokens == nil && m.mg.clients == nil) {
+		return ""
+	}
+	if len(m.mg.clients) == 0 {
+		return "  " + labelStyle.Render("No OAuth clients connected.") + "\n"
 	}
 	rows := [][]string{{"ID", "USER", "APP", "CLIENT", "REFRESHED", "EXPIRES"}}
 	for _, c := range m.mg.clients {
@@ -244,6 +250,5 @@ func (m Model) tokensPane() string {
 		}
 		rows = append(rows, []string{fmt.Sprintf("%d", c.ID), c.Username, c.App, name, when(c.RefreshedAt, "-"), exp})
 	}
-	b.WriteString(m.grid(rows, m.mg.tokenCursor-len(m.mg.tokens)))
-	return b.String()
+	return m.grid(rows, m.mg.tokenCursor-len(m.mg.tokens))
 }
