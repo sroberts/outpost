@@ -32,7 +32,7 @@ prints the copy carried by the binary on disk.
 - **Loopback only.** Bind `127.0.0.1`, not `0.0.0.0`. Outpost reaches you on
   `127.0.0.1:<port>`, and when Tailscale is enabled your service gets its own
   `tsnet` node, `<tailscale_name>.<tailnet>.ts.net`, which reverse-proxies to
-  that same address. With the login gateway on as well, that node serves HTTPS
+  that same address, unless the manifest says `visibility = "gateway"`. With the login gateway on as well, that node serves HTTPS
   and passes every request through the gateway's login before it reaches you
   (§3). Binding a public interface defeats the model: nothing should be
   reachable except through Tailscale and the gateway. An installation running
@@ -230,7 +230,9 @@ This is how an operator gets one login for all their services, so:
 - **Hard-code no hostname.** You are served at your node's own tailnet address,
   `https://<tailscale_name>.<tailnet>.ts.net` — or, if Tailscale had to rename
   the node because the name was taken, at the name it was given (`yarr-1`).
-  Without Tailscale, it is `<name>.<domain>` from the gateway's configuration.
+  Without Tailscale, or when the operator sets `visibility = "gateway"` in your
+  manifest so you get no node of your own, it is `<name>.<domain>` from the
+  gateway's configuration.
   `Host` is preserved and `X-Forwarded-Host` and `X-Forwarded-Proto` are set,
   so build absolute URLs from those, or use relative ones.
 - **Leave `/.outpost/` alone.** Paths under it, on your host, belong to the
@@ -472,7 +474,7 @@ With the gateway on, an MCP client holding an access token then has two ways
 in, both behind the gateway:
 
 - `https://<tailscale_name>.<tailnet>.ts.net<mcp_path>`, your own address, as
-  for any other request.
+  for any other request (your gateway address, with `visibility = "gateway"`).
 - `https://<portal>/mcp/<name>`, one address on the portal for every service's
   MCP. The gateway sends it to your `mcp_path`, keeping the query string.
 

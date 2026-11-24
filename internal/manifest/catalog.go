@@ -76,15 +76,19 @@ func (s *Service) validateCatalog() []error {
 // Warnings points out what in a valid set of manifests is likely a mistake
 // but isn't an error: nothing here stops a service starting.
 //
-// The one so far is mcp = true with no mcp_path. `outpost add` writes the
+// One is a gateway-only app nothing can open (visibility.go). Another is
+// mcp = true with no mcp_path. `outpost add` writes the
 // first and never the second, and the gateway routes /mcp/<name> only by
 // mcp_path, so an MCP client gets the same 401 a bad token would, with
 // nothing to say why.
 func Warnings(services []*Service, opts Options) []error {
-	if !opts.Gateway {
-		return nil
-	}
 	var warns []error
+	for _, s := range services {
+		warns = append(warns, visibilityWarnings(s, opts)...)
+	}
+	if !opts.Gateway {
+		return warns
+	}
 	for _, s := range services {
 		if s.MCP && s.MCPPath == "" {
 			warns = append(warns, fmt.Errorf("%s: mcp = true but no mcp_path, so MCP clients can't reach it through the portal at /mcp/%s; add mcp_path = \"/mcp\", or wherever it serves MCP", s.Name, s.Name))

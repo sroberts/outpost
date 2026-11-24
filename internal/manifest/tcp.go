@@ -66,7 +66,9 @@ func (s *Service) validateTCP(opts Options) []error {
 	// A forward lives on the service's own tailnet node; with no node there
 	// is nothing to listen on, and silently ignoring the table would leave
 	// the operator wondering why port 22 never answers.
-	if !opts.RequireTailscale || s.TailscaleName == "" {
+	if s.GatewayOnly() {
+		errs = append(errs, noNodeError("tcp"))
+	} else if !opts.RequireTailscale || s.TailscaleName == "" {
 		errs = append(errs, fmt.Errorf("tcp forwards are served on the service's tailnet node, so they need Tailscale and a tailscale_name"))
 	}
 	keys := make([]string, 0, len(s.TCP))

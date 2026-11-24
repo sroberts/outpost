@@ -884,7 +884,8 @@ func (s *Supervisor) withSecrets(svc *manifest.Service) (*manifest.Service, stri
 // returns immediately and retries in the background, so this is safe to call
 // from the reconcile loop on every tick.
 func (s *Supervisor) attachToTailnet(ctx context.Context, svc *manifest.Service) {
-	if s.tailnet == nil {
+	// A gateway-only service never gets a node: one would be a second way in.
+	if s.tailnet == nil || svc.GatewayOnly() {
 		return
 	}
 	if err := s.tailnet.Attach(ctx, svc); err != nil {

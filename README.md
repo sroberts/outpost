@@ -370,6 +370,7 @@ release        = "v1.3.0"                      # rewritten by `outpost update`
 port           = 8081                          # required
 storage        = "~/.outpost/data/plumbline"   # required, created 0700 if absent
 tailscale_name = "plumbline"                   # required, unique on the tailnet
+visibility     = "tailnet"                     # or "gateway": no node of its own; see Gateway-only apps
 funnel         = false                         # answer public_paths from the internet; see Funnel
 mcp_funnel     = false                         # answer mcp_path from the internet; see Claude's connectors
 healthcheck    = "/up"
@@ -388,7 +389,8 @@ start_grace_seconds = 30
 | `runtime` | `process` | The only valid value; Outpost runs native processes |
 | `port` | — | Required; must be unique across `process` services |
 | `storage` | — | Required; `~` is expanded, created `0700` if missing |
-| `tailscale_name` | — | Required unless `tailscale.enabled = false`; must be unique |
+| `tailscale_name` | — | Required unless `tailscale.enabled = false` or `visibility = "gateway"`; must be unique |
+| `visibility` | `tailnet` | `tailnet` gives the app its own tailnet node, behind the gateway. `gateway` gives it none, so it's reached only through the gateway; `tailscale_name`, `funnel`, `mcp_funnel` and `tcp` are then refused. See [Gateway-only apps](#gateway-only-apps) |
 | `healthcheck` | `/up` | Must start with `/` |
 | `restart_policy` | `on-failure` | See below |
 | `backoff_seconds` | `5` | Doubles per consecutive restart, capped at 300s |
@@ -1795,7 +1797,7 @@ what the manifest asks for:
 | `needs login` | waiting to be authorised; `outpost status` has the URL |
 | `starting` | coming up |
 | `retrying` | the last attempt failed; `outpost status` says why |
-| `-` | no node: the service isn't running, or Tailscale is off |
+| `-` | no node: the service isn't running, Tailscale is off, or it's `visibility = "gateway"` |
 
 Joining the tailnet happens in the background: `Attach` records intent and
 returns, so a node that is slow to register — or waiting on a first-run login
@@ -1803,6 +1805,46 @@ URL — never stalls supervision or the control socket. A failed attach is retri
 with backoff (2s, doubling to 60s) until it succeeds or the service is detached,
 and the reconcile loop re-asserts membership for every running service, so a
 service cannot end up silently off the tailnet.
+
+`outpost list`'s `VISIBILITY` column, `outpost status` and, for an admin, a
+**Gateway only** tag in the portal's catalog say which apps have no node.
+
+### Gateway-only apps
+
+Not every app needs an address of its own on the tailnet. With
+`visibility = "gateway"`, an app gets no node: Outpost never starts one, it
+costs no device on the tailnet, and it needs no `tailscale_name`, even with
+Tailscale on.
+
+```toml
+visibility = "gateway"
+```
+
+The gateway still serves it, behind the same login, in the two ways it serves
+an app without a node:
+
+- **In a browser,** at its gateway address, `<name>.<domain>` (or its
+  `subdomain` or `hostname`), which the catalog links. That needs the wildcard
+  DNS described under [The login gateway](#the-login-gateway). With the portal
+  [on the tailnet](#the-portal-on-the-tailnet) and no `[gateway] domain`, the
+  address is under the portal's node, which MagicDNS doesn't resolve, so only
+  the next way in works; `outpost apply` warns about that.
+- **From an MCP client** with an access token, at
+  `https://<portal>/mcp/<name>`, when the app has an
+  [`mcp_path`](#mcp-clients).
+
+There is no path on the portal's own host for opening an app in a browser:
+the app's pages would share the portal's origin, and with it the reach of the
+signed-in user's portal session.
+
+A `tailscale_name` alongside `visibility = "gateway"` is refused rather than
+ignored, since it would name a node that never exists. `funnel`, `mcp_funnel`
+and `tcp` are refused too, because each is served on the app's node, and the
+portal's Internet access setting can't turn Funnel on for it. With the gateway
+off the setting still validates, and `outpost apply` warns that only this
+machine reaches the app. Switching an app between the two means adding or
+removing its `tailscale_name`, which restarts it, so its node comes up or goes
+away cleanly.
 
 ### Raw TCP forwards
 

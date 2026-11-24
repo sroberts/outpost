@@ -357,6 +357,11 @@ func (r *Router) Attach(ctx context.Context, svc *manifest.Service) error {
 	if svc.FunnelListener() && (r.upstream == "" || r.publicUpstream == "") {
 		return fmt.Errorf("%s: funnel needs the gateway, which answers only the app's public_paths and mcp_path from the internet", svc.Name)
 	}
+	// Validation and the supervisor both keep these away too; a node here
+	// would put an app meant for the gateway alone on the tailnet.
+	if svc.GatewayOnly() {
+		return fmt.Errorf("%s: visibility = %q, so it gets no tailnet node", svc.Name, manifest.VisibilityGateway)
+	}
 	hostname := svc.TailscaleName
 	if hostname == "" {
 		return fmt.Errorf("%s: tailscale_name is required to join the tailnet", svc.Name)

@@ -29,6 +29,9 @@ type publicRow struct {
 	Funnel   bool
 	// CanFunnel is whether the app has a tailnet node for Funnel to be on.
 	CanFunnel bool
+	// GatewayOnly says why it has none: its manifest says visibility =
+	// "gateway".
+	GatewayOnly bool
 	// State is how Funnel is doing, in words; Live is whether the internet
 	// reaches it now, and URLs where.
 	State string
@@ -65,13 +68,15 @@ type mcpRow struct {
 // publicRowFor is what the internet reaches of rt, and how.
 func publicRowFor(rt route) publicRow {
 	row := publicRow{
-		PathList: rt.PublicPaths, Funnel: rt.Funnel,
-		CanFunnel:  rt.TailscaleName != "",
+		PathList: rt.PublicPaths, Funnel: rt.Funnel, GatewayOnly: rt.GatewayOnly,
+		CanFunnel:  rt.TailscaleName != "" && !rt.GatewayOnly,
 		FromPortal: rt.FromPortal,
 		Paths:      strings.Join(rt.PublicPaths, "\n"),
 	}
 	row.State, row.Live = funnelWords(rt)
 	switch {
+	case !rt.Funnel && !rt.MCPFunnel && rt.GatewayOnly:
+		row.Health, row.HealthWords = "off", "gateway only"
 	case !rt.Funnel && !rt.MCPFunnel:
 		row.Health, row.HealthWords = "off", "tailnet only"
 	case row.Live:
