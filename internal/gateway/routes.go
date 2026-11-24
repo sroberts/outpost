@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/sroberts/outpost/internal/config"
+	"github.com/sroberts/outpost/internal/manifest"
 )
 
 // routeRefresh is how often the route table is rebuilt from the supervisor.
@@ -55,6 +56,9 @@ type route struct {
 	ManifestFunnel      bool
 	ManifestPublicPaths []string
 	TailscaleName       string
+	// GatewayOnly says the app has no tailnet node, by its manifest's
+	// visibility, so it's served at Addr alone.
+	GatewayOnly bool
 
 	// What the supervisor says, for explaining a service that isn't up.
 	Desired      string
@@ -146,6 +150,7 @@ func (g *Gateway) refreshRoutes(ctx context.Context) {
 			Funnel: s.Funnel, MCPFunnel: s.MCPFunnel, FromPortal: s.FromPortal, ManifestFunnel: s.ManifestFunnel,
 			ManifestPublicPaths: s.ManifestPublicPaths, TailscaleName: s.TailscaleName,
 			MCPFromPortal: s.MCPFromPortal, ManifestMCPFunnel: s.ManifestMCPFunnel,
+			GatewayOnly: s.Visibility == manifest.VisibilityGateway,
 		}
 		if t := s.Tailnet; t != nil {
 			r.FunnelState, r.FunnelError = t.Funnel, t.FunnelError
@@ -169,7 +174,9 @@ func (g *Gateway) refreshRoutes(ctx context.Context) {
 			continue
 		}
 		byHost[r.Addr] = s.Name
-		if h := strings.ToLower(hosts[s.Name]); h != "" {
+		// A gateway-only app never takes a tailnet host, even one a stale
+		// node still reports: that would be a way in it was declared without.
+		if h := strings.ToLower(hosts[s.Name]); h != "" && !r.GatewayOnly {
 			// A node's name comes from Tailscale, not the manifests, so
 			// nothing has checked it against the addresses already taken;
 			// overwriting one would hand another app's traffic to this one.

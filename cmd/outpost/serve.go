@@ -502,6 +502,7 @@ func (a *app) manifestOptions(useTailnet bool) manifest.Options {
 	if a.config.Gateway.Enabled {
 		opts.PortalTailscaleName = a.config.Gateway.TailscaleName
 		opts.Gateway = true
+		opts.AppDomain = a.config.Gateway.AppDomain()
 	}
 	return opts
 }

@@ -103,6 +103,9 @@ type station struct {
 	Usage  *usageView // nil when there's nothing measured to show
 	// PublicWhat says which of them, for the badge's title.
 	PublicWhat string
+	// GatewayOnly is whether the app has no tailnet node of its own, by
+	// its manifest's visibility. Only an admin is shown it.
+	GatewayOnly bool
 
 	// For an admin, when the portal can control apps.
 	Quick  *appAction  // the one step that brings it back, outside the menu
@@ -132,6 +135,7 @@ func (g *Gateway) stations(u auth.User) []station {
 			Addr:        strings.TrimPrefix(strings.TrimPrefix(origin, "https://"), "http://"),
 			Hidden:      rt.Hidden,
 			Public:      u.Admin && (rt.Funnel || rt.MCPFunnel) && rt.FunnelState == "on",
+			GatewayOnly: u.Admin && rt.GatewayOnly,
 		}
 		if st.Public {
 			st.PublicWhat = publicWhat(rt)

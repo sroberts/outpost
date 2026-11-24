@@ -109,7 +109,7 @@ func (a *app) cmdList(args []string) error {
 		for _, svc := range services {
 			rows = append(rows, supervisor.ServiceStatus{
 				Name: svc.Name, Runtime: svc.Runtime, Status: "unknown",
-				Port: svc.Port, TailscaleName: svc.TailscaleName,
+				Port: svc.Port, TailscaleName: svc.TailscaleName, Visibility: svc.VisibilityOrDefault(),
 			})
 		}
 		return writeTable(a.out, rows)
@@ -135,7 +135,7 @@ func writeTable(w io.Writer, services []supervisor.ServiceStatus) error {
 		updates = updates || s.UpdateAvailable
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprint(tw, "NAME\tRUNTIME\tSTATUS\tUPTIME\tRESTARTS\tTAILSCALE")
+	fmt.Fprint(tw, "NAME\tRUNTIME\tSTATUS\tUPTIME\tRESTARTS\tTAILSCALE\tVISIBILITY")
 	if updates {
 		fmt.Fprint(tw, "\tUPDATE")
 	}
@@ -145,8 +145,8 @@ func writeTable(w io.Writer, services []supervisor.ServiceStatus) error {
 		if s.Halted {
 			status += " (halted)"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%s",
-			s.Name, orDash(s.Runtime), status, uptime(s), s.RestartCount, orDash(s.TailnetSummary()))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%s\t%s",
+			s.Name, orDash(s.Runtime), status, uptime(s), s.RestartCount, orDash(s.TailnetSummary()), orDash(s.Visibility))
 		switch {
 		case s.UpdateAvailable:
 			fmt.Fprintf(tw, "\t%s available", s.LatestRelease)
@@ -193,6 +193,9 @@ func (a *app) cmdStatus(args []string) error {
 		fmt.Fprintf(a.out, "  storage:       %s\n", st.Storage)
 		if st.TailscaleName != "" {
 			fmt.Fprintf(a.out, "  tailscale:     %s\n", st.TailnetDetail())
+		}
+		if st.Visibility != "" {
+			fmt.Fprintf(a.out, "  visibility:    %s\n", st.Visibility)
 		}
 		if t := st.Tailnet; t != nil && t.LoginURL != "" {
 			fmt.Fprintf(a.out, "  login:         %s\n", t.LoginURL)
