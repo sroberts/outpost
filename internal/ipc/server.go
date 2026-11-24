@@ -30,19 +30,21 @@ const maxSocketPath = 104
 
 // Server exposes a Supervisor over a Unix socket.
 type Server struct {
-	sup     *supervisor.Supervisor
-	auth    *auth.Store
-	secrets *secrets.Store
-	ai      gateway.AIModels
-	gateway GatewayStatus
-	stats   StatsSource
-	logDir  string
-	config  string
-	started time.Time
-	path    string
-	ln      net.Listener
-	logf    func(string, ...any)
-	logger  *log.Logger
+	sup      *supervisor.Supervisor
+	auth     *auth.Store
+	secrets  *secrets.Store
+	ai       gateway.AIModels
+	mail     gateway.Mail
+	exposure gateway.Exposure
+	gateway  GatewayStatus
+	stats    StatsSource
+	logDir   string
+	config   string
+	started  time.Time
+	path     string
+	ln       net.Listener
+	logf     func(string, ...any)
+	logger   *log.Logger
 
 	wg sync.WaitGroup
 	// closing ends watch streams at Close, which would otherwise outlive the
@@ -286,6 +288,12 @@ func (s *Server) dispatch(ctx context.Context, req Request) Response {
 
 	case CmdAIStatus, CmdAISet, CmdAIReset, CmdAITest, CmdAIRegenerate, CmdAIApps, CmdAIAppsReset, CmdAIKey:
 		return s.dispatchAI(ctx, req)
+
+	case CmdMailStatus, CmdMailAccount, CmdMailCheck, CmdMailAliasAdd, CmdMailAliasRemove, CmdMailSend, CmdMailRegenerate:
+		return s.dispatchMail(ctx, req)
+
+	case CmdExposureSet, CmdExposureReset, CmdExposureMCP, CmdExposureMCPReset:
+		return s.dispatchExposure(ctx, req)
 
 	case CmdGatewayStatus:
 		if s.gateway == nil {
