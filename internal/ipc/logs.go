@@ -20,6 +20,13 @@ type LogsRequest struct {
 	Level    string    `json:"level,omitempty"`
 	Stream   string    `json:"stream,omitempty"`
 	Contains string    `json:"contains,omitempty"`
+
+	// Source is which log (see applog.Sources); "" is the services' own
+	// output. For any other, Request.Service keeps the lines about it.
+	Source string    `json:"source,omitempty"`
+	Until  time.Time `json:"until,omitzero"`
+	User   string    `json:"user,omitempty"`
+	Status string    `json:"status,omitempty"`
 }
 
 // maxLogBytes bounds one reply: lines can be up to 64 KiB each, and a reply
@@ -39,10 +46,13 @@ func (s *Server) dispatchLogs(ctx context.Context, req Request) Response {
 	if req.Logs != nil {
 		lr = *req.Logs
 	}
-	q := applog.Query{Lines: lr.Lines, Since: lr.Since, Level: lr.Level, Stream: lr.Stream, Contains: lr.Contains}
+	q := applog.Query{Lines: lr.Lines, Since: lr.Since, Level: lr.Level, Stream: lr.Stream, Contains: lr.Contains,
+		Until: lr.Until, User: lr.User, Status: lr.Status}
 	var recs []applog.Record
 	var err error
-	if req.Service != "" {
+	if lr.Source != "" && lr.Source != applog.SourceApp {
+		recs, err = s.logReader().Read(ctx, lr.Source, req.Service, q)
+	} else if req.Service != "" {
 		recs, err = applog.Read(s.logDir, req.Service, q)
 		if errors.Is(err, applog.ErrNoLog) {
 			// Known but silent so far, or never run: an empty log, not a failure.
@@ -63,6 +73,33 @@ func (s *Server) dispatchLogs(ctx context.Context, req Request) Response {
 		return errorResponse(err)
 	}
 	return Response{OK: true, Logs: capLogBytes(recs, maxLogBytes)}
+}
+
+// logReader reads Outpost's own logs, and the activity feed from the
+// supervisor.
+func (s *Server) logReader() applog.Reader {
+	return applog.Reader{
+		Dir: s.logDir,
+		Services: func(ctx context.Context) ([]string, error) {
+			list, err := s.sup.List(ctx)
+			if err != nil {
+				return nil, err
+			}
+			names := make([]string, 0, len(list))
+			for _, st := range list {
+				names = append(names, st.Name)
+			}
+			return names, nil
+		},
+		Events: func(ctx context.Context, service string, limit int) ([]applog.Record, error) {
+			evs, err := s.sup.Events(ctx, service, limit)
+			out := make([]applog.Record, len(evs))
+			for i, e := range evs {
+				out[i] = applog.FromEvent(e.Service, e.Kind, e.Message, e.At)
+			}
+			return out, err
+		},
+	}
 }
 
 // capLogBytes keeps the newest records that fit in max bytes of text.

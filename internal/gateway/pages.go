@@ -15,7 +15,7 @@ import (
 	"github.com/sroberts/outpost/internal/version"
 )
 
-//go:embed templates/*.html static/portal.css static/catalog.js static/poll.js static/return.js static/selfupdate.js static/menus.js static/lighthouse.webp
+//go:embed templates/*.html static/portal.css static/catalog.js static/poll.js static/return.js static/selfupdate.js static/menus.js static/logs.js static/lighthouse.webp
 var assets embed.FS
 
 const (
@@ -33,6 +33,8 @@ const (
 	selfJSPath = "/.outpost/static/selfupdate.js"
 	// menusPath lets Escape close a menu on any signed-in page.
 	menusPath = "/.outpost/static/menus.js"
+	// logsJSPath follows new lines on the Logs page.
+	logsJSPath = "/.outpost/static/logs.js"
 	// artPath is the lighthouse from the Outpost header, cropped, for the
 	// sign-in page.
 	artPath = "/.outpost/static/lighthouse.webp"
@@ -50,6 +52,7 @@ var (
 	returnURL = versioned(returnPath, "static/return.js")
 	selfURL   = versioned(selfJSPath, "static/selfupdate.js")
 	menusURL  = versioned(menusPath, "static/menus.js")
+	logsJSURL = versioned(logsJSPath, "static/logs.js")
 	artURL    = versioned(artPath, "static/lighthouse.webp")
 )
 
@@ -180,6 +183,7 @@ type pageData struct {
 	CSS, JS, PollJS, Art string // the assets' versioned URLs
 	SelfJS               string
 	MenusJS, ReturnJS    string
+	LogsJS               string
 	Portal               string // what the portal calls itself
 	Host                 string // the portal's address, for reading
 	Home                 string // the catalog's URL
@@ -207,6 +211,7 @@ func specLink(v string) string {
 // render writes a page with the headers every gateway page carries.
 func (g *Gateway) render(w http.ResponseWriter, r *http.Request, status int, name string, d pageData) {
 	d.CSS, d.JS, d.PollJS, d.Art, d.SelfJS, d.MenusJS, d.ReturnJS = cssURL, jsURL, pollURL, artURL, selfURL, menusURL, returnURL
+	d.LogsJS = logsJSURL
 	d.Portal = g.cfg.PortalName()
 	d.Host = strings.TrimPrefix(strings.TrimPrefix(g.portalOrigin, "https://"), "http://")
 	d.Home = g.portalLink()
@@ -225,7 +230,7 @@ func (g *Gateway) render(w http.ResponseWriter, r *http.Request, status int, nam
 	}
 	var buf bytes.Buffer
 	if err := g.pages[name].ExecuteTemplate(&buf, "layout", d); err != nil {
-		g.logf("gateway: render %s: %v", name, err)
+		g.lg("page", name, "err", err).Errorf("gateway: render %s: %v", name, err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}

@@ -17,6 +17,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/log"
+
+	"github.com/sroberts/outpost/internal/logging"
 	"github.com/sroberts/outpost/internal/runtime"
 	"github.com/sroberts/outpost/internal/supervisor"
 )
@@ -92,6 +95,8 @@ type Options struct {
 	Traffic func() map[string]Bytes
 	Now     func() time.Time
 	Logf    func(format string, v ...any)
+	// Logger supersedes Logf, logging at levels and with fields.
+	Logger *log.Logger
 }
 
 // Sampler measures every service on a timer and keeps the history.
@@ -101,6 +106,7 @@ type Sampler struct {
 	traffic func() map[string]Bytes
 	now     func() time.Time
 	logf    func(format string, v ...any)
+	logger  *log.Logger
 
 	listTimeout time.Duration
 	walkLimit   time.Duration
@@ -162,6 +168,7 @@ func New(opts Options) *Sampler {
 		traffic:     opts.Traffic,
 		now:         opts.Now,
 		logf:        opts.Logf,
+		logger:      opts.Logger,
 		listTimeout: listTimeout,
 		walkLimit:   walkLimit,
 		entryLimit:  entryLimit,
@@ -174,11 +181,16 @@ func New(opts Options) *Sampler {
 	if s.now == nil {
 		s.now = time.Now
 	}
-	if s.logf == nil {
+	if s.logger != nil {
+		s.logf = nil
+	} else if s.logf == nil {
 		s.logf = func(string, ...any) {}
 	}
 	return s
 }
+
+// lg is where a line goes, with kv as its fields.
+func (s *Sampler) lg(kv ...any) logging.Line { return logging.To(s.logger, s.logf, kv...) }
 
 // Usage is the latest snapshot for a service, and false for one the sampler
 // hasn't seen.
@@ -291,7 +303,7 @@ func (s *Sampler) report(listErr, probeErr error) {
 		msg = err.Error()
 	}
 	if msg != "" && msg != s.lastErr {
-		s.logf("stats: %s", msg)
+		s.lg().Warnf("stats: %s", msg)
 	}
 	s.lastErr = msg
 }
@@ -462,7 +474,7 @@ func (s *Sampler) walkAll(ctx context.Context) {
 			// that hasn't started: nothing to measure, and nothing to log
 			// every ten minutes until it does.
 			if ctx.Err() == nil && !errors.Is(err, fs.ErrNotExist) {
-				s.logf("stats: %s: storage: %v", t.name, err)
+				s.lg("service", t.name, "err", err).Warnf("stats: %s: storage: %v", t.name, err)
 			}
 			continue
 		}

@@ -134,6 +134,10 @@ func (s *Service) validateWith(opts Options) []error {
 		errs = append(errs, fmt.Errorf("name is required"))
 	case PortalNodeName:
 		errs = append(errs, fmt.Errorf("name %q is reserved for the portal's tailnet node; rename the service", s.Name))
+	case DaemonLogName:
+		errs = append(errs, fmt.Errorf("name %q is reserved: the daemon keeps its own log as logs/%s.log; rename the service", s.Name, s.Name))
+	case AccessLogName:
+		errs = append(errs, fmt.Errorf("name %q is reserved: the gateway keeps its access log as logs/%s.log; rename the service", s.Name, s.Name))
 	}
 	if s.Runtime == "" {
 		errs = append(errs, fmt.Errorf("runtime is required"))
@@ -198,6 +202,14 @@ func (s *Service) validateWith(opts Options) []error {
 // PortalNodeName is reserved for the portal's own tailnet node, whose state
 // lives beside the services' nodes, in a directory named after it.
 const PortalNodeName = "_portal"
+
+// DaemonLogName is reserved because a service's log is logs/<name>.log, and
+// logs/outpost.log is the daemon's own.
+const DaemonLogName = "outpost"
+
+// AccessLogName is reserved for the same reason: logs/outpost-access.log is
+// the gateway's access log.
+const AccessLogName = "outpost-access"
 
 // Options controls the validation rules that depend on global configuration.
 type Options struct {

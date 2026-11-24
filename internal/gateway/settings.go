@@ -112,7 +112,7 @@ func (g *Gateway) settle(ctx context.Context, sts []station, fl *settingsFlash) 
 		mailStatus = g.mail.Status()
 		var err error
 		if held, err = g.mail.Held(); err != nil {
-			g.logf("gateway: %v", err) // the panels say "No mail yet." rather than fail the page
+			g.lg("err", err).Warnf("gateway: %v", err) // the panels say "No mail yet." rather than fail the page
 		}
 	}
 	// The apps' names and titles from the routes the gateway already holds,
@@ -329,7 +329,7 @@ func (g *Gateway) settingsSubmit(w http.ResponseWriter, r *http.Request) {
 	record := func(kind, format string, v ...any) {
 		what := fmt.Sprintf(format, v...)
 		g.activity.record(kind, "%s %s from %s", u.Username, what, g.clientIP(r))
-		g.logf("gateway: %s %s", u.Username, what)
+		g.lg("user", u.Username).Infof("gateway: %s %s", u.Username, what)
 	}
 	unknown := func() {
 		g.message(w, r, http.StatusBadRequest, "That didn't go through", "The form couldn't be read. Try again.", g.portalLink(), "Back to apps")

@@ -56,6 +56,10 @@ type Model struct {
 	keys   keyMap
 	help   help.Model
 
+	// ownLogs reads Outpost's own logs by source (applog.SourceDaemon,
+	// SourceAccess), for the logs view; nil leaves them out.
+	ownLogs LogReader
+
 	services []supervisor.ServiceStatus
 	events   []supervisor.EventRecord
 	logText  string
@@ -109,10 +113,13 @@ type Model struct {
 	// logRows is how many log lines the stacked layout's pane shows; View
 	// sets it to fill whatever the table leaves.
 	logRows int
+	// noteInBorder has the list leave its range note to its panel's border.
+	noteInBorder bool
 
 	lv  logView       // the logs view (logs.go)
 	ov  overviewState // the overview (overview.go)
 	mg  manageState   // the secrets and tokens views (manage.go)
+	ml  mailState     // the mail view (mail.go)
 	pal palette       // the command palette and its forms (palette.go)
 	out *outputPane   // a command's output, over the body
 
@@ -139,6 +146,13 @@ func New(client Client, logs LogReader) Model {
 		// would subscribe a second time and leak the first stream.
 		watchRetry: watchRetryTicks,
 	}
+}
+
+// WithOwnLogs lets the logs view show Outpost's own logs, read by r with
+// the source's name in place of a service's.
+func (m Model) WithOwnLogs(r LogReader) Model {
+	m.ownLogs = r
+	return m
 }
 
 // WithOverview opens the dashboard on the overview, when the client can
@@ -268,6 +282,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return next, cmd
 	}
 	switch msg := msg.(type) {
+	case formMsg:
+		// A form that has since closed, or moved on to its question, has no
+		// use for it.
+		if f := m.pal.form; f != nil && !f.confirming && f.hf != nil {
+			return m.stepForm(msg.msg)
+		}
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		// Some terminals — and pty wrappers like script(1) — report a zero
 		// size. Keep the last known good width rather than collapsing the
@@ -278,6 +300,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.Height > 0 {
 			m.height = msg.Height
+		}
+		if f := m.pal.form; f != nil && f.hf != nil {
+			f.hf = f.hf.WithWidth(m.formWidth())
 		}
 		return m, nil
 

@@ -35,9 +35,10 @@ const (
 	viewSecrets
 	viewTokens
 	viewLogs
+	viewMail
 )
 
-var viewNames = []string{"Services", "Users", "Gateway", "AI", "Overview", "Secrets", "Tokens", "Logs"}
+var viewNames = []string{"Services", "Users", "Gateway", "AI", "Overview", "Secrets", "Tokens", "Logs", "Mail"}
 
 // views are the views this client can show, in tab order. Each beyond the
 // first three needs the part of the API it draws on, so a client without it
@@ -60,6 +61,9 @@ func (m Model) views() []view {
 	}
 	if m.logs != nil {
 		v = append(v, viewLogs)
+	}
+	if _, ok := m.mailOps(); ok {
+		v = append(v, viewMail)
 	}
 	return v
 }
@@ -375,6 +379,7 @@ func (m Model) serviceGateway(s supervisor.ServiceStatus, kv func(k, v string)) 
 		access = append(access, "public: "+strings.Join(s.PublicPaths, " "))
 	}
 	kv("access", strings.Join(access, "; "))
+	kv("internet", reachWords(s))
 }
 
 // usersPane is the users view: everyone, then the selected user's sign-ins.
@@ -426,8 +431,16 @@ func (m Model) usersPane() string {
 		b.WriteString("  " + style.Render(truncate(marker+joinCells(row, widths), m.width-4)) + "\n")
 	}
 
+	return b.String()
+}
+
+// signInsPane is where the selected user is signed in.
+func (m Model) signInsPane() string {
+	var b strings.Builder
 	user := m.selectedUser()
-	b.WriteString("\n  " + m.rule("signed in: "+user) + "\n")
+	if user == "" {
+		return ""
+	}
 	switch {
 	case m.signInsUser != user:
 		b.WriteString("  " + labelStyle.Render("loading…") + "\n")
@@ -487,27 +500,42 @@ func (m Model) gatewayPane() string {
 		kv("apps", "<name>."+st.Domain)
 	}
 
-	b.WriteString("\n")
+	return b.String()
+}
+
+// routesPane is the apps the gateway routes and where.
+func (m Model) routesPane() string {
+	st := m.gateway
+	if st == nil {
+		return ""
+	}
+	var b strings.Builder
 	if len(st.Routes) == 0 {
 		b.WriteString("  " + labelStyle.Render("No services routed yet.") + "\n")
-	} else {
-		rows := [][]string{{"NAME", "ADDRESS", "STATUS"}}
-		for _, r := range st.Routes {
-			rows = append(rows, []string{r.Name, r.URL, r.Status})
-		}
-		widths := cellWidths(rows)
-		b.WriteString("    " + headerStyle.Render(joinCells(rows[0], widths)) + "\n")
-		for _, row := range rows[1:] {
-			b.WriteString("    " + rowStyle.Render(joinCells(row, widths)) + "\n")
-		}
+		return b.String()
 	}
+	rows := [][]string{{"NAME", "ADDRESS", "STATUS"}}
+	for _, r := range st.Routes {
+		rows = append(rows, []string{r.Name, r.URL, r.Status})
+	}
+	widths := cellWidths(rows)
+	b.WriteString("  " + headerStyle.Render(truncate(joinCells(rows[0], widths), m.width-4)) + "\n")
+	for _, row := range rows[1:] {
+		b.WriteString("  " + rowStyle.Render(truncate(joinCells(row, widths), m.width-4)) + "\n")
+	}
+	return b.String()
+}
 
-	if len(m.gatewayEvents) > 0 {
-		b.WriteString("\n  " + sectionStyle.Render("recent activity") + "\n")
-		for _, e := range m.gatewayEvents {
-			line := fmt.Sprintf("%s  %s  %s", e.At.Format("15:04:05"), pad(e.Kind, 12), e.Message)
-			b.WriteString("  " + valueStyle.Render(truncate(line, m.width-4)) + "\n")
-		}
+// gatewayActivityPane is what the gateway has decided lately.
+func (m Model) gatewayActivityPane() string {
+	var b strings.Builder
+	if len(m.gatewayEvents) == 0 {
+		b.WriteString("  " + labelStyle.Render("nothing yet") + "\n")
+		return b.String()
+	}
+	for _, e := range m.gatewayEvents {
+		line := fmt.Sprintf("%s  %s  %s", e.At.Format("15:04:05"), pad(e.Kind, 12), e.Message)
+		b.WriteString("  " + valueStyle.Render(truncate(line, m.width-4)) + "\n")
 	}
 	return b.String()
 }

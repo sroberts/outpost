@@ -55,6 +55,13 @@ type Record struct {
 	Fields map[string]string `json:"fields,omitempty"`
 	// Line is the line as the service wrote it.
 	Line string `json:"line"`
+
+	// Source is where the line came from: one of Sources.
+	Source string `json:"source,omitempty"`
+	// Component is the part of the daemon a daemon line came from, such as
+	// "gateway" or "tsnet"; "" for the daemon's own lines and every other
+	// source.
+	Component string `json:"component,omitempty"`
 }
 
 const timeLayout = "2006-01-02T15:04:05.000000Z"

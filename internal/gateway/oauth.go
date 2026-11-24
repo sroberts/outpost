@@ -150,7 +150,7 @@ func (g *Gateway) serveOAuthToken(w http.ResponseWriter, r *http.Request, rt rou
 	// failed is the server's own trouble, such as auth.db being busy: not
 	// counted against the address, and said in the form clients parse.
 	failed := func(what string, err error) {
-		g.logf("gateway: oauth %s: %s: %v", rt.Name, what, err)
+		g.lg("service", rt.Name, "err", err).Warnf("gateway: oauth %s: %s: %v", rt.Name, what, err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "server_error", "error_description": "try again shortly"}) // the client has gone if this fails
@@ -205,7 +205,7 @@ func (g *Gateway) serveOAuthToken(w http.ResponseWriter, r *http.Request, rt rou
 		}
 		access, refresh, grant, err = g.auth.CreateGrant(code.user, rt.Name, code.clientID, code.clientName)
 		if errors.Is(err, auth.ErrInvalidGrant) {
-			g.logf("gateway: oauth %s: no grant for %s: %v", rt.Name, code.user, err)
+			g.lg("service", rt.Name, "user", code.user, "err", err).Warnf("gateway: oauth %s: no grant for %s: %v", rt.Name, code.user, err)
 			refuse(http.StatusBadRequest, "invalid_grant", "access can't be granted for this account")
 			return
 		}

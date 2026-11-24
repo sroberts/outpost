@@ -89,7 +89,7 @@ func (g *Gateway) secretApps(ctx context.Context) []secretApp {
 	defer cancel()
 	sts, err := g.services.List(ctx)
 	if err != nil {
-		g.logf("gateway: list services for secrets: %v", err)
+		g.lg("err", err).Errorf("gateway: list services for secrets: %v", err)
 		return nil
 	}
 	apps := make([]secretApp, 0, len(sts))
@@ -287,7 +287,7 @@ func (g *Gateway) secretsSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	done := func(verb, what string) {
 		g.activity.record(EventSecret, "%s %s secret %s from %s", u.Username, what, name, g.clientIP(r))
-		g.logf("gateway: %s %s secret %s", u.Username, what, name)
+		g.lg("user", u.Username, "secret", name).Infof("gateway: %s %s secret %s", u.Username, what, name)
 		http.Redirect(w, r, "/secrets?done="+verb+"&secret="+url.QueryEscape(name)+"#s-"+url.QueryEscape(name), http.StatusSeeOther)
 	}
 

@@ -100,7 +100,7 @@ func (g *Gateway) clientMetadata(ctx context.Context, id string) (clientMeta, er
 
 	m, err := g.fetchClientMeta(ctx, id)
 	if err != nil {
-		g.logf("gateway: oauth: client %s: %v", id, err)
+		g.lg("client", id, "err", err).Warnf("gateway: oauth: client %s: %v", id, err)
 		return clientMeta{}, err
 	}
 	g.clientMetas.mu.Lock()

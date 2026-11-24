@@ -201,7 +201,8 @@ func (s *Service) forward(w http.ResponseWriter, r *http.Request, service string
 	fail := func(status int, typ, msg string) {
 		writeError(w, status, typ, msg)
 		s.count(service, ep.kind, 0, 0, msg)
-		s.logf("ai: %s %s %s → %d in %s: %s", service, ep.kind, what(), status, s.since(start), msg)
+		s.lg("service", service, "kind", ep.kind, "provider", c.Provider, "model", c.Model, "status", status, "took", s.since(start)).
+			Warnf("ai: %s %s %s → %d in %s: %s", service, ep.kind, what(), status, s.since(start), msg)
 	}
 	if c.Model == "" {
 		fail(http.StatusServiceUnavailable, "api_error",
@@ -300,7 +301,9 @@ func (s *Service) forward(w http.ResponseWriter, r *http.Request, service string
 		failure = resp.Status
 	}
 	s.count(service, ep.kind, in, outTok, failure)
-	s.logf("ai: %s %s %s → %d in %s (%d in, %d out)", service, ep.kind, what(), resp.StatusCode, s.since(start), in, outTok)
+	s.lg("service", service, "kind", ep.kind, "provider", c.Provider, "model", c.Model, "status", resp.StatusCode,
+		"took", s.since(start), "tokens_in", in, "tokens_out", outTok).
+		Debugf("ai: %s %s %s → %d in %s (%d in, %d out)", service, ep.kind, what(), resp.StatusCode, s.since(start), in, outTok)
 }
 
 func (s *Service) since(t time.Time) time.Duration {

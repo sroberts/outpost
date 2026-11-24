@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -16,12 +17,15 @@ import (
 	"github.com/sroberts/outpost/internal/manifest"
 )
 
-// cmdLogs shows or follows services' captured output.
+// cmdLogs shows or follows services' captured output, or with --source one
+// of Outpost's own logs.
 //
 // Unlike the control commands this reads the log files directly: they are
 // local, and reading them needs no daemon, so `outpost logs` still works
 // when the daemon is down, which is often when it's wanted. The portal, its
-// API and its MCP server read the same files through the daemon.
+// API and its MCP server read the same files through the daemon. The
+// activity feed is the exception: it lives in the state store, and comes
+// from the daemon.
 func (a *app) cmdLogs(args []string) error {
 	fs := flag.NewFlagSet("logs", flag.ContinueOnError)
 	fs.SetOutput(a.err)
@@ -35,13 +39,26 @@ func (a *app) cmdLogs(args []string) error {
 	stream := fs.String("stream", "", "only lines from one stream: out or err")
 	asJSON := fs.Bool("json", false, "print each line as a JSON object")
 	raw := fs.Bool("raw", false, "print each line exactly as the service wrote it")
+	source := fs.String("source", "", "which log: app (services' output, the default), daemon (Outpost's own), tailnet (its tailnet nodes'), access (every request the gateway answered), events (the activity feed) or all of them; a service name keeps the lines about it")
+	until := fs.String("until", "", "only lines written before then, in the same forms as --since")
+	user := fs.String("user", "", "only lines for this user, or for the access token with this id")
+	status := fs.String("status", "", "only requests answered with this status, such as 404, or class, such as 5xx")
 	names, err := parseOptionalService(fs, "logs", args)
 	if err != nil {
 		return err
 	}
+	if !applog.ValidSource(*source) {
+		return fmt.Errorf("logs: --source %q: use one of %s", *source, strings.Join(applog.Sources, ", "))
+	}
+	own := *source != "" && *source != applog.SourceApp
 	switch {
 	case len(names) > 1:
 		return fmt.Errorf("logs: unexpected argument %q", names[1])
+	case own && *events:
+		return errors.New("logs: --events is --source events; pick one")
+	case own && *all:
+		return errors.New("logs: --all is for services' output; --source reads every service's lines already")
+	case own:
 	case len(names) == 0 && !*all:
 		return errors.New("logs: a service name is required, or --all for every service")
 	case len(names) == 1 && *all:
@@ -82,6 +99,19 @@ func (a *app) cmdLogs(args []string) error {
 	}
 	if *asJSON && *raw {
 		return errors.New("logs: --json and --raw each choose the output; pick one")
+	}
+	q.User, q.Status = *user, *status
+	if q.Status != "" && !applog.ValidStatus(q.Status) {
+		return fmt.Errorf("logs: --status %q: use a code such as 404, or a class such as 5xx", q.Status)
+	}
+	if *until != "" {
+		if q.Until, err = parseSince(*until, time.Now()); err != nil {
+			return fmt.Errorf("logs: --until: %w", err)
+		}
+	}
+	if own {
+		p := logPrinter{out: a.out, json: *asJSON, raw: *raw, all: true, style: newLogStyles(a.out)}
+		return a.ownLogs(*source, name, q, *follow, p)
 	}
 
 	read := func(q applog.Query) ([]applog.Record, error) {
@@ -207,7 +237,7 @@ func (p logPrinter) print(r applog.Record) {
 		return
 	case p.raw:
 		if p.all {
-			fmt.Fprintf(p.out, "%s: ", r.Service)
+			fmt.Fprintf(p.out, "%s: ", applog.Where(r))
 		}
 		fmt.Fprintln(p.out, r.Line)
 		return
@@ -217,7 +247,7 @@ func (p logPrinter) print(r applog.Record) {
 		b.WriteString(p.style.time.Render(r.Time.Local().Format("2006-01-02 15:04:05")) + " ")
 	}
 	if p.all {
-		b.WriteString(p.style.svc.Render(r.Service) + " ")
+		b.WriteString(p.style.svc.Render(applog.Where(r)) + " ")
 	}
 	if tag, ok := levelTag[r.Level]; ok {
 		b.WriteString(p.style.level[r.Level].Render(tag) + " ")
@@ -233,6 +263,9 @@ func (p logPrinter) print(r applog.Record) {
 		for k := range r.Fields {
 			if k == "time" || k == "ts" || k == "timestamp" {
 				continue // the line's own time; Outpost's is shown
+			}
+			if r.Source == applog.SourceAccess && (k == "method" || k == "host" || k == "path" || k == "status") {
+				continue // a request's message says these already
 			}
 			keys = append(keys, k)
 		}
@@ -250,6 +283,78 @@ func quoteIfSpaced(v string) string {
 		return string(b)
 	}
 	return v
+}
+
+// ownLogs shows, and with follow keeps showing, one of Outpost's own logs,
+// keeping the lines about service when one is named.
+func (a *app) ownLogs(source, service string, q applog.Query, follow bool, p logPrinter) error {
+	rd := applog.Reader{Dir: a.logsDir(), Services: func(context.Context) ([]string, error) {
+		services, err := manifest.LoadDir(a.servicesDir())
+		if err != nil {
+			return nil, err
+		}
+		names := make([]string, 0, len(services))
+		for _, s := range services {
+			names = append(names, s.Name)
+		}
+		return names, nil
+	}}
+	if c := a.client(); c.Available() {
+		rd.Events = func(_ context.Context, service string, limit int) ([]applog.Record, error) {
+			evs, err := c.Events(service, limit)
+			return eventRecords(evs), err
+		}
+	} else if source == applog.SourceEvents {
+		return errNoDaemon()
+	} else if source == applog.SourceAll {
+		fmt.Fprintln(a.err, "logs: the daemon isn't running, so the activity feed is left out")
+	}
+	ctx := context.Background()
+	recs, err := rd.Read(ctx, source, service, q)
+	if err != nil {
+		return err
+	}
+	for _, r := range recs {
+		p.print(r)
+	}
+	if !follow {
+		return nil
+	}
+	// Following asks again for what's at or after the newest line shown.
+	// The daemon's own lines are stamped to the second, so a line written
+	// in that second after the last read has the same time as the newest
+	// shown; the lines already shown at that time are remembered, and only
+	// the others printed.
+	last := time.Now()
+	seen := map[string]bool{}
+	if n := len(recs); n > 0 && !recs[n-1].Time.IsZero() {
+		last = recs[n-1].Time
+		for _, r := range recs {
+			if r.Time.Equal(last) {
+				seen[r.Source+"\x00"+r.Line] = true
+			}
+		}
+	}
+	for {
+		time.Sleep(time.Second)
+		fq := q
+		fq.Since, fq.Lines = last.Add(-time.Nanosecond), applog.MaxLines
+		more, err := rd.Read(ctx, source, service, fq)
+		if err != nil {
+			return err
+		}
+		for _, r := range more {
+			key := r.Source + "\x00" + r.Line
+			if r.Time.Equal(last) && seen[key] {
+				continue
+			}
+			if r.Time.After(last) {
+				last, seen = r.Time, map[string]bool{}
+			}
+			seen[key] = true
+			p.print(r)
+		}
+	}
 }
 
 // showEvents prints a service's recent lifecycle events.

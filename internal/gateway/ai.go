@@ -515,7 +515,7 @@ func (g *Gateway) aiSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	g.activity.record(EventAI, "%s %s from %s", u.Username, what, g.clientIP(r))
-	g.logf("gateway: %s %s", u.Username, what)
+	g.lg("user", u.Username).Infof("gateway: %s %s", u.Username, what)
 	http.Redirect(w, r, "/ai?done="+done+"&kind="+url.QueryEscape(kind)+"#k-"+url.QueryEscape(kind), http.StatusSeeOther)
 }
 
@@ -534,7 +534,7 @@ func (g *Gateway) aiKey(w http.ResponseWriter, r *http.Request, u auth.User, con
 	}
 	title := ai.ProviderTitle(provider)
 	g.activity.record(EventAI, "%s set %s's API key from %s", u.Username, title, g.clientIP(r))
-	g.logf("gateway: %s set %s's API key", u.Username, title)
+	g.lg("user", u.Username, "provider", provider).Infof("gateway: %s set %s's API key", u.Username, title)
 	http.Redirect(w, r, "/ai?done=key&provider="+url.QueryEscape(provider)+"#p-"+url.QueryEscape(provider), http.StatusSeeOther)
 }
 

@@ -21,6 +21,21 @@ type LogSource interface {
 	Logs(ctx context.Context, service string, q applog.Query) ([]applog.Record, error)
 }
 
+// LogSources, when the LogSource also has it, reads the logs Outpost keeps
+// of its own (see applog.Sources): the daemon's, its tailnet nodes', the
+// gateway's access log, the activity feed, and all of them with the apps'
+// output at once. service, when set, keeps lines about that service, and
+// q.Apps, when not nil, keeps only lines about one of those.
+type LogSources interface {
+	Source(ctx context.Context, source, service string, q applog.Query) ([]applog.Record, error)
+}
+
+// sources is the gateway's LogSources, when it has one.
+func (g *Gateway) sources() (LogSources, bool) {
+	s, ok := g.logs.(LogSources)
+	return s, ok
+}
+
 const (
 	// logsAPIPath is the JSON form of the Logs page, for an admin's scripts.
 	// It is under /.outpost/ so no app path or portal page can collide with it.
@@ -34,8 +49,9 @@ const (
 	// logsMaxBytes bounds the text in one reply; the newest lines are kept.
 	logsMaxBytes = 4 << 20
 	// logsMaxContains bounds the text filter, which is matched against every
-	// line read.
+	// line read; logsMaxUser bounds the user filter the same way.
 	logsMaxContains = 1000
+	logsMaxUser     = 200
 )
 
 // isOwnAPIPath reports whether p is one of Outpost's own endpoints on the
@@ -47,6 +63,7 @@ func isOwnAPIPath(p string) bool {
 
 // logsRequest is which lines a page, API or MCP caller asked for.
 type logsRequest struct {
+	source  string // one of applog.Sources; "" is the apps' output
 	service string // "" is every service the caller may read
 	q       applog.Query
 }
@@ -74,7 +91,38 @@ func parseLogsQuery(v url.Values) (logsRequest, error) {
 	if lr.q, err = logsQuery(lines, v.Get("level"), v.Get("stream"), v.Get("q"), v.Get("since")); err != nil {
 		return lr, err
 	}
-	return lr, nil
+	if lr.source, err = logsSource(v.Get("source")); err != nil {
+		return lr, err
+	}
+	return lr, logsFilters(&lr.q, v.Get("user"), v.Get("status"), v.Get("until"))
+}
+
+// logsSource checks the source a caller named.
+func logsSource(s string) (string, error) {
+	if s = strings.TrimSpace(s); !applog.ValidSource(s) {
+		return "", badLogs("source must be one of %s", strings.Join(applog.Sources, ", "))
+	}
+	return s, nil
+}
+
+// logsFilters adds the filters that mean most for Outpost's own logs to q:
+// the user or access token a line is for, a request's status, and when the
+// range ends.
+func logsFilters(q *applog.Query, user, status, until string) error {
+	if q.User = strings.TrimSpace(user); len(q.User) > logsMaxUser {
+		return badLogs("the user or token to look for can be at most %d bytes", logsMaxUser)
+	}
+	if q.Status = strings.ToLower(strings.TrimSpace(status)); q.Status != "" && !applog.ValidStatus(q.Status) {
+		return badLogs("status must be a code such as 404, or a class such as 5xx")
+	}
+	if until = strings.TrimSpace(until); until != "" {
+		t, err := parseSince(until, time.Now())
+		if err != nil {
+			return badLogs("until must be an RFC 3339 time, such as 2026-11-18T12:00:00Z, or a duration, such as 15m")
+		}
+		q.Until = t
+	}
+	return nil
 }
 
 // logsQuery checks and assembles a query from what a caller sent, the same
@@ -111,6 +159,13 @@ func logsQuery(lines int, level, stream, contains, since string) (applog.Query, 
 func parseSince(s string, now time.Time) (time.Time, error) {
 	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
 		return t, nil
+	}
+	// What the page's time fields send: the daemon's local time, to the
+	// minute or the second.
+	for _, layout := range []string{"2006-01-02T15:04", "2006-01-02T15:04:05"} {
+		if t, err := time.ParseInLocation(layout, s, time.Local); err == nil {
+			return t, nil
+		}
 	}
 	if d, err := time.ParseDuration(s); err == nil && d > 0 {
 		return now.Add(-d), nil
@@ -242,10 +297,16 @@ func (g *Gateway) logsServices(ctx context.Context, a logsAccess) ([]logsService
 // to read: the two read alike.
 var errNoSuchService = errors.New("no such service")
 
+// errNoSource is a source this gateway wasn't given a way to read.
+var errNoSource = errBadLogs{"this Outpost doesn't keep that log"}
+
 // readLogs reads what lr asks for, from the services a caller may read. A
 // service is read only once it's known to be declared, so nothing a caller
 // names is ever taken as a path.
 func (g *Gateway) readLogs(ctx context.Context, a logsAccess, svcs []logsService, lr logsRequest, maxBytes int) ([]applog.Record, error) {
+	if lr.source != "" && lr.source != applog.SourceApp {
+		return g.readOwnLogs(ctx, a, svcs, lr, maxBytes)
+	}
 	if lr.service != "" {
 		found := false
 		for _, s := range svcs {
@@ -281,6 +342,35 @@ func (g *Gateway) readLogs(ctx context.Context, a logsAccess, svcs []logsService
 		all = all[len(all)-n:]
 	}
 	return capRecords(all, maxBytes), nil
+}
+
+// readOwnLogs reads one of Outpost's own sources, or all of them. A token
+// scoped to apps reads only the lines about those apps: their output, their
+// requests, their activity, and the daemon's lines that name one of them.
+// Nothing about the portal, another app, or the daemon as a whole reaches it.
+func (g *Gateway) readOwnLogs(ctx context.Context, a logsAccess, svcs []logsService, lr logsRequest, maxBytes int) ([]applog.Record, error) {
+	src, ok := g.sources()
+	if !ok {
+		return nil, errNoSource
+	}
+	if lr.service != "" {
+		found := false
+		for _, s := range svcs {
+			found = found || s.Name == lr.service
+		}
+		if !found {
+			return nil, errNoSuchService
+		}
+	}
+	q := lr.q
+	if a.scope != nil {
+		q.Apps = a.scope
+	}
+	recs, err := src.Source(ctx, lr.source, lr.service, q)
+	if err != nil {
+		return nil, err
+	}
+	return capRecords(recs, maxBytes), nil
 }
 
 // capRecords keeps the newest records whose text fits in max bytes.
@@ -372,7 +462,7 @@ func (g *Gateway) serveLogsAPI(rw http.ResponseWriter, r *http.Request) {
 	a.passed()
 	svcs, err := g.logsServices(r.Context(), a)
 	if err != nil {
-		g.logf("gateway: logs: list services: %v", err)
+		g.lg("err", err).Errorf("gateway: logs: list services: %v", err)
 		http.Error(w, "couldn't list services", http.StatusInternalServerError)
 		return
 	}
@@ -381,8 +471,13 @@ func (g *Gateway) serveLogsAPI(rw http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no such service", http.StatusNotFound)
 		return
 	}
+	var bad errBadLogs
+	if errors.As(err, &bad) {
+		http.Error(w, bad.Error(), http.StatusBadRequest)
+		return
+	}
 	if err != nil {
-		g.logf("gateway: logs: %v", err)
+		g.lg("err", err).Errorf("gateway: logs: %v", err)
 		http.Error(w, "couldn't read the logs", http.StatusInternalServerError)
 		return
 	}
@@ -390,9 +485,13 @@ func (g *Gateway) serveLogsAPI(rw http.ResponseWriter, r *http.Request) {
 		Logs []applog.Record `json:"logs"`
 	}{recs})
 	if err != nil {
-		g.logf("gateway: logs: %v", err)
+		g.lg("err", err).Errorf("gateway: logs: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
+	}
+	// The page's Download link: the same lines, kept as a file.
+	if r.URL.Query().Get("download") != "" {
+		w.Header().Set("Content-Disposition", `attachment; filename="outpost-logs.json"`)
 	}
 	if r.Method == http.MethodHead {
 		return
@@ -404,29 +503,60 @@ func (g *Gateway) serveLogsAPI(rw http.ResponseWriter, r *http.Request) {
 // text: html/template escapes it, and none may ever become template.HTML,
 // since a log line is whatever a service chose to print.
 type logsView struct {
+	Sources  []logsSourceChoice // empty when apps' output is all there is
+	Source   string
 	Services []logsService
 	Service  string
 	Levels   []string
 	Level    string
 	Stream   string
 	Contains string
+	User     string
+	Status   string
+	Since    string // as the time fields show it
+	Until    string
 	Lines    int
+	Lede     string
 	Rows     []logRow
-	All      bool // reading every service, so each row names its own
+	All      bool // the lines come from more than one place, so each row names its own
 	More     bool // a filter behind "More filters" is set, so it opens
+	Follow   bool // new lines are fetched as they come, by script
 	Error    string
 	Self     string // this view's URL, to refresh it
+	Download string // the same lines from the API, as a file
 }
+
+type logsSourceChoice struct{ Value, Label string }
 
 type logRow struct {
 	When, Stamp     string // shown, and machine-readable
-	Service, Title  string
+	Service, Title  string // Title is where the line came from
 	Level, Stream   string
 	Message, Fields string
+	// RequestID is the gateway's id for the request the line is about, and
+	// Trace the page with every line that carries it.
+	RequestID, Trace string
 }
 
-// logsPage shows an admin the newest lines of one service's output, or of
-// every service's, oldest at the top.
+// logsSourceLabels name each source in the picker, and logsSourceLedes say
+// what it holds.
+var (
+	logsSourceLabels = map[string]string{
+		applog.SourceApp: "Apps' output", applog.SourceDaemon: "Outpost", applog.SourceTailnet: "Tailnet nodes",
+		applog.SourceAccess: "Requests", applog.SourceEvents: "Activity", applog.SourceAll: "Everything",
+	}
+	logsSourceLedes = map[string]string{
+		applog.SourceApp:     "What your apps wrote to their output, oldest at the top and newest at the bottom.",
+		applog.SourceDaemon:  "What Outpost itself logged, oldest at the top and newest at the bottom.",
+		applog.SourceTailnet: "What the apps' tailnet nodes said, oldest at the top and newest at the bottom.",
+		applog.SourceAccess:  "Every request the gateway answered: who made it and what they got, oldest at the top.",
+		applog.SourceEvents:  "Starts, crashes, sign-ins, denials and changes, oldest at the top and newest at the bottom.",
+		applog.SourceAll:     "Apps' output, Outpost's own log, requests and activity together, oldest at the top.",
+	}
+)
+
+// logsPage shows an admin the newest lines of a log, oldest at the top: one
+// service's output or every service's, by default, or one of Outpost's own.
 func (g *Gateway) logsPage(w http.ResponseWriter, r *http.Request) {
 	u, ok := g.adminUser(w, r, "/logs", "Only an admin can read apps' logs.")
 	if !ok {
@@ -434,10 +564,15 @@ func (g *Gateway) logsPage(w http.ResponseWriter, r *http.Request) {
 	}
 	a := logsAccess{user: u}
 	v := logsView{Levels: applog.Levels, Lines: logsDefaultLines, Self: "/logs?" + r.URL.Query().Encode()}
+	if _, ok := g.sources(); ok {
+		for _, s := range applog.Sources {
+			v.Sources = append(v.Sources, logsSourceChoice{s, logsSourceLabels[s]})
+		}
+	}
 	status := http.StatusOK
 	svcs, err := g.logsServices(r.Context(), a)
 	if err != nil {
-		g.logf("gateway: logs: list services: %v", err)
+		g.lg("err", err).Errorf("gateway: logs: list services: %v", err)
 	}
 	v.Services = svcs
 	titles := map[string]string{}
@@ -446,8 +581,19 @@ func (g *Gateway) logsPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	q := r.URL.Query()
-	v.Service, v.Level, v.Stream, v.Contains = q.Get("service"), q.Get("level"), q.Get("stream"), q.Get("q")
-	v.More = v.Stream != "" || v.Contains != "" || q.Has("lines")
+	v.Source, v.Service, v.Level, v.Stream, v.Contains = q.Get("source"), q.Get("service"), q.Get("level"), q.Get("stream"), q.Get("q")
+	v.User, v.Status, v.Since, v.Until = q.Get("user"), q.Get("status"), q.Get("since"), q.Get("until")
+	v.Follow = q.Get("follow") != ""
+	v.More = v.Stream != "" || v.Contains != "" || q.Has("lines") || v.User != "" || v.Status != "" || v.Since != "" || v.Until != ""
+	v.Lede = logsSourceLedes[applog.SourceApp]
+	dl := url.Values{}
+	for k, vals := range q {
+		if k != "follow" {
+			dl[k] = vals
+		}
+	}
+	dl.Set("download", "1")
+	v.Download = logsAPIPath + "?" + dl.Encode()
 	lr, perr := parseLogsQuery(q)
 	switch {
 	case perr != nil:
@@ -456,13 +602,20 @@ func (g *Gateway) logsPage(w http.ResponseWriter, r *http.Request) {
 		status, v.Error = http.StatusInternalServerError, "Couldn't list the apps. Try again."
 	default:
 		v.Lines, v.Level = lr.q.Lines, lr.q.Level
-		v.All = lr.service == ""
+		v.Since, v.Until = timeField(lr.q.Since), timeField(lr.q.Until)
+		if lr.source != "" {
+			v.Lede = logsSourceLedes[lr.source]
+		}
+		v.All = lr.service == "" || (lr.source != "" && lr.source != applog.SourceApp)
 		recs, rerr := g.readLogs(r.Context(), a, svcs, lr, logsMaxBytes)
+		var bad errBadLogs
 		switch {
 		case errors.Is(rerr, errNoSuchService):
 			status, v.Error = http.StatusNotFound, "There's no app by that name."
+		case errors.As(rerr, &bad):
+			status, v.Error = http.StatusBadRequest, bad.Error()
 		case rerr != nil:
-			g.logf("gateway: logs: %v", rerr)
+			g.lg("err", rerr).Errorf("gateway: logs: %v", rerr)
 			status, v.Error = http.StatusInternalServerError, "Couldn't read the logs. Try again."
 		default:
 			v.Rows = logRows(recs, titles)
@@ -476,13 +629,26 @@ func (g *Gateway) logsPage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// timeField is t as a datetime-local field shows it, in the daemon's time.
+func timeField(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	t = t.Local()
+	if t.Second() == 0 && t.Nanosecond() == 0 {
+		return t.Format("2006-01-02T15:04")
+	}
+	return t.Format("2006-01-02T15:04:05")
+}
+
+// logRowHidden are the fields an access log row already says in its
+// message, or, for the request id, as its own link.
+var logRowHidden = map[string]bool{"method": true, "host": true, "path": true, "status": true}
+
 func logRows(recs []applog.Record, titles map[string]string) []logRow {
 	rows := make([]logRow, len(recs))
 	for i, rec := range recs {
-		row := logRow{Service: rec.Service, Title: titles[rec.Service], Level: rec.Level, Stream: rec.Stream, Message: rec.Message}
-		if row.Title == "" {
-			row.Title = rec.Service
-		}
+		row := logRow{Service: rec.Service, Title: logWhere(rec, titles), Level: rec.Level, Stream: rec.Stream, Message: rec.Message}
 		if !rec.Time.IsZero() {
 			lt := rec.Time.Local()
 			row.When, row.Stamp = lt.Format("Jan 2 15:04:05"), lt.Format(time.RFC3339Nano)
@@ -495,8 +661,15 @@ func logRows(recs []applog.Record, titles map[string]string) []logRow {
 		if row.Level != "" && row.Message == rec.Line {
 			row.Message = applog.TrimLevel(row.Message)
 		}
+		if id := rec.Fields["request_id"]; id != "" {
+			row.RequestID = id
+			row.Trace = "/logs?" + url.Values{"source": {applog.SourceAll}, "q": {id}}.Encode() + "#newest"
+		}
 		keys := make([]string, 0, len(rec.Fields))
 		for k := range rec.Fields {
+			if k == "request_id" && row.RequestID != "" || rec.Source == applog.SourceAccess && logRowHidden[k] {
+				continue
+			}
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
@@ -512,4 +685,35 @@ func logRows(recs []applog.Record, titles map[string]string) []logRow {
 		rows[i] = row
 	}
 	return rows
+}
+
+// logWhere is where a line came from, as its row names it: the app, or the
+// part of Outpost, and what the line is about.
+func logWhere(rec applog.Record, titles map[string]string) string {
+	title := titles[rec.Service]
+	if title == "" {
+		title = rec.Service
+	}
+	join := func(what, about string) string {
+		if about == "" {
+			return what
+		}
+		return what + " · " + about
+	}
+	switch rec.Source {
+	case applog.SourceDaemon:
+		what := "Outpost"
+		if rec.Component != "" {
+			what = rec.Component
+		}
+		return join(what, title)
+	case applog.SourceAccess:
+		if title == "" {
+			title = "portal"
+		}
+		return join("request", title)
+	case applog.SourceEvents:
+		return join("activity", title)
+	}
+	return title
 }

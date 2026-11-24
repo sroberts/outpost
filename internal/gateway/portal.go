@@ -146,6 +146,8 @@ func (g *Gateway) servePortal(w http.ResponseWriter, r *http.Request) {
 		g.serveAsset(w, r, "static/return.js", "text/javascript; charset=utf-8")
 	case menusPath:
 		g.serveAsset(w, r, "static/menus.js", "text/javascript; charset=utf-8")
+	case logsJSPath:
+		g.serveAsset(w, r, "static/logs.js", "text/javascript; charset=utf-8")
 	case selfJSPath:
 		g.serveAsset(w, r, "static/selfupdate.js", "text/javascript; charset=utf-8")
 	case artPath:
@@ -241,7 +243,7 @@ func (g *Gateway) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if !errors.Is(err, auth.ErrBadCredentials) {
 			g.throttle.pass(keys...)
-			g.logf("gateway: login: %v", err)
+			g.lg("err", err).Errorf("gateway: login: %v", err)
 			form.Error = "Something went wrong. Try again."
 			g.render(w, r, http.StatusInternalServerError, "login", form)
 			return
@@ -265,7 +267,7 @@ func (g *Gateway) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	tok, err := g.auth.CreateSessionFrom(u.Username, "", "", r.UserAgent(), ip)
 	if err != nil {
-		g.logf("gateway: login: %v", err)
+		g.lg("err", err).Errorf("gateway: login: %v", err)
 		form.Error = "Something went wrong. Try again."
 		g.render(w, r, http.StatusInternalServerError, "login", form)
 		return
@@ -317,7 +319,7 @@ func (g *Gateway) continueApp(w http.ResponseWriter, r *http.Request) {
 	}
 	code, err := g.codes.mint(pendingCode{user: u.Username, app: p.app, parent: tok, state: stamp}, g.now())
 	if err != nil {
-		g.logf("gateway: %v", err)
+		g.lg("err", err).Errorf("gateway: %v", err)
 		g.message(w, r, http.StatusServiceUnavailable, "Try again", err.Error(), again, "Try again")
 		return
 	}
@@ -346,7 +348,7 @@ func (g *Gateway) logout(w http.ResponseWriter, r *http.Request) {
 	_, _, u, signedIn := g.session(r)
 	if c, err := r.Cookie(g.cookieName); err == nil {
 		if err := g.auth.RevokeSession(c.Value); err != nil {
-			g.logf("gateway: logout: %v", err)
+			g.lg("err", err).Warnf("gateway: logout: %v", err)
 		} else if signedIn {
 			g.activity.record(EventSignOut, "%s signed out from %s", u.Username, g.clientIP(r))
 		}
@@ -370,7 +372,7 @@ func (g *Gateway) setupValid(tok string) bool {
 	}
 	users, err := g.auth.ListUsers()
 	if err != nil {
-		g.logf("gateway: setup: %v", err)
+		g.lg("err", err).Errorf("gateway: setup: %v", err)
 		return false
 	}
 	if len(users) > 0 {
@@ -420,7 +422,7 @@ func (g *Gateway) setupSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	if users, err := g.auth.ListUsers(); err != nil || len(users) > 0 {
 		if err != nil {
-			g.logf("gateway: setup: %v", err)
+			g.lg("err", err).Errorf("gateway: setup: %v", err)
 		}
 		g.setup.token = ""
 		http.NotFound(w, r)
@@ -448,12 +450,12 @@ func (g *Gateway) setupSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	g.setup.token = ""
-	g.logf("gateway: first admin %q created through the setup link", username)
+	g.lg("user", username).Infof("gateway: first admin %q created through the setup link", username)
 	g.activity.record(EventSetup, "first admin %s created through the setup link from %s", username, g.clientIP(r))
 
 	sess, err := g.auth.CreateSessionFrom(username, "", "", r.UserAgent(), g.clientIP(r))
 	if err != nil {
-		g.logf("gateway: setup: %v", err)
+		g.lg("err", err).Errorf("gateway: setup: %v", err)
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}

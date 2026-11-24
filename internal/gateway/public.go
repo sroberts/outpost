@@ -56,22 +56,29 @@ func (g *Gateway) ServePublic(ctx context.Context, ln net.Listener) error {
 func (g *Gateway) servePublic(w http.ResponseWriter, r *http.Request) {
 	// First, whatever happens next: nobody outside sets who they are.
 	stripIdentity(r.Header)
+	g.observe(w, r, hostname(r.Host), true, publicClient, g.servePublicRequest)
+}
+
+// servePublicRequest is servePublic once the request has its id.
+func (g *Gateway) servePublicRequest(w http.ResponseWriter, r *http.Request) {
 	client := publicClient(r)
 	now := g.now()
 	rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 	defer func() {
-		g.logf("gateway: funnel: %s %s %s%s -> %d", client, r.Method, hostname(r.Host), r.URL.Path, rec.status)
+		g.lg("ip", client, "method", r.Method, "host", hostname(r.Host), "path", r.URL.Path, "status", rec.status, "took", g.now().Sub(now).Round(time.Microsecond)).Infof("gateway: funnel: %s %s %s%s -> %d", client, r.Method, hostname(r.Host), r.URL.Path, rec.status)
 	}()
 	// Ahead of the throttle, which serveFunnelMCP applies itself: Claude's
 	// connectors call from addresses every Anthropic customer shares, so
 	// anyone could keep them backed off, and a good token must still work.
 	if rt, ok := g.funnelMCPRoute(r); ok {
+		noteApp(r, rt.Name)
 		g.serveFunnelMCP(rec, r, rt, client)
 		return
 	}
 	// The OAuth addresses beside it, which apply their own throttling for
 	// the same reason. See oauth.go.
 	if rt, ok := g.funnelOAuthRoute(r); ok {
+		noteApp(r, rt.Name)
 		g.serveFunnelOAuth(rec, r, rt, client)
 		return
 	}
@@ -99,6 +106,7 @@ func (g *Gateway) servePublic(w http.ResponseWriter, r *http.Request) {
 		refuse(http.StatusNotFound)
 		return
 	}
+	noteApp(r, rt.Name)
 	if strings.HasPrefix(r.URL.Path, reservedPrefix) || !g.isPublic(r, rt) {
 		refuse(http.StatusNotFound)
 		return
@@ -174,7 +182,7 @@ func (g *Gateway) serveFunnelMCP(w http.ResponseWriter, r *http.Request, rt rout
 			tok, user = t, u
 			good = t.Internet && len(t.Apps) == 1 && t.Apps[0] == rt.Name
 		case !errors.Is(err, auth.ErrNoSuchAccessToken):
-			g.logf("gateway: funnel mcp %s: access token lookup: %v", rt.Name, err)
+			g.lg("service", rt.Name, "err", err).Errorf("gateway: funnel mcp %s: access token lookup: %v", rt.Name, err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
@@ -215,7 +223,7 @@ func (g *Gateway) serveFunnelMCP(w http.ResponseWriter, r *http.Request, rt rout
 	g.touchAccessToken(tok)
 	if tok.InternetUsedAt.IsZero() {
 		if first, err := g.auth.MarkInternetUsed(tok.ID); err != nil {
-			g.logf("gateway: funnel mcp %s: %v", rt.Name, err)
+			g.lg("service", rt.Name, "err", err).Warnf("gateway: funnel mcp %s: %v", rt.Name, err)
 		} else if first {
 			g.activity.record(EventTokenInternet, "internet access token %d for %s first used from the internet, from %s, to reach %s",
 				tok.ID, user.Username, client, rt.Name)
