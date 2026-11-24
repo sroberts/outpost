@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -31,7 +32,7 @@ func (a *app) cmdTUI(args []string) error {
 	// The dashboard reads the daemon through the same client the CLI uses, so
 	// there is one code path to the supervisor.
 	c := a.client()
-	model := tui.New(c, a.tailLog).WithConfigCheck(func() bool {
+	model := tui.New(c, a.tailLog).WithOwnLogs(a.tailOwnLog).WithConfigCheck(func() bool {
 		// Re-read the file on every check: a.config is what it held when the
 		// dashboard started, so comparing against that would miss an edit made
 		// while it runs, and flag a daemon restarted onto that edit as stale.
@@ -129,6 +130,30 @@ func (c *terminalRun) Run() error {
 // 10 MiB, and the dashboard re-reads them every couple of seconds, so it reads a
 // bounded window rather than the whole file to keep a dozen lines.
 const tailWindow = 64 << 10
+
+// tailOwnLog returns the last n lines of one of Outpost's own logs, the
+// daemon's or the gateway's access log, as tailLog does a service's: read
+// from the file, each line marked with where it came from.
+func (a *app) tailOwnLog(source string, n int) (string, error) {
+	recs, err := applog.Reader{Dir: a.logsDir()}.Read(context.Background(), source, "", applog.Query{Lines: n})
+	if err != nil {
+		return "", err
+	}
+	lines := make([]string, len(recs))
+	for i, r := range recs {
+		if r.Source == applog.SourceAccess {
+			// The message says these already.
+			for _, k := range []string{"method", "host", "path", "status"} {
+				delete(r.Fields, k)
+			}
+		}
+		if w := applog.Where(r); w != "" {
+			r.Message = "[" + w + "] " + r.Message
+		}
+		lines[i] = applog.Text(r)
+	}
+	return strings.Join(lines, "\n"), nil
+}
 
 // tailLog returns the last n lines of a service's log file.
 //

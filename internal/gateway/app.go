@@ -20,6 +20,7 @@ import (
 const reservedPrefix = "/.outpost/"
 
 func (g *Gateway) serveApp(w http.ResponseWriter, r *http.Request, rt route) {
+	noteApp(r, rt.Name)
 	// Ahead of everything below, public paths included: a request presenting a
 	// token stands or falls by it, and the token never goes any further.
 	if presented := presentedAccessTokens(r.Header); len(presented) > 0 {
@@ -270,6 +271,7 @@ func (g *Gateway) proxyAsTo(w http.ResponseWriter, r *http.Request, rt route, u 
 		to.client = g.clientIP(r)
 	}
 	to.admin, to.user, to.token = u.Admin, &u, idTok
+	to.requestID = requestIDOf(r)
 	ctx := context.WithValue(r.Context(), targetKey{}, to)
 	g.proxy.ServeHTTP(w, r.WithContext(ctx))
 }
@@ -299,6 +301,9 @@ type target struct {
 	// nil for a public path, which carries none.
 	user  *auth.User
 	token string
+	// requestID is the gateway's id for the request, which goes with the
+	// identity.
+	requestID string
 	// path, when set, replaces the request's path, keeping its query: the
 	// app's mcp_path, for a request that came to /mcp/<name>.
 	path string
@@ -343,6 +348,11 @@ func (g *Gateway) newProxy() *httputil.ReverseProxy {
 			}
 			if t.user != nil {
 				setIdentity(pr.Out.Header, *t.user, t.token)
+				// With the identity, and not on a public path, which
+				// carries no X-Outpost-* header at all.
+				if t.requestID != "" {
+					pr.Out.Header.Set(RequestIDHeader, t.requestID)
+				}
 			}
 			// Rewrite has already dropped any X-Forwarded-* the client sent;
 			// these are the gateway's own account of the request, under
@@ -362,6 +372,9 @@ func (g *Gateway) newProxy() *httputil.ReverseProxy {
 			pr.Out.Header.Del("Forwarded")
 		},
 		ModifyResponse: func(resp *http.Response) error {
+			// The gateway's id is already on the response; an app's own
+			// would read as a second one.
+			resp.Header.Del(RequestIDHeader)
 			t, _ := resp.Request.Context().Value(targetKey{}).(target)
 			if t.mcp {
 				// The portal's origin is shared by every app's MCP endpoint

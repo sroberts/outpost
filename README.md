@@ -453,6 +453,10 @@ outpost logs <service> [-f]      show or follow a service's output: --level warn
                                  --json, --raw (see Logs)
 outpost logs --all [-f]          every service's output, interleaved by time
 outpost logs <service> --events  show the service's recent activity
+outpost logs --source <log> [service] [-f]
+                                 one of Outpost's own logs: daemon, tailnet, access,
+                                 events, or all of them with the apps'; --user,
+                                 --status 4xx, --until (see Logs)
 outpost start <service>          start a stopped service
 outpost stop <service>           stop a running service
 outpost restart <service>        restart a service
@@ -638,7 +642,8 @@ how to start one, then reconnects on its own once one appears.
 
 ## Logs
 
-Outpost keeps two kinds of log.
+Outpost keeps its apps' output and four logs of its own, and every view of
+them reads them all.
 
 **Your apps' output.** Everything a service writes to stdout and stderr goes
 to `~/.outpost/logs/<name>.log`, each line stored after the time it arrived
@@ -720,6 +725,68 @@ replaces `level`, the flag winning over the variable; a part named in
 
 No log line carries a password, a session cookie, an access token, a
 secret's value or a request's body.
+
+**The gateway's access log** is in `~/.outpost/logs/outpost-access.log`, a
+JSON object per request the gateway answers, from the tailnet, the LAN or,
+through Funnel, the internet, whatever the daemon's level. It's rotated like
+the rest, and is why no service may be named `outpost-access`:
+
+```json
+{"time":"2026-11-24T14:02:11.52Z","request_id":"9f3c1e0a7b2d4c66","method":"GET","host":"sous.example.ts.net","path":"/api/recipes","app":"sous","status":401,"bytes":21,"ms":0.84,"ip":"100.101.102.103","token":"7","refused":"access token rejected"}
+```
+
+Each entry has the time, the request's id, the method, host and path (never
+the query, which can carry a sign-in code), the app it was for (none for the
+portal), the status, the size of the body sent, how long it took in
+milliseconds, the client's address, the `user` it went through as, the id of
+the access token it presented (`outpost token list` shows it; never the
+token), why it was `refused`, and `public` for a request from the internet.
+Nothing is taken from a request's headers or body, so no cookie,
+`Authorization` header, token or password can reach it.
+
+**Following one request.** The gateway gives every request an id, returns it
+in the `X-Outpost-Request-Id` response header, and passes it to the app in
+the same header, beside the identity headers, so an app can log it ([the
+service contract](outpost-service-spec.md) §3). A client can't choose it:
+the gateway strips any `X-Outpost-*` a client sends, and sets its own on the
+copy it forwards. The id is in the access log, in the daemon's debug line
+for the request, and in whatever the app logs with it, so searching every
+log for it (`outpost logs --source all --grep <id>`, or the id's link on the
+portal) shows one request from the gateway into the app.
+
+**The tailnet nodes' output** is relayed into the daemon's log under `tsnet`,
+and **the activity feed** (starts, crashes, sign-ins, denials, token and
+setting changes) is in `state.db`.
+
+**One view of them all.** Every way of reading logs takes a source:
+
+| Source | What it reads |
+|---|---|
+| `app` (the default) | the apps' output, one app's or every app's |
+| `daemon` | Outpost's own log |
+| `tailnet` | the daemon's lines from its tailnet nodes |
+| `access` | the gateway's access log |
+| `events` | the activity feed |
+| `all` | all of these at once, interleaved by time |
+
+and the same filters: the app a line is about, `level` (a request reads as a
+warning for a 4xx and an error for a 5xx; the feed's failures as warnings),
+`user` (a user name, or an access token's id), `status` (`404`, or `4xx`),
+`since` and `until`, and text. `outpost logs --source access --status 5xx`,
+`outpost logs sous --source all --since 1h` and `outpost logs --source
+daemon -f` read the files directly, as `outpost logs <name>` does; the
+activity feed alone needs the daemon. The portal's Logs page has the same
+as a picker and **More filters**, a **Follow new lines** box that fetches new
+lines as they come, and a **Download** link to the same lines as JSON; the
+API takes `source`, `user`, `status` and `until` beside the rest, and
+`download=1` to save them as a file, and the MCP server's `read_logs` and
+`recent_errors` take `source` too. In the dashboard's logs view, `o` steps
+through the daemon's log and the access log.
+
+A token made for some apps reads, from every source, only the lines about
+those apps: their output, their requests, their activity and the daemon's
+lines that name one of them. Nothing about the portal, another app, or the
+daemon as a whole reaches it.
 
 ## Configuration
 
@@ -1401,6 +1468,8 @@ Everything lives under `~/.outpost` (or `$OUTPOST_HOME`, or `--home`):
   outpost.sock             control socket, mode 0600
   outpost.pid              running daemon's PID
   logs/outpost.log         the daemon's own log, rotated like a service's
+  logs/outpost-access.log  every request the gateway answered, one JSON object
+                           each, rotated the same way
   logs/outpost.out.log     the daemon's output as launchd keeps it (macOS;
                            journal on Linux)
 ```

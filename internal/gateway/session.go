@@ -29,6 +29,7 @@ func (g *Gateway) session(r *http.Request) (string, auth.Session, auth.User, boo
 		}
 		return "", auth.Session{}, auth.User{}, false
 	}
+	noteSession(r, u.Username)
 	return c.Value, s, u, true
 }
 

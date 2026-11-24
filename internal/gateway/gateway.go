@@ -11,6 +11,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -18,6 +19,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/charmbracelet/log"
@@ -79,6 +81,10 @@ type Options struct {
 	// same as JSON at /.outpost/api/logs, and Outpost's own MCP server at
 	// /.outpost/mcp.
 	Logs LogSource
+	// AccessLog, when set, gets a line for every request the gateway
+	// answers, in JSON: see applog.AccessEntry for what it holds, and
+	// doesn't. Each line is one Write.
+	AccessLog io.Writer
 	// PortalNode, when set, reports the portal's own tailnet node, for the
 	// gateway's status. It reports false while there is none.
 	PortalNode func() (PortalNode, bool)
@@ -116,6 +122,10 @@ type Gateway struct {
 	stats   Stats
 	traffic trafficMeter
 	logs    LogSource
+	// access is Options.AccessLog; accessFailed is whether a write to it
+	// has failed and been said.
+	access       io.Writer
+	accessFailed atomic.Bool
 
 	scheme       string // public_url's scheme
 	portalHost   string // public_url's host name, lower case
@@ -198,6 +208,7 @@ func New(opts Options) (*Gateway, error) {
 		control:      opts.Control,
 		stats:        opts.Stats,
 		logs:         opts.Logs,
+		access:       opts.AccessLog,
 		scheme:       u.Scheme,
 		portalHost:   strings.ToLower(u.Hostname()),
 		portalOrigin: u.Scheme + "://" + strings.ToLower(u.Host),
@@ -327,11 +338,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	stripIdentity(r.Header)
 
 	host := g.hostOf(r)
-	if g.logsRequests() {
-		g.logRequest(w, r, host, func(w http.ResponseWriter, r *http.Request) { g.route(w, r, host) })
-		return
-	}
-	g.route(w, r, host)
+	g.observe(w, r, host, false, g.clientIP, func(w http.ResponseWriter, r *http.Request) { g.route(w, r, host) })
 }
 
 // route is ServeHTTP after the identity strip, which nothing may come ahead of.

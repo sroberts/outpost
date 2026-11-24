@@ -166,6 +166,8 @@ func (g *Gateway) lookupAccessToken(w http.ResponseWriter, r *http.Request, pres
 		return presentedToken{}, false
 	}
 	pt.token, pt.user = t, u
+	noteToken(r, strconv.FormatInt(t.ID, 10))
+	noteSession(r, u.Username)
 	return pt, true
 }
 

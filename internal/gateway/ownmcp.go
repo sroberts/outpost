@@ -190,7 +190,9 @@ func (g *Gateway) ownMCPCall(ctx context.Context, a logsAccess, req rpcRequest) 
 			"capabilities":    map[string]any{"tools": map[string]any{}},
 			"serverInfo":      map[string]any{"name": "outpost", "version": version.Get().Version},
 			"instructions": "Outpost supervises this machine's services. list_services says what is declared and how each is doing; " +
-				"read_logs reads a service's captured stdout and stderr, or every service's interleaved by time; recent_errors reads just the errors.",
+				"read_logs reads a service's captured stdout and stderr, or every service's interleaved by time; recent_errors reads just the errors. " +
+				"read_logs' source reads Outpost's own logs instead: daemon, tailnet, access (every request the gateway answered, with its status, user and request_id), " +
+				"events (the activity feed), or all of them with the apps' output; a request_id given as contains, with source all, follows one request from the gateway into its app.",
 		}, nil
 	case "ping":
 		return map[string]any{}, nil
@@ -228,6 +230,8 @@ func ownMCPTools() []map[string]any {
 	service := map[string]any{"type": "string", "description": "A service's name, from list_services. Leave it out to read every service, interleaved by time."}
 	since := map[string]any{"type": "string", "description": "Only lines written after this: an RFC 3339 time such as 2026-11-18T12:00:00Z, or a duration before now such as 15m or 2h."}
 	lines := map[string]any{"type": "integer", "minimum": 1, "maximum": logsMaxLines, "description": "How many of the newest matching lines to return."}
+	sources := map[string]any{"type": "string", "enum": applog.Sources,
+		"description": "Which log: app (the default) is services' output; daemon is Outpost's own log; tailnet its tailnet nodes'; access every request the gateway answered; events the activity feed; all every one of them, interleaved by time."}
 	return []map[string]any{
 		{
 			"name":        "list_services",
@@ -249,6 +253,10 @@ func ownMCPTools() []map[string]any {
 					"contains": map[string]any{"type": "string", "description": "Only lines containing this text, ignoring case."},
 					"stream":   map[string]any{"type": "string", "enum": []string{applog.Stdout, applog.Stderr}, "description": "Only lines from stdout (out) or stderr (err)."},
 					"since":    since,
+					"source":   sources,
+					"until":    map[string]any{"type": "string", "description": "Only lines written before this, in the same forms as since."},
+					"user":     map[string]any{"type": "string", "description": "Only lines for this user, or for the access token with this id."},
+					"status":   map[string]any{"type": "string", "description": "Only requests answered with this HTTP status, such as 404, or class, such as 5xx."},
 				},
 			},
 			"annotations": readOnly,
@@ -260,6 +268,7 @@ func ownMCPTools() []map[string]any {
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
+					"source":  sources,
 					"service": service,
 					"since":   since,
 					"lines":   withDefault(lines, ownMCPDefaultLines),
@@ -323,6 +332,10 @@ func (g *Gateway) toolReadLogs(ctx context.Context, a logsAccess, raw json.RawMe
 		Contains string   `json:"contains"`
 		Stream   string   `json:"stream"`
 		Since    string   `json:"since"`
+		Source   string   `json:"source"`
+		Until    string   `json:"until"`
+		User     string   `json:"user"`
+		Status   string   `json:"status"`
 	}
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return nil, &rpcError{rpcInvalidParams, "invalid arguments: " + err.Error()}
@@ -342,10 +355,17 @@ func (g *Gateway) toolReadLogs(ctx context.Context, a logsAccess, raw json.RawMe
 		}
 	}
 	q, err := logsQuery(lines, args.Level, args.Stream, args.Contains, args.Since)
+	if err == nil {
+		err = logsFilters(&q, args.User, args.Status, args.Until)
+	}
 	if err != nil {
 		return nil, &rpcError{rpcInvalidParams, err.Error()}
 	}
-	lr := logsRequest{service: strings.TrimSpace(args.Service), q: q}
+	source, err := logsSource(args.Source)
+	if err != nil {
+		return nil, &rpcError{rpcInvalidParams, err.Error()}
+	}
+	lr := logsRequest{source: source, service: strings.TrimSpace(args.Service), q: q}
 	// Outside a scoped token's apps reads as not there at all, so the token
 	// can't be used to learn what else exists.
 	if lr.service != "" && !a.reaches(lr.service) {
@@ -360,14 +380,18 @@ func (g *Gateway) toolReadLogs(ctx context.Context, a logsAccess, raw json.RawMe
 	if errors.Is(err, errNoSuchService) {
 		return toolResult("There's no service named "+lr.service+". list_services lists them.", nil, true), nil
 	}
+	var bad errBadLogs
+	if errors.As(err, &bad) {
+		return toolResult(bad.Error()+".", nil, true), nil
+	}
 	if err != nil {
 		g.lg("err", err).Errorf("gateway: mcp: logs: %v", err)
 		return toolResult("Couldn't read the logs.", nil, true), nil
 	}
 	var b strings.Builder
 	for _, rec := range recs {
-		if lr.service == "" {
-			b.WriteString("[" + rec.Service + "] ")
+		if where := applog.Where(rec); lr.service == "" || where != rec.Service {
+			b.WriteString("[" + where + "] ")
 		}
 		b.WriteString(applog.Text(rec))
 		b.WriteByte('\n')

@@ -19,6 +19,7 @@ import (
 	"github.com/charmbracelet/log"
 
 	"github.com/sroberts/outpost/internal/ai"
+	"github.com/sroberts/outpost/internal/applog"
 	"github.com/sroberts/outpost/internal/auth"
 	"github.com/sroberts/outpost/internal/config"
 	"github.com/sroberts/outpost/internal/exposure"
@@ -331,6 +332,15 @@ func (a *app) cmdServe(args []string) error {
 	})
 	if a.config.Gateway.Enabled {
 		watch.at("starting the gateway")
+		// Every request, always, whatever the daemon's level: rotated like
+		// the rest, and closed only once the gateway has stopped writing.
+		var accessLog io.Writer
+		if f, ferr := runtime.OpenLog(filepath.Join(a.logsDir(), applog.AccessLogFile)); ferr != nil {
+			sayErr("gateway access log: %v; requests won't be recorded", ferr)
+		} else {
+			defer f.Close()
+			accessLog = f
+		}
 		gw, err = gateway.New(gateway.Options{
 			Config:   a.config.Gateway,
 			Auth:     authStore,
@@ -349,7 +359,8 @@ func (a *app) cmdServe(args []string) error {
 			Mail:         mailService,
 			Control:      sup,
 			Stats:        sampler,
-			Logs:         logsSource{dir: a.logsDir(), services: sup},
+			Logs:         logsSource{dir: a.logsDir(), services: sup, events: sup.Events},
+			AccessLog:    accessLog,
 			NodeSecret:   nodeSecret,
 		})
 		if err != nil {
@@ -516,7 +527,7 @@ func (a *app) daemonLogLevel(flagValue string) (string, error) {
 }
 
 // daemonLogPath is the daemon's own log, beside the services' logs.
-func (a *app) daemonLogPath() string { return filepath.Join(a.logsDir(), "outpost.log") }
+func (a *app) daemonLogPath() string { return filepath.Join(a.logsDir(), applog.DaemonLogFile) }
 
 // writePID records the running daemon so the CLI can report whether one is up.
 func (a *app) writePID() error {

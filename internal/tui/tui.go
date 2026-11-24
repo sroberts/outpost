@@ -56,6 +56,10 @@ type Model struct {
 	keys   keyMap
 	help   help.Model
 
+	// ownLogs reads Outpost's own logs by source (applog.SourceDaemon,
+	// SourceAccess), for the logs view; nil leaves them out.
+	ownLogs LogReader
+
 	services []supervisor.ServiceStatus
 	events   []supervisor.EventRecord
 	logText  string
@@ -142,6 +146,13 @@ func New(client Client, logs LogReader) Model {
 		// would subscribe a second time and leak the first stream.
 		watchRetry: watchRetryTicks,
 	}
+}
+
+// WithOwnLogs lets the logs view show Outpost's own logs, read by r with
+// the source's name in place of a service's.
+func (m Model) WithOwnLogs(r LogReader) Model {
+	m.ownLogs = r
+	return m
 }
 
 // WithOverview opens the dashboard on the overview, when the client can
