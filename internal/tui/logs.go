@@ -475,10 +475,9 @@ func (m *Model) findMatch(dir int) {
 	}
 }
 
-// logViewPane draws the logs view in height rows.
-func (m Model) logViewPane(height int) string {
+// logViewTitle names what the logs view shows and how: the panel's title.
+func (m Model) logViewTitle() string {
 	lv := m.lv
-	var b strings.Builder
 	what := lv.service
 	switch {
 	case lv.own != "":
@@ -505,30 +504,38 @@ func (m Model) logViewPane(height int) string {
 	if lv.pattern != "" {
 		flags = append(flags, "/"+lv.pattern)
 	}
-	b.WriteString("  " + m.rule(what+" · "+strings.Join(flags, " · ")) + "\n")
+	return what + " · " + strings.Join(flags, " · ")
+}
+
+// logViewLines is the inside of the logs view's panel, height rows: the
+// log, and the search field while it's open.
+func (m Model) logViewLines(height int) []string {
+	lv := m.lv
+	var out []string
 	rows := logRows(height, lv.searching)
 	switch {
 	case lv.err != "" && len(lv.lines) == 0:
-		b.WriteString("  " + labelStyle.Render(lv.err) + "\n")
+		out = append(out, labelStyle.Render(lv.err))
 	case len(lv.lines) == 0 && lv.service == "" && !lv.all:
-		b.WriteString("  " + labelStyle.Render("No service selected.") + "\n")
+		out = append(out, labelStyle.Render("No service selected."))
 	case len(lv.lines) == 0:
-		b.WriteString("  " + labelStyle.Render("no output yet") + "\n")
+		out = append(out, labelStyle.Render("no output yet"))
 	default:
-		for _, l := range m.visibleLogLines(rows) {
-			b.WriteString("  " + l + "\n")
-		}
+		out = append(out, m.visibleLogLines(rows)...)
 	}
 	if lv.searching {
-		b.WriteString("  /" + strings.TrimPrefix(lv.query.View(), "> ") + "\n")
+		for len(out) < rows {
+			out = append(out, "")
+		}
+		out = append(out, "/"+strings.TrimPrefix(lv.query.View(), "> "))
 	}
-	return b.String()
+	return out
 }
 
-// logRows is how many rows of log a pane of height shows: less its title,
-// and the search field while it's open.
+// logRows is how many rows of log a panel height rows inside shows: less
+// the search field while it's open.
 func logRows(height int, searching bool) int {
-	rows := max(height-1, 1)
+	rows := max(height, 1)
 	if searching {
 		rows = max(rows-1, 1)
 	}

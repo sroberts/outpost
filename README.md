@@ -528,6 +528,38 @@ outpost ai test llm|system1      send it one small request
 outpost ai regenerate <service>  give an app a new token; it restarts
 ```
 
+Mail, as the portal's Mail page and each app's Mail panel do:
+
+```
+outpost mail                     the Gmail account, and each app's addresses
+outpost mail account <address> [--password-stdin]
+                                 set the account; the app password is read
+                                 hidden and tried with Gmail before it's saved
+outpost mail check               read the inbox now
+outpost mail alias add <service> [--note N]
+                                 give an app another address
+outpost mail alias rm <service> <+route>
+outpost mail send <service> on|off
+                                 whether an app may send as the account
+outpost mail token <service>     give an app a new mail token; it restarts
+```
+
+And what of an app skips the login or reaches the internet, over what its
+manifest says, as each app's Manage menu in the portal does:
+
+```
+outpost expose <service>         its public paths, Funnel and MCP endpoint
+outpost expose <service> --path P... [--funnel]
+                                 set the paths that skip the login, and
+                                 whether Funnel puts them on the internet
+outpost expose <service> --reset go back to the manifest's
+outpost expose <service> --mcp on|off|reset
+                                 whether the internet reaches its MCP endpoint
+```
+
+The daemon holds an exposure setting to the manifest's own rules and applies
+it before answering, so a refusal is said at once.
+
 Passwords are typed at a prompt with no echo, never on the command line, and
 cross only the owner-only control socket. Removing, disabling or demoting the
 last enabled admin is refused.
@@ -556,54 +588,52 @@ the files on disk.
 
 `outpost tui` is a Bubble Tea dashboard over the same control socket the CLI
 uses — it goes through the daemon, not the state store, so there is one code
-path to the supervisor.
+path to the supervisor. It fills the terminal the way btop does, as bordered
+panels that resize with the window, and anything the CLI or the portal can do
+can be done from it.
 
 ```
-  Outpost                                                        3 services
-
-    NAME       RUNTIME  STATUS             UPTIME  RESTARTS
-  ▸ plumbline  process  ● running          3h      0
-    kosync     process  ▲ unhealthy        -       3
-    broken     process  ✖ failed (halted)  -       12
-
-  plumbline ──────────────────────────────────────────────────────────────
-  port 8081 · /up · on-failure, backoff 5s
-  tailscale plumbline
-  storage   ~/.outpost/data/plumbline
-  instance  4242
-
-  recent activity
-  16:33:29  health-ok    healthcheck recovered
-  13:34:29  started      started (id 4242)
-
-  ↑/k up • ↓/j down • s start • x stop • r restart • l logs • ? help • q quit
+  Outpost  v0.9                                                       12 services
+    Overview  ▸ Services    Users    Gateway    AI    Secrets    Tokens    Logs    Mail  (tab)
+╭─ cpu · 31% ───────────────────────────────╮╭─ memory · 812 MiB ─────────────────────────╮
+│ 40%│        ╭╯ │       ╭─╯│        ╭╯      ││ 1 GiB│      ╭──╯    ╭─╯      ╭───╯       │
+│  0%├─╯      ╰──╯       ╰──╯        ╰──     ││   0 B├──────╯                           │
+╰───────────────── last 30 min · every service ╯╰────────────────────────── peak 1.1 GiB ╯
+╭─ services · live ─────────────────────────────────╮╭─ ● plumbline ───────────────────╮
+│   NAME       RUNTIME  STATUS     UPTIME  CPU  MEM ││ port 8081 · /up · on-failure    │
+│ ▸ plumbline  process  ● running  3h      4%   62M ││ address   https://plumbline.…   │
+│   kosync     process  ▲ unhealthy -      -    -   ││ usage · last 30 min · g toggles │
+╰──────────────────────────────────── 12 services ─╯╰──────────────────────── running ─╯
+  ↑/k up • ↓/j down • s start • x stop • r restart • l logs • z zoom • : commands • tab views
 ```
+
+The tabs are **Overview** (tiles for health, what needs attention, reach,
+backups, activity and sign-ins), **Services**, **Users**, **Gateway**, **AI**,
+**Secrets**, **Tokens**, **Logs** and **Mail**, each shown when the daemon
+offers it. `:` opens a command palette with every action, filled in through a
+form that starts from what's selected; anything that deletes, replaces or puts
+something on the internet asks first, and only `y` goes ahead.
 
 | Key | Action |
 |---|---|
-| `↑`/`k`, `↓`/`j` | move between services |
+| `tab`, `1`–`9` | switch view |
+| `:` | the command palette |
+| `↑`/`k`, `↓`/`j` | move |
 | `s`, `x`, `r` | start, stop, restart the selected service |
-| `l` | toggle a log pane for the selected service |
+| `l`, `L` | the selected service's log in a panel, or full screen |
+| `z`, `g` | zoom the selected service's detail; its graphs over 30 minutes or a day |
+| `b`, `u`, `S` | back up, update, or show the status of the selected service |
+| `a`, `c`, `n`, `d`, `s`, `t` (Mail) | account, check, new address, remove one, sending, token |
 | `R` | refresh now |
-| `tab` | switch between Services, Users, Gateway and AI |
-| `L` (Users, twice) | sign the selected user out everywhere |
-| `enter` (AI) | choose a kind's model, or set a provider's key |
-| `a`, `t`, `u` (AI) | choose which apps may use a kind, test it, go back to `config.toml`'s |
 | `?` | expand the help |
 | `q`, `esc`, `ctrl+c` | quit |
 
-A service's detail pane also shows its catalog title and description, its
-gateway address, and who may open it (`allow`, `hidden`, `public_paths`).
-**Users** lists everyone, as `outpost user list` does, and where the selected
-user is signed in. **Gateway** shows what `outpost gateway status` does, with
-the gateway's recent activity. **AI** does what the portal's AI models page
-does: it shows the LLM and System 1 model with their provider and apps, each
-hosted provider and whether its key is set, and each app's usage. `enter` on a
-kind opens a list of every provider's models to type into and narrow, which
-also takes a model ID a provider doesn't list; `enter` on a provider asks for
-its key, shown only as dots and never kept once it's sent; `a` chooses the
-apps. When `config.toml` has changed since the daemon started, a line under
-the title says the daemon needs a restart.
+A service's detail panel shows its catalog title and description, its gateway
+address, who may open it (`allow`, `hidden`, `public_paths`), what the internet
+reaches of it, and its usage drawn as tall as the panel allows. Secrets and app
+passwords are typed as dots and never drawn. When `config.toml` has changed
+since the daemon started, a line under the title says the daemon needs a
+restart.
 
 It refreshes every two seconds, and an action refreshes immediately rather than
 waiting for the next tick. Status is carried by both colour and a glyph, so it

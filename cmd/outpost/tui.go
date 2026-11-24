@@ -66,6 +66,8 @@ var (
 	_ tui.SecretOps     = (*ipc.Client)(nil)
 	_ tui.AIRegenerator = (*ipc.Client)(nil)
 	_ tui.DaemonInfo    = (*ipc.Client)(nil)
+	_ tui.MailOps       = (*ipc.Client)(nil)
+	_ tui.ExposureOps   = (*ipc.Client)(nil)
 
 	_ tea.ExecCommand = (*terminalRun)(nil)
 )

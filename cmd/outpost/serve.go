@@ -307,6 +307,10 @@ func (a *app) cmdServe(args []string) error {
 	srv.UseAuth(authStore)
 	srv.UseSecrets(secretStore)
 	srv.UseAI(aiService)
+	srv.UseMail(mailService)
+	// The same setter the portal's Manage menu uses, so a setting from the
+	// CLI or the dashboard is held to the same manifest rules.
+	srv.UseExposure(exposureWeb{a: a, store: exposureStore, sup: sup, opts: a.manifestOptions(useTailnet)})
 	srv.UseConfig(a.config.Fingerprint())
 	srv.UseLogs(a.logsDir())
 
