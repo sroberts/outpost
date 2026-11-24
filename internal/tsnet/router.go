@@ -725,16 +725,17 @@ func (r *Router) shutdownNode(n *node) error {
 // funnelReport records what a node said about its Funnel listener, logging
 // each change, since it decides whether the internet reaches the app.
 func (r *Router) funnelReport(n *node, state, why string) {
+	// The lock is held through the log line, and the state recorded after
+	// it, so anyone who sees the new state in NodeStatus also finds it said.
 	n.mu.Lock()
-	changed := n.funnelState != state || n.funnelErr != why
-	n.funnelState, n.funnelErr = state, why
+	defer n.mu.Unlock()
+	if n.funnelState == state && n.funnelErr == why {
+		return
+	}
+	defer func() { n.funnelState, n.funnelErr = state, why }()
 	host, what := n.dnsName, n.funnelFor
-	n.mu.Unlock()
 	if host == "" {
 		host = n.hostname // reported before serve has recorded the name
-	}
-	if !changed {
-		return
 	}
 	switch state {
 	case FunnelOn:
