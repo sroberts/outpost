@@ -535,8 +535,8 @@ Global flags:
 | `--home <dir>` | `$OUTPOST_HOME`, else `~/.outpost` | Outpost root |
 | `-h`, `--help` | | Show usage |
 
-`serve` also takes `--interval` (default 3s), `--tailnet`, and
-`--tailnet-verbose`. Flags may appear on either side of a service name:
+`serve` also takes `--interval` (default 3s), `--tailnet`, `--tailnet-verbose`
+and `--log-level` (see [Logs](#logs)). Flags may appear on either side of a service name:
 `outpost status --events 20 web` and `outpost status web --events 20` both work.
 
 Every command except `logs` talks to the running daemon over the control
@@ -642,17 +642,54 @@ made for some apps reads only those apps' logs, and an internet token is
 refused. A token that doesn't check out is refused outright, never retried
 as the cookie.
 
-**The daemon's own log** goes where the service manager puts the daemon's
-output (`~/.outpost/logs/outpost.{out,err}.log` on macOS, the journal on
-Linux). Each line has a time, a level and the part of the daemon it came
-from, and trouble goes to stderr. `[log]` in `config.toml` sets how much and
-in what form, and takes a daemon restart:
+**The daemon's own log** is in `~/.outpost/logs/outpost.log`, which the
+daemon writes itself, so it's there whatever the service manager does. It's
+rotated as a service's log is, at 10 MiB with 3 kept (`outpost.log.1` …
+`.3`), and is why no service may be named `outpost`. The same lines still go
+to stdout, where the service manager puts
+them (`~/.outpost/logs/outpost.{out,err}.log` on macOS, the journal on
+Linux), and the daemon's own trouble also goes to stderr.
+
+Each line has a time, a level, the part of the daemon it came from
+(`supervisor`, `gateway`, `ipc`, `ai`, `mail`, `tsnet` or `stats`), the
+message, and fields such as `service=`, `user=`, `ip=`, `action=`, `err=`
+and `took=`, so a file can be filtered down to one service or one request:
+
+```
+2026-11-24 09:14:02 INFO supervisor: started sous (id 4127) service=sous action=start id=4127
+```
+
+`[log]` in `config.toml` sets how much and in what form, and takes a daemon
+restart. `[log.levels]` sets the level for one part of the daemon, so one
+area can be turned up, or quietened, without the rest; a part it doesn't
+name logs at `level`:
 
 ```toml
 [log]
 level  = "info"   # debug, info, warn or error
-format = "text"   # text (coloured on a terminal), json or logfmt
+format = "text"   # text (coloured on a terminal), json or logfmt; the file
+                  # gets the same, without the colour
+
+[log.levels]
+gateway = "debug" # supervisor, gateway, ipc, ai, mail, tsnet or stats
 ```
+
+For one run, `outpost serve --log-level debug` or `OUTPOST_LOG_LEVEL=debug`
+replaces `level`, the flag winning over the variable; a part named in
+`[log.levels]` keeps its own level. At debug the daemon also logs:
+
+- the supervisor's decisions: each start, stop, restart, backoff and
+  reclaim, and each failed healthcheck short of a restart;
+- every socket command, with its service, whether it succeeded and `took=`;
+- every gateway request: `request_id=`, host, method, path (never the
+  query), status, `took=`, the client's `ip=`, and the `user=` it went
+  through as or why it was `refused=`;
+- every AI request: the app, kind, provider, model, status, tokens and
+  `took=`; never the prompt, the reply or a key;
+- a node leaving the tailnet.
+
+No log line carries a password, a session cookie, an access token, a
+secret's value or a request's body.
 
 ## Configuration
 
@@ -1333,7 +1370,9 @@ Everything lives under `~/.outpost` (or `$OUTPOST_HOME`, or `--home`):
   config.toml              global settings, mode 0600 (optional)
   outpost.sock             control socket, mode 0600
   outpost.pid              running daemon's PID
-  logs/outpost.out.log     the daemon's own output (macOS; journal on Linux)
+  logs/outpost.log         the daemon's own log, rotated like a service's
+  logs/outpost.out.log     the daemon's output as launchd keeps it (macOS;
+                           journal on Linux)
 ```
 
 `state.db` is a cache of observed reality, not the source of truth. Deleting it

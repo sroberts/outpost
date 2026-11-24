@@ -168,7 +168,7 @@ func (s *Supervisor) CheckRelease(ctx context.Context, name string) (ReleaseChec
 func (s *Supervisor) checkOneRelease(ctx context.Context, svc *manifest.Service) (ReleaseCheck, error) {
 	check, err := s.askSource(ctx, svc)
 	if err != nil {
-		s.logf("outpost: checking %s for a newer release: %v", svc.Name, err)
+		s.lg("service", svc.Name, "err", err).Warnf("outpost: checking %s for a newer release: %v", svc.Name, err)
 	}
 	// A daemon shutting down has nowhere to keep the answer and no need of it.
 	_, _ = s.submit(ctx, func(s *Supervisor) (any, error) {

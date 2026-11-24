@@ -150,7 +150,7 @@ func (g *Gateway) addSubmit(w http.ResponseWriter, r *http.Request) {
 			// The only record of who asked, since the add itself runs as the
 			// daemon.
 			g.activity.record(EventUpdate, "%s started adding %s from %s", u.Username, repo, g.clientIP(r))
-			g.logf("gateway: %s is adding %s", u.Username, repo)
+			g.lg("user", u.Username, "repo", repo).Infof("gateway: %s is adding %s", u.Username, repo)
 			go g.runAdd(repo)
 		}
 		http.Redirect(w, r, "/add", http.StatusSeeOther)
@@ -167,7 +167,7 @@ func (g *Gateway) previewAdd(w http.ResponseWriter, r *http.Request, u auth.User
 	out, err := g.adder.Preview(ctx, repo)
 	v := addView{Repo: typed}
 	if err != nil {
-		g.logf("gateway: looking up %s to add: %v", repo, err)
+		g.lg("repo", repo, "err", err).Warnf("gateway: looking up %s to add: %v", repo, err)
 		v.Error = "Couldn't add " + repo + ": " + err.Error()
 		g.renderAdd(w, r, u, http.StatusOK, v)
 		return
@@ -181,7 +181,7 @@ func (g *Gateway) runAdd(repo string) {
 	var res updateResult
 	defer func() {
 		if p := recover(); p != nil {
-			g.logf("gateway: adding %s: panic: %v", repo, p)
+			g.lg("repo", repo).Errorf("gateway: adding %s: panic: %v", repo, p)
 			res = updateResult{Failed: true, Output: "Adding it stopped unexpectedly; see the daemon's log."}
 			g.activity.record(EventUpdate, "adding %s stopped unexpectedly", repo)
 		}
@@ -192,11 +192,11 @@ func (g *Gateway) runAdd(repo string) {
 	if err != nil {
 		res.Failed = true
 		res.Output = strings.TrimSpace(res.Output + "\n" + err.Error())
-		g.logf("gateway: adding %s failed: %v", repo, err)
+		g.lg("repo", repo, "err", err).Errorf("gateway: adding %s failed: %v", repo, err)
 		g.activity.record(EventUpdate, "adding %s failed", repo)
 		return
 	}
-	g.logf("gateway: added %s", repo)
+	g.lg("repo", repo).Infof("gateway: added %s", repo)
 	g.activity.record(EventUpdate, "added %s", repo)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

@@ -296,7 +296,7 @@ func (g *Gateway) appsSubmit(w http.ResponseWriter, r *http.Request) {
 	g.claim.Unlock()
 	if began {
 		ip := g.clientIP(r)
-		g.logf("gateway: %s asked to %s %s", u.Username, v.do, name)
+		g.lg("user", u.Username, "service", name, "action", v.do).Infof("gateway: %s asked to %s %s", u.Username, v.do, name)
 		if action == actBackup {
 			// Backups take a while, so the start is recorded too, as an
 			// update's is; the rest are recorded once the supervisor answers.
@@ -315,7 +315,7 @@ func (g *Gateway) runAction(service, action, by, ip string) {
 	var err error
 	defer func() {
 		if p := recover(); p != nil {
-			g.logf("gateway: %s %s: panic: %v", verbs[action].do, service, p)
+			g.lg("service", service, "action", verbs[action].do).Errorf("gateway: %s %s: panic: %v", verbs[action].do, service, p)
 			err = errors.New("it stopped unexpectedly; see the daemon's log")
 		}
 		g.actionDone(service, action, by, ip, err)
@@ -341,7 +341,7 @@ func (g *Gateway) act(service, action string) error {
 	case actBackup:
 		a, err := g.control.Backup(ctx, service)
 		if err == nil {
-			g.logf("gateway: backed up %s to %s", service, a.Path)
+			g.lg("service", service, "action", "backup", "path", a.Path).Infof("gateway: backed up %s to %s", service, a.Path)
 		}
 		return err
 	}
@@ -354,7 +354,7 @@ func (g *Gateway) actionDone(service, action, by, ip string, err error) {
 	switch {
 	case err != nil:
 		res.Err = err.Error()
-		g.logf("gateway: %s couldn't %s %s: %v", by, v.do, service, err)
+		g.lg("user", by, "service", service, "err", err).Errorf("gateway: %s couldn't %s %s: %v", by, v.do, service, err)
 		g.activity.record(EventControl, "%s couldn't %s %s from %s: %v", by, v.do, service, ip, err)
 	case action == actBackup:
 		g.activity.record(EventControl, "backup of %s finished", service)

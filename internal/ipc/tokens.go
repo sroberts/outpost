@@ -163,7 +163,7 @@ func (s *Server) unknownApps(ctx context.Context, apps []string) string {
 	}
 	services, err := s.sup.List(ctx)
 	if err != nil {
-		s.logf("outpost: list services: %v", err)
+		s.lg("err", err).Errorf("outpost: list services: %v", err)
 		return ""
 	}
 	known := make(map[string]bool, len(services))
@@ -188,7 +188,7 @@ func (s *Server) unknownApps(ctx context.Context, apps []string) string {
 func (s *Server) liveTokens(username string) int {
 	n, err := s.auth.CountAccessTokens(username)
 	if err != nil {
-		s.logf("outpost: %v", err)
+		s.lg("user", username, "err", err).Errorf("outpost: %v", err)
 	}
 	return n
 }
@@ -204,6 +204,6 @@ func (s *Server) tokensRevoked(ctx context.Context, n int, username, why string)
 // not returned: the command itself has already happened.
 func (s *Server) feed(ctx context.Context, kind, message string) {
 	if err := s.sup.RecordEvent(ctx, gateway.ActivityService, kind, message); err != nil {
-		s.logf("outpost: record %s event: %v", kind, err)
+		s.lg("kind", kind, "err", err).Errorf("outpost: record %s event: %v", kind, err)
 	}
 }

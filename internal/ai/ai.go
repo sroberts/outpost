@@ -25,7 +25,10 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/charmbracelet/log"
+
 	"github.com/sroberts/outpost/internal/apptoken"
+	"github.com/sroberts/outpost/internal/logging"
 )
 
 // The two kinds of model an installation has.
@@ -91,6 +94,9 @@ type Options struct {
 	Client *http.Client
 	// Logf receives one line per request and per change.
 	Logf func(format string, v ...any)
+	// Logger is where the service logs, at levels and with fields; a
+	// request that went through is a debug line. It supersedes Logf.
+	Logger *log.Logger
 }
 
 // Service is the AI endpoint and its settings. It is safe for concurrent use.
@@ -105,6 +111,7 @@ type Service struct {
 	catalogs catalogs
 	client   *http.Client
 	logf     func(format string, v ...any)
+	logger   *log.Logger
 	now      func() time.Time
 
 	mu sync.Mutex
@@ -147,7 +154,9 @@ func Open(opts Options) (*Service, error) {
 		}}
 	}
 	logf := opts.Logf
-	if logf == nil {
+	if opts.Logger != nil {
+		logf = nil
+	} else if logf == nil {
 		logf = func(string, ...any) {}
 	}
 	base := strings.TrimSuffix(opts.OllamaURL, "/")
@@ -161,11 +170,15 @@ func Open(opts Options) (*Service, error) {
 		keys:    opts.Keys,
 		client:  client,
 		logf:    logf,
+		logger:  opts.Logger,
 		now:     time.Now,
 		issued:  apptoken.NewIssued(tokenPrefix),
 		usage:   map[usageKey]*Usage{},
 	}, nil
 }
+
+// lg is where a line goes, with kv as its fields.
+func (s *Service) lg(kv ...any) logging.Line { return logging.To(s.logger, s.logf, kv...) }
 
 // Close closes ai.db.
 func (s *Service) Close() error { return s.store.close() }
@@ -420,7 +433,7 @@ func (s *Service) SetModel(ctx context.Context, kind, provider, model, by string
 	if err := s.store.set(kind, provider, saved, by); err != nil {
 		return "", err
 	}
-	s.logf("ai: %s set the %s to %s's %s", by, KindName(kind), p.title, saved)
+	s.lg("user", by, "kind", kind, "provider", p.title).Infof("ai: %s set the %s to %s's %s", by, KindName(kind), p.title, saved)
 	return saved, nil
 }
 
@@ -453,7 +466,7 @@ func (s *Service) Reset(kind, by string) error {
 	if err := s.store.reset(kind); err != nil {
 		return err
 	}
-	s.logf("ai: %s put the %s back to config.toml's", by, KindName(kind))
+	s.lg("user", by, "kind", kind).Infof("ai: %s put the %s back to config.toml's", by, KindName(kind))
 	return nil
 }
 
@@ -481,7 +494,7 @@ func (s *Service) SetApps(kind string, every bool, apps []string, by string) err
 	if !every {
 		who = orNoApps(clean)
 	}
-	s.logf("ai: %s gave the %s to %s", by, KindName(kind), who)
+	s.lg("user", by, "kind", kind).Infof("ai: %s gave the %s to %s", by, KindName(kind), who)
 	return nil
 }
 
@@ -500,7 +513,7 @@ func (s *Service) ResetApps(kind, by string) error {
 	if err := s.store.resetAccess(kind); err != nil {
 		return err
 	}
-	s.logf("ai: %s put the %s's apps back to config.toml's", by, KindName(kind))
+	s.lg("user", by, "kind", kind).Infof("ai: %s put the %s's apps back to config.toml's", by, KindName(kind))
 	return nil
 }
 
@@ -525,7 +538,7 @@ func (s *Service) Regenerate(service, by string) error {
 		return err
 	}
 	s.issued.Remove(old)
-	s.logf("ai: %s regenerated %s's token", by, service)
+	s.lg("user", by, "service", service).Infof("ai: %s regenerated %s's token", by, service)
 	return nil
 }
 

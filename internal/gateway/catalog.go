@@ -57,7 +57,7 @@ func (g *Gateway) warnUnknownAllow(service string, allow []string) {
 		}
 		if !namesSomeone(a, users) {
 			g.routes.skipped[key] = true
-			g.logf("gateway: %s: allow names %q, which matches no user or group yet", service, a)
+			g.lg("service", service).Warnf("gateway: %s: allow names %q, which matches no user or group yet", service, a)
 		}
 	}
 }
@@ -231,6 +231,7 @@ func tally(sts []station) counts {
 // denied is the page for someone signed in who may not open an app: a plain
 // answer, not a redirect back into a login that would only end here again.
 func (g *Gateway) denied(w http.ResponseWriter, r *http.Request, rt route, u auth.User) {
+	noteRefused(r, "not allowed")
 	g.activity.failed(EventDenied, fmt.Sprintf("for %s to %s", u.Username, rt.Name), false)
 	title := rt.Title
 	if title == "" {

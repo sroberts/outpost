@@ -204,7 +204,7 @@ func (g *Gateway) checkOne(service, installed string) {
 	c := checked{Installed: installed}
 	defer func() {
 		if p := recover(); p != nil {
-			g.logf("gateway: checking %s for updates: panic: %v", service, p)
+			g.lg("service", service).Errorf("gateway: checking %s for updates: panic: %v", service, p)
 			c.Err = "The check failed unexpectedly; see the daemon's log."
 		}
 		g.updateState.record(service, c)
@@ -213,7 +213,7 @@ func (g *Gateway) checkOne(service, installed string) {
 	defer cancel()
 	rc, err := g.updater.Latest(ctx, service)
 	if err != nil {
-		g.logf("gateway: checking %s for updates: %v", service, err)
+		g.lg("service", service, "err", err).Warnf("gateway: checking %s for updates: %v", service, err)
 		c.Err = "Couldn't check: " + err.Error()
 		return
 	}
@@ -233,7 +233,7 @@ func (g *Gateway) runUpdate(service string) {
 	var res updateResult
 	defer func() {
 		if p := recover(); p != nil {
-			g.logf("gateway: updating %s: panic: %v", service, p)
+			g.lg("service", service).Errorf("gateway: updating %s: panic: %v", service, p)
 			res = updateResult{Failed: true, Output: "The update stopped unexpectedly; see the daemon's log, and `outpost status " + service + "`."}
 			g.activity.record(EventUpdate, "update of %s stopped unexpectedly", service)
 		}
@@ -244,10 +244,10 @@ func (g *Gateway) runUpdate(service string) {
 	if err != nil {
 		res.Failed = true
 		res.Output = strings.TrimSpace(res.Output + "\n" + err.Error())
-		g.logf("gateway: updating %s failed: %v", service, err)
+		g.lg("service", service, "err", err).Errorf("gateway: updating %s failed: %v", service, err)
 		g.activity.record(EventUpdate, "update of %s failed", service)
 	} else {
-		g.logf("gateway: updated %s", service)
+		g.lg("service", service).Infof("gateway: updated %s", service)
 		g.activity.record(EventUpdate, "update of %s finished", service)
 	}
 	// Show the new release as soon as the page says it's done, not a tick
@@ -527,7 +527,7 @@ func (g *Gateway) updatesSubmit(w http.ResponseWriter, r *http.Request) {
 			// The only record of who asked, since the update itself runs as
 			// the daemon.
 			g.activity.record(EventUpdate, "%s started an update of %s from %s", u.Username, name, g.clientIP(r))
-			g.logf("gateway: %s is updating %s", u.Username, name)
+			g.lg("user", u.Username, "service", name).Infof("gateway: %s is updating %s", u.Username, name)
 			go g.runUpdate(name)
 		}
 	}

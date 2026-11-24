@@ -42,7 +42,7 @@ func (g *Gateway) startUpdateAll(w http.ResponseWriter, r *http.Request, usernam
 	g.claim.Unlock()
 	if started {
 		g.activity.record(EventUpdate, "%s started updating %s from %s", username, strings.Join(names, ", "), g.clientIP(r))
-		g.logf("gateway: %s is updating %s", username, strings.Join(names, ", "))
+		g.lg("user", username, "services", strings.Join(names, ",")).Infof("gateway: %s is updating %s", username, strings.Join(names, ", "))
 		go g.runQueue()
 	}
 	// A second press, or nothing left to update: the page shows where it is.
@@ -92,7 +92,7 @@ func (g *Gateway) runQueue() {
 		}
 		s.mu.Unlock()
 		if failed {
-			g.logf("gateway: update all stopped at %s", name)
+			g.lg("service", name).Warnf("gateway: update all stopped at %s", name)
 			return
 		}
 	}
@@ -108,5 +108,5 @@ func (g *Gateway) stopQueue(name, why string) {
 		s.results = map[string]updateResult{}
 	}
 	s.results[name] = updateResult{Output: why, Failed: true}
-	g.logf("gateway: %s", why)
+	g.lg("service", name).Warnf("gateway: %s", why)
 }

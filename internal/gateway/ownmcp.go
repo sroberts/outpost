@@ -163,7 +163,7 @@ func (g *Gateway) rpcReply(w http.ResponseWriter, resp rpcResponse) {
 	resp.JSONRPC = "2.0"
 	body, err := json.Marshal(resp)
 	if err != nil {
-		g.logf("gateway: mcp: %v", err)
+		g.lg("err", err).Warnf("gateway: mcp: %v", err)
 		body, _ = json.Marshal(rpcResponse{JSONRPC: "2.0", ID: resp.ID, Error: &rpcError{rpcInternalError, "internal error"}}) // can't fail: nothing in it but an id that came in as JSON
 	}
 	w.WriteHeader(http.StatusOK)
@@ -294,7 +294,7 @@ func toolResult(text string, structured any, isError bool) map[string]any {
 func (g *Gateway) toolListServices(ctx context.Context, a logsAccess) map[string]any {
 	svcs, err := g.logsServices(ctx, a)
 	if err != nil {
-		g.logf("gateway: mcp: list services: %v", err)
+		g.lg("err", err).Errorf("gateway: mcp: list services: %v", err)
 		return toolResult("Couldn't list the services.", nil, true)
 	}
 	var b strings.Builder
@@ -353,7 +353,7 @@ func (g *Gateway) toolReadLogs(ctx context.Context, a logsAccess, raw json.RawMe
 	}
 	svcs, err := g.logsServices(ctx, a)
 	if err != nil {
-		g.logf("gateway: mcp: list services: %v", err)
+		g.lg("err", err).Errorf("gateway: mcp: list services: %v", err)
 		return toolResult("Couldn't list the services.", nil, true), nil
 	}
 	recs, err := g.readLogs(ctx, a, svcs, lr, ownMCPMaxBytes)
@@ -361,7 +361,7 @@ func (g *Gateway) toolReadLogs(ctx context.Context, a logsAccess, raw json.RawMe
 		return toolResult("There's no service named "+lr.service+". list_services lists them.", nil, true), nil
 	}
 	if err != nil {
-		g.logf("gateway: mcp: logs: %v", err)
+		g.lg("err", err).Errorf("gateway: mcp: logs: %v", err)
 		return toolResult("Couldn't read the logs.", nil, true), nil
 	}
 	var b strings.Builder

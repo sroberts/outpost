@@ -13,9 +13,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/log"
+
 	"github.com/sroberts/outpost/internal/auth"
 	"github.com/sroberts/outpost/internal/backup"
 	"github.com/sroberts/outpost/internal/gateway"
+	"github.com/sroberts/outpost/internal/logging"
 	"github.com/sroberts/outpost/internal/secrets"
 	"github.com/sroberts/outpost/internal/supervisor"
 	"github.com/sroberts/outpost/internal/version"
@@ -39,6 +42,7 @@ type Server struct {
 	path    string
 	ln      net.Listener
 	logf    func(string, ...any)
+	logger  *log.Logger
 
 	wg sync.WaitGroup
 	// closing ends watch streams at Close, which would otherwise outlive the
@@ -87,6 +91,13 @@ func Listen(path string, sup *supervisor.Supervisor, logf func(string, ...any)) 
 
 	return &Server{sup: sup, started: time.Now(), path: path, ln: ln, logf: logf, closing: make(chan struct{})}, nil
 }
+
+// UseLogger has the server log through l, at levels and with fields, in
+// place of the func Listen was given. Call it before Serve.
+func (s *Server) UseLogger(l *log.Logger) { s.logger, s.logf = l, nil }
+
+// lg is where a line goes, with kv as its fields.
+func (s *Server) lg(kv ...any) logging.Line { return logging.To(s.logger, s.logf, kv...) }
 
 // UseAuth enables the user.* and auth.* commands. Call it before Serve. It's
 // a setter rather than a Listen parameter so a daemon, or a test, that has no
@@ -149,7 +160,7 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 
 	body, err := io.ReadAll(io.LimitReader(conn, 1<<20))
 	if err != nil {
-		s.logf("outpost: read request: %v", err)
+		s.lg("err", err).Warnf("outpost: read request: %v", err)
 		return
 	}
 	req, err := decodeRequest(body)
@@ -170,7 +181,16 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 
 	ctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
-	writeResponse(conn, s.dispatch(ctx, req))
+	start := time.Now()
+	resp := s.dispatch(ctx, req)
+	writeResponse(conn, resp)
+	// The command and service only: a request's other arguments can carry a
+	// secret's value or a password.
+	line := s.lg("command", req.Command, "ok", resp.OK, "took", time.Since(start).Round(time.Microsecond))
+	if req.Service != "" {
+		line = line.With("service", req.Service)
+	}
+	line.Debugf("%s", req.Command)
 }
 
 // dispatch maps a request onto the supervisor's public API.

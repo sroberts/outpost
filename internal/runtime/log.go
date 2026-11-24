@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -27,6 +28,12 @@ type rotatingWriter struct {
 	mu   sync.Mutex
 	f    *os.File
 	size int64
+}
+
+// OpenLog is a log file at path rotated as a service's is, for the daemon's
+// own log, which has the same need to stay bounded.
+func OpenLog(path string) (io.WriteCloser, error) {
+	return newRotatingWriter(path, defaultMaxLogBytes, defaultLogBackups)
 }
 
 func newRotatingWriter(path string, maxBytes int64, backups int) (*rotatingWriter, error) {

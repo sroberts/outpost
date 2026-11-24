@@ -130,13 +130,13 @@ func (g *Gateway) serveJWKS(w http.ResponseWriter, r *http.Request) {
 	}
 	keys, err := g.auth.PublishedKeys()
 	if err != nil {
-		g.logf("gateway: jwks: %v", err)
+		g.lg("err", err).Errorf("gateway: jwks: %v", err)
 		http.Error(w, "keys unavailable", http.StatusInternalServerError)
 		return
 	}
 	body, err := auth.JWKS(keys)
 	if err != nil {
-		g.logf("gateway: jwks: %v", err)
+		g.lg("err", err).Errorf("gateway: jwks: %v", err)
 		http.Error(w, "keys unavailable", http.StatusInternalServerError)
 		return
 	}

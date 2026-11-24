@@ -158,7 +158,7 @@ func (g *Gateway) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 		}
 		v = r.PostForm
 	} else {
-		g.logf("gateway: oauth authorize: client_id=%q redirect_uri=%q resource=%q scope=%q",
+		g.lg().Debugf("gateway: oauth authorize: client_id=%q redirect_uri=%q resource=%q scope=%q",
 			v.Get("client_id"), v.Get("redirect_uri"), v.Get("resource"), v.Get("scope"))
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
@@ -195,7 +195,7 @@ func (g *Gateway) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if v.Get("action") != "allow" {
-		g.logf("gateway: oauth: %s didn't let %s use %s", u.Username, label, a.rt.Name)
+		g.lg("user", u.Username, "client", label, "service", a.rt.Name).Infof("gateway: oauth: %s didn't let %s use %s", u.Username, label, a.rt.Name)
 		g.authorizeRedirect(w, r, a, url.Values{"error": {"access_denied"}, "error_description": {"the user didn't allow it"}})
 		return
 	}
@@ -204,11 +204,11 @@ func (g *Gateway) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 		redirectURI: a.redirectURI, challenge: a.challenge,
 	}, g.now())
 	if err != nil {
-		g.logf("gateway: oauth: %v", err)
+		g.lg("err", err).Errorf("gateway: oauth: %v", err)
 		g.message(w, r, http.StatusServiceUnavailable, "Try again", "Too many connections are waiting to finish. Try again in a minute.", g.portalLink(), "Back to apps")
 		return
 	}
-	g.logf("gateway: oauth: %s let %s use %s", u.Username, label, a.rt.Name)
+	g.lg("user", u.Username, "client", label, "service", a.rt.Name).Infof("gateway: oauth: %s let %s use %s", u.Username, label, a.rt.Name)
 	g.authorizeRedirect(w, r, a, url.Values{"code": {code}})
 }
 
