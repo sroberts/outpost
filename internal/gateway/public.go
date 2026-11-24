@@ -60,7 +60,7 @@ func (g *Gateway) servePublic(w http.ResponseWriter, r *http.Request) {
 	now := g.now()
 	rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 	defer func() {
-		g.logf("gateway: funnel: %s %s %s%s -> %d", client, r.Method, hostname(r.Host), r.URL.Path, rec.status)
+		g.lg("ip", client, "method", r.Method, "host", hostname(r.Host), "path", r.URL.Path, "status", rec.status, "took", g.now().Sub(now).Round(time.Microsecond)).Infof("gateway: funnel: %s %s %s%s -> %d", client, r.Method, hostname(r.Host), r.URL.Path, rec.status)
 	}()
 	// Ahead of the throttle, which serveFunnelMCP applies itself: Claude's
 	// connectors call from addresses every Anthropic customer shares, so
@@ -174,7 +174,7 @@ func (g *Gateway) serveFunnelMCP(w http.ResponseWriter, r *http.Request, rt rout
 			tok, user = t, u
 			good = t.Internet && len(t.Apps) == 1 && t.Apps[0] == rt.Name
 		case !errors.Is(err, auth.ErrNoSuchAccessToken):
-			g.logf("gateway: funnel mcp %s: access token lookup: %v", rt.Name, err)
+			g.lg("service", rt.Name, "err", err).Errorf("gateway: funnel mcp %s: access token lookup: %v", rt.Name, err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
@@ -215,7 +215,7 @@ func (g *Gateway) serveFunnelMCP(w http.ResponseWriter, r *http.Request, rt rout
 	g.touchAccessToken(tok)
 	if tok.InternetUsedAt.IsZero() {
 		if first, err := g.auth.MarkInternetUsed(tok.ID); err != nil {
-			g.logf("gateway: funnel mcp %s: %v", rt.Name, err)
+			g.lg("service", rt.Name, "err", err).Warnf("gateway: funnel mcp %s: %v", rt.Name, err)
 		} else if first {
 			g.activity.record(EventTokenInternet, "internet access token %d for %s first used from the internet, from %s, to reach %s",
 				tok.ID, user.Username, client, rt.Name)

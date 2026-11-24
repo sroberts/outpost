@@ -150,7 +150,7 @@ func (s *Server) secretInfo(sec secrets.Secret, names []string) SecretInfo {
 func (s *Server) serviceNames(ctx context.Context) []string {
 	sts, err := s.sup.List(ctx)
 	if err != nil {
-		s.logf("outpost: list services for secrets: %v", err)
+		s.lg("err", err).Errorf("outpost: list services for secrets: %v", err)
 		return nil
 	}
 	out := make([]string, 0, len(sts))

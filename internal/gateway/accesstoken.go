@@ -98,6 +98,7 @@ func (g *Gateway) serveWithAccessToken(w http.ResponseWriter, r *http.Request, r
 		return
 	}
 	if !allowed(u, rt) {
+		noteRefused(r, "not allowed")
 		g.activity.failed(EventDenied, fmt.Sprintf("for %s to %s", u.Username, rt.Name), false)
 		http.Error(w, "this account can't open this app", http.StatusForbidden)
 		return
@@ -143,6 +144,7 @@ func (g *Gateway) lookupAccessToken(w http.ResponseWriter, r *http.Request, pres
 
 	pt := presentedToken{ip: ip}
 	pt.reject = func(subject string) {
+		noteRefused(r, "access token rejected")
 		g.tokenThrottle.fail(now, key)
 		g.activity.failed(EventTokenFail, subject, false)
 		g.unauthorizedToken(w)
@@ -159,7 +161,7 @@ func (g *Gateway) lookupAccessToken(w http.ResponseWriter, r *http.Request, pres
 		return presentedToken{}, false
 	}
 	if err != nil {
-		g.logf("gateway: %s: access token lookup: %v", what, err)
+		g.lg("err", err).Errorf("gateway: %s: access token lookup: %v", what, err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return presentedToken{}, false
 	}
@@ -174,7 +176,7 @@ func (g *Gateway) lookupAccessToken(w http.ResponseWriter, r *http.Request, pres
 // The record ages out on its own.
 func (g *Gateway) touchAccessToken(t auth.AccessToken) {
 	if err := g.auth.TouchAccessToken(t); err != nil {
-		g.logf("gateway: %v", err)
+		g.lg("err", err).Errorf("gateway: %v", err)
 	}
 }
 
@@ -189,6 +191,7 @@ func (g *Gateway) unauthorizedToken(w http.ResponseWriter) {
 // It isn't looked up and nothing is learned about it, so it doesn't count
 // against the address.
 func (g *Gateway) refuseAccessToken(w http.ResponseWriter, r *http.Request) {
+	noteRefused(r, "access token outside an app")
 	g.activity.failed(EventTokenFail, "outside an app from "+g.clientIP(r), false)
 	g.unauthorizedToken(w)
 }

@@ -63,7 +63,7 @@ func (v signInView) Label() string {
 func (g *Gateway) signIns(r *http.Request, u auth.User) []signInView {
 	list, err := g.auth.SignIns(u.Username)
 	if err != nil {
-		g.logf("gateway: list sign-ins: %v", err)
+		g.lg("err", err).Errorf("gateway: list sign-ins: %v", err)
 		return nil
 	}
 	this := ""
@@ -152,7 +152,7 @@ func (g *Gateway) accountSubmit(w http.ResponseWriter, r *http.Request) {
 	case "everywhere":
 		n, tokens, err := g.auth.RevokeUserAccess(u.Username)
 		if err != nil {
-			g.logf("gateway: sign out everywhere: %v", err)
+			g.lg("err", err).Errorf("gateway: sign out everywhere: %v", err)
 			g.message(w, r, http.StatusInternalServerError, "Not signed out", "Something went wrong. Try again.", "/account", "Back to account")
 			return
 		}
@@ -205,7 +205,7 @@ func (g *Gateway) changePassword(w http.ResponseWriter, r *http.Request, u auth.
 	if err != nil {
 		if !errors.Is(err, auth.ErrBadCredentials) {
 			g.throttle.pass(keys...)
-			g.logf("gateway: change password: %v", err)
+			g.lg("err", err).Errorf("gateway: change password: %v", err)
 			fail(http.StatusInternalServerError, "Something went wrong. Try again.")
 			return
 		}
@@ -222,13 +222,13 @@ func (g *Gateway) changePassword(w http.ResponseWriter, r *http.Request, u auth.
 	// line depends on it, so a failure here doesn't stop the change.
 	tokens, err := g.auth.CountAccessTokens(u.Username)
 	if err != nil {
-		g.logf("gateway: change password: %v", err)
+		g.lg("err", err).Errorf("gateway: change password: %v", err)
 	}
 	g.checks <- struct{}{}
 	err = g.auth.SetPassword(u.Username, next)
 	<-g.checks
 	if err != nil {
-		g.logf("gateway: change password: %v", err)
+		g.lg("err", err).Errorf("gateway: change password: %v", err)
 		fail(http.StatusInternalServerError, "Something went wrong. Try again.")
 		return
 	}
@@ -240,7 +240,7 @@ func (g *Gateway) changePassword(w http.ResponseWriter, r *http.Request, u auth.
 	// may still be signed in somewhere; this browser starts a fresh one.
 	tok, err := g.auth.CreateSessionFrom(u.Username, "", "", r.UserAgent(), ip)
 	if err != nil {
-		g.logf("gateway: change password: %v", err)
+		g.lg("err", err).Errorf("gateway: change password: %v", err)
 		g.clearCookie(w)
 		http.Redirect(w, r, g.signedOutURL(), http.StatusSeeOther)
 		return
@@ -268,7 +268,7 @@ func (g *Gateway) endSignIn(w http.ResponseWriter, r *http.Request, u auth.User)
 	}
 	err := g.auth.EndSignIn(u.Username, id)
 	if err != nil && !errors.Is(err, auth.ErrNoSuchSession) {
-		g.logf("gateway: end sign-in: %v", err)
+		g.lg("err", err).Errorf("gateway: end sign-in: %v", err)
 		g.message(w, r, http.StatusInternalServerError, "Not signed out", "Something went wrong. Try again.", "/account", "Back to account")
 		return
 	}
@@ -302,7 +302,7 @@ func (g *Gateway) endOtherSignIns(w http.ResponseWriter, r *http.Request, u auth
 	}
 	n, err := g.auth.EndOtherSignIns(u.Username, auth.HashToken(c.Value))
 	if err != nil {
-		g.logf("gateway: sign out other devices: %v", err)
+		g.lg("err", err).Errorf("gateway: sign out other devices: %v", err)
 		g.message(w, r, http.StatusInternalServerError, "Not signed out", "Something went wrong. Try again.", "/account", "Back to account")
 		return
 	}

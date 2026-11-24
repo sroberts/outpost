@@ -105,7 +105,7 @@ func (g *Gateway) refreshRoutes(ctx context.Context) {
 	list, err := g.services.List(ctx)
 	if err != nil {
 		if ctx.Err() == nil {
-			g.logf("gateway: refresh routes: %v", err)
+			g.lg("err", err).Warnf("gateway: refresh routes: %v", err)
 		}
 		return
 	}
@@ -134,7 +134,7 @@ func (g *Gateway) refreshRoutes(ctx context.Context) {
 		if !config.ValidLabel(s.Name) {
 			if !g.routes.skipped[s.Name] {
 				g.routes.skipped[s.Name] = true
-				g.logf("gateway: %q isn't a valid DNS label (a-z, 0-9, '-', at most 63), so it has no address on the gateway; rename the service to route it", s.Name)
+				g.lg("service", s.Name).Warnf("gateway: %q isn't a valid DNS label (a-z, 0-9, '-', at most 63), so it has no address on the gateway; rename the service to route it", s.Name)
 			}
 			continue
 		}
@@ -164,7 +164,7 @@ func (g *Gateway) refreshRoutes(ctx context.Context) {
 			key := "addr:" + s.Name
 			if !g.routes.skipped[key] {
 				g.routes.skipped[key] = true
-				g.logf("gateway: %s and %s both want %s; only %s is served there", other, s.Name, r.Addr, other)
+				g.lg("service", s.Name).Warnf("gateway: %s and %s both want %s; only %s is served there", other, s.Name, r.Addr, other)
 			}
 			continue
 		}
@@ -177,7 +177,7 @@ func (g *Gateway) refreshRoutes(ctx context.Context) {
 				key := "host:" + s.Name
 				if !g.routes.skipped[key] {
 					g.routes.skipped[key] = true
-					g.logf("gateway: %s and %s both want %s; only %s is served there", other, s.Name, h, other)
+					g.lg("service", s.Name).Warnf("gateway: %s and %s both want %s; only %s is served there", other, s.Name, h, other)
 				}
 			} else {
 				r.Host = h

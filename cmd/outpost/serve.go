@@ -6,9 +6,11 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -18,6 +20,7 @@ import (
 
 	"github.com/sroberts/outpost/internal/ai"
 	"github.com/sroberts/outpost/internal/auth"
+	"github.com/sroberts/outpost/internal/config"
 	"github.com/sroberts/outpost/internal/exposure"
 	"github.com/sroberts/outpost/internal/gateway"
 	"github.com/sroberts/outpost/internal/ipc"
@@ -46,27 +49,15 @@ func (a *app) cmdServe(args []string) error {
 	tsVerbose := fs.Bool("tailnet-verbose", false, "pass tsnet's own logging through")
 	startupTimeout := fs.Duration("startup-timeout", defaultStartupTimeout,
 		"exit if bring-up has not finished within this long, so the service manager restarts the daemon; 0 disables")
+	logLevel := fs.String("log-level", "",
+		"least severe line the daemon logs: debug, info, warn or error; overrides [log] level and $OUTPOST_LOG_LEVEL")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-
-	// The daemon's own log: leveled and timestamped, in [log]'s format.
-	// Trouble goes to stderr, as it did, which launchd keeps in a file of
-	// its own. Every line is at least a warning there.
-	lg := logging.New(a.out, a.config.Log.LevelName(), a.config.Log.FormatName())
-	lgErr := logging.New(a.err, a.config.Log.LevelName(), a.config.Log.FormatName())
-	say := logging.Logf(lg)
-	sayErr := func(format string, v ...any) {
-		if msg := fmt.Sprintf(format, v...); logging.Classify(msg) == log.ErrorLevel {
-			lgErr.Error(msg)
-		} else {
-			lgErr.Warn(msg)
-		}
+	level, err := a.daemonLogLevel(*logLevel)
+	if err != nil {
+		return err
 	}
-
-	// Before anything else the daemon says, so ~/.outpost/logs opens by
-	// recording which build produced everything underneath it.
-	say("%s starting", version.Short())
 
 	// Everything up to the socket accepting connections runs under a
 	// deadline (#30). Its stage names are what the log reports if it fires.
@@ -76,11 +67,40 @@ func (a *app) cmdServe(args []string) error {
 	tailnetSet := false
 	fs.Visit(func(f *flag.Flag) { tailnetSet = tailnetSet || f.Name == "tailnet" })
 
+	// Ahead of the log file, which would otherwise make every home look
+	// like one that already existed.
 	watch.at("preparing " + a.home)
 	fresh, err := a.createLayout()
 	if err != nil {
 		return err
 	}
+
+	// The daemon's own log: leveled and timestamped, in [log]'s format, on
+	// stdout and in logs/outpost.log, which is there to read whatever
+	// launchd or systemd does with stdout. Trouble from here also goes to
+	// stderr, as it did, which launchd keeps in a file of its own.
+	var logFile io.Writer
+	if f, ferr := runtime.OpenLog(a.daemonLogPath()); ferr != nil {
+		fmt.Fprintf(a.err, "outpost: %v; logging to stdout and stderr only\n", ferr)
+	} else {
+		defer f.Close()
+		logFile = f
+	}
+	format := a.config.Log.FormatName()
+	lg := logging.NewTee(a.out, logFile, level, format)
+	lgErr := logging.NewTee(a.err, logFile, level, format)
+	// Each part of the daemon logs under its own name, at its own level if
+	// [log.levels] gives it one.
+	component := func(name string) *log.Logger {
+		return logging.Component(lg, name, a.config.Log.LevelFor(name, level))
+	}
+	say := logging.To(lg, nil).Infof
+	sayErr := logging.To(lgErr, nil).Errorf
+
+	// Before anything else the daemon says, so ~/.outpost/logs opens by
+	// recording which build produced everything underneath it.
+	say("%s starting", version.Short())
+
 	if fresh {
 		// An explicit --tailnet is the choice for a new home, not just for
 		// this run. Detection is skipped: it can take seconds, and this is
@@ -128,8 +148,10 @@ func (a *app) cmdServe(args []string) error {
 	defer exposureStore.Close()
 
 	watch.at("opening the AI store")
-	aiService, err := ai.Open(aiOptions(a.config.AI, a.aiPath(), secretKeys{secretStore},
-		logging.Logf(lg.WithPrefix("ai"))))
+	aiOpts := aiOptions(a.config.AI, a.aiPath(), secretKeys{secretStore}, nil)
+	aiLog := component("ai")
+	aiOpts.Logger = aiLog
+	aiService, err := ai.Open(aiOpts)
 	if err != nil {
 		return err
 	}
@@ -146,8 +168,9 @@ func (a *app) cmdServe(args []string) error {
 	}
 
 	watch.at("opening the mail store")
-	mailService, err := mail.Open(mailOptions(a.config.Mail, a.mailPath(), secretKeys{secretStore},
-		logging.Logf(lg.WithPrefix("mail"))))
+	mailOpts := mailOptions(a.config.Mail, a.mailPath(), secretKeys{secretStore}, nil)
+	mailOpts.Logger = component("mail")
+	mailService, err := mail.Open(mailOpts)
 	if err != nil {
 		return err
 	}
@@ -201,7 +224,7 @@ func (a *app) cmdServe(args []string) error {
 			StateDir: a.tsnetDir(),
 			AuthKey:  authKey,
 			Verbose:  *tsVerbose,
-			Logf:     logging.Logf(lg.WithPrefix("tailnet")),
+			Logger:   component("tsnet"),
 		}
 		// With the gateway on, a service's tailnet address goes through its
 		// login like every other way in, rather than straight to the service.
@@ -245,7 +268,7 @@ func (a *app) cmdServe(args []string) error {
 		CheckRelease:    (&releaseChecks{a: a}).check,
 		Secrets:         withAI{secrets: secretStore, ai: aiService, mail: mailService},
 		Exposure:        exposureStore,
-		Logf:            logging.Logf(lg.WithPrefix("supervisor")),
+		Logger:          component("supervisor"),
 	})
 	if err != nil {
 		return err
@@ -274,11 +297,12 @@ func (a *app) cmdServe(args []string) error {
 	}
 
 	watch.at("opening the control socket")
-	srv, err := ipc.Listen(a.socketPath(), sup, logging.Logf(lgErr.WithPrefix("socket")))
+	srv, err := ipc.Listen(a.socketPath(), sup, nil)
 	if err != nil {
 		return err
 	}
 	defer srv.Close()
+	srv.UseLogger(component("ipc"))
 	srv.UseAuth(authStore)
 	srv.UseSecrets(secretStore)
 	srv.UseAI(aiService)
@@ -303,7 +327,7 @@ func (a *app) cmdServe(args []string) error {
 			}
 			return gw.Traffic()
 		},
-		Logf: logging.Logf(lg.WithPrefix("stats")),
+		Logger: component("stats"),
 	})
 	if a.config.Gateway.Enabled {
 		watch.at("starting the gateway")
@@ -312,7 +336,7 @@ func (a *app) cmdServe(args []string) error {
 			Auth:     authStore,
 			Services: sup,
 			Events:   sup,
-			Logf:     logging.Logf(lg.WithPrefix("gateway")),
+			Logger:   component("gateway"),
 
 			TailnetHosts: tailnetHosts,
 			PortalNode:   portalNodeStatus(tsRouter),
@@ -340,7 +364,7 @@ func (a *app) cmdServe(args []string) error {
 		// not by the reconcile loop. Non-blocking, like a service's.
 		if name := a.config.Gateway.TailscaleName; name != "" {
 			if tsRouter == nil {
-				say("[gateway] tailscale_name = %q, but this daemon runs without Tailscale, so the portal stays off the tailnet", name)
+				logging.To(lg, nil).Warnf("[gateway] tailscale_name = %q, but this daemon runs without Tailscale, so the portal stays off the tailnet", name)
 			} else if err := tsRouter.AttachPortal(context.Background(), name, gw.PortalHost()); err != nil {
 				sayErr("portal: %v", err)
 			}
@@ -416,7 +440,7 @@ func (a *app) cmdServe(args []string) error {
 		}()
 		// Said once at start, off the startup path: a model config.toml
 		// names that Ollama doesn't have, or an Ollama that isn't running.
-		go warnAIModels(ctx, aiService, a.out)
+		go warnAIModels(ctx, aiService, logging.Writer(aiLog, log.WarnLevel))
 	} else {
 		close(aiDone)
 	}
@@ -471,6 +495,28 @@ func (a *app) cmdServe(args []string) error {
 	}
 	return nil
 }
+
+// daemonLogLevel is the level the daemon logs at: --log-level if given,
+// otherwise $OUTPOST_LOG_LEVEL, otherwise [log] level. An override that
+// isn't a level is refused rather than ignored, as a bad [log] level is.
+func (a *app) daemonLogLevel(flagValue string) (string, error) {
+	for _, v := range []struct{ from, level string }{
+		{"--log-level", flagValue},
+		{"OUTPOST_LOG_LEVEL", os.Getenv("OUTPOST_LOG_LEVEL")},
+	} {
+		if v.level == "" {
+			continue
+		}
+		if err := config.ValidLogLevel(v.level); err != nil {
+			return "", fmt.Errorf("%s: %w", v.from, err)
+		}
+		return strings.ToLower(strings.TrimSpace(v.level)), nil
+	}
+	return a.config.Log.LevelName(), nil
+}
+
+// daemonLogPath is the daemon's own log, beside the services' logs.
+func (a *app) daemonLogPath() string { return filepath.Join(a.logsDir(), "outpost.log") }
 
 // writePID records the running daemon so the CLI can report whether one is up.
 func (a *app) writePID() error {

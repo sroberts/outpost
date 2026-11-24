@@ -372,7 +372,7 @@ func (g *Gateway) serveLogsAPI(rw http.ResponseWriter, r *http.Request) {
 	a.passed()
 	svcs, err := g.logsServices(r.Context(), a)
 	if err != nil {
-		g.logf("gateway: logs: list services: %v", err)
+		g.lg("err", err).Errorf("gateway: logs: list services: %v", err)
 		http.Error(w, "couldn't list services", http.StatusInternalServerError)
 		return
 	}
@@ -382,7 +382,7 @@ func (g *Gateway) serveLogsAPI(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		g.logf("gateway: logs: %v", err)
+		g.lg("err", err).Errorf("gateway: logs: %v", err)
 		http.Error(w, "couldn't read the logs", http.StatusInternalServerError)
 		return
 	}
@@ -390,7 +390,7 @@ func (g *Gateway) serveLogsAPI(rw http.ResponseWriter, r *http.Request) {
 		Logs []applog.Record `json:"logs"`
 	}{recs})
 	if err != nil {
-		g.logf("gateway: logs: %v", err)
+		g.lg("err", err).Errorf("gateway: logs: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -437,7 +437,7 @@ func (g *Gateway) logsPage(w http.ResponseWriter, r *http.Request) {
 	status := http.StatusOK
 	svcs, err := g.logsServices(r.Context(), a)
 	if err != nil {
-		g.logf("gateway: logs: list services: %v", err)
+		g.lg("err", err).Errorf("gateway: logs: list services: %v", err)
 	}
 	v.Services = svcs
 	titles := map[string]string{}
@@ -462,7 +462,7 @@ func (g *Gateway) logsPage(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(rerr, errNoSuchService):
 			status, v.Error = http.StatusNotFound, "There's no app by that name."
 		case rerr != nil:
-			g.logf("gateway: logs: %v", rerr)
+			g.lg("err", rerr).Errorf("gateway: logs: %v", rerr)
 			status, v.Error = http.StatusInternalServerError, "Couldn't read the logs. Try again."
 		default:
 			v.Rows = logRows(recs, titles)

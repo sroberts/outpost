@@ -225,7 +225,7 @@ func (g *Gateway) render(w http.ResponseWriter, r *http.Request, status int, nam
 	}
 	var buf bytes.Buffer
 	if err := g.pages[name].ExecuteTemplate(&buf, "layout", d); err != nil {
-		g.logf("gateway: render %s: %v", name, err)
+		g.lg("page", name, "err", err).Errorf("gateway: render %s: %v", name, err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}

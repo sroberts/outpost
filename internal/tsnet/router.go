@@ -34,6 +34,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/log"
+
+	"github.com/sroberts/outpost/internal/logging"
 	"github.com/sroberts/outpost/internal/manifest"
 )
 
@@ -58,6 +61,9 @@ type Options struct {
 	AuthKey string
 	// Logf receives operator-facing lines.
 	Logf func(format string, args ...any)
+	// Logger is where the router logs, at levels and with fields, along with
+	// what each node process says. It supersedes Logf.
+	Logger *log.Logger
 	// Verbose passes tsnet's own (noisy) logging through to Logf.
 	Verbose bool
 	// Upstream, when set, is where nodes send tailnet traffic instead of the
@@ -129,6 +135,7 @@ type Router struct {
 	stateDir string
 	authKey  string
 	logf     func(string, ...any)
+	logger   *log.Logger
 	verbose  bool
 
 	upstream           string
@@ -235,7 +242,9 @@ func New(opts Options) (*Router, error) {
 		return nil, fmt.Errorf("tsnet: create state dir: %w", err)
 	}
 	logf := opts.Logf
-	if logf == nil {
+	if opts.Logger != nil {
+		logf = nil
+	} else if logf == nil {
 		logf = func(string, ...any) {}
 	}
 
@@ -243,6 +252,7 @@ func New(opts Options) (*Router, error) {
 		stateDir:      opts.StateDir,
 		authKey:       opts.AuthKey,
 		logf:          logf,
+		logger:        opts.Logger,
 		verbose:       opts.Verbose,
 		retryInitial:  defaultRetryInitial,
 		retryMax:      defaultRetryMax,
@@ -521,7 +531,8 @@ func (r *Router) bringUp(ctx context.Context, n *node) {
 		n.mu.Unlock()
 		// A service that cannot reach the tailnet keeps running on loopback;
 		// losing tailnet exposure is not a reason to take it down (§7).
-		r.logf("%s: tailnet attach failed (attempt %d): %v; retrying in %s", n.name, attempt, err, backoff)
+		r.lg("service", n.name, "attempt", attempt, "err", err, "retry_in", backoff).
+			Warnf("%s: tailnet attach failed (attempt %d): %v; retrying in %s", n.name, attempt, err, backoff)
 
 		select {
 		case <-ctx.Done():
@@ -590,18 +601,18 @@ func (r *Router) serve(ctx context.Context, n *node, live tailnetNode) bool {
 	}
 	switch {
 	case n.name == PortalNode:
-		r.logf("portal: on the tailnet as https://%s -> gateway", shown)
+		r.lg("service", n.name, "host", shown).Infof("portal: on the tailnet as https://%s -> gateway", shown)
 		if got := n.reportedHost(); got != "" && n.wantHost != "" && got != n.wantHost {
-			r.logf("portal: WARNING: Tailscale named the portal's node %s, but public_url is https://%s, "+
+			r.lg("service", n.name, "host", shown).Warnf("portal: WARNING: Tailscale named the portal's node %s, but public_url is https://%s, "+
 				"which nothing on the tailnet answers. The name %q is probably taken by another node: "+
 				"free it in the Tailscale admin console, or set public_url = \"https://%s\" and "+
 				"tailscale_name to match under [gateway] in config.toml, then run `outpost daemon restart`",
 				got, n.wantHost, n.hostname, got)
 		}
 	case r.upstream != "":
-		r.logf("%s: on the tailnet as https://%s -> gateway -> 127.0.0.1:%d%s%s", n.name, shown, n.port, describeTCP(n.tcp, true), describeFunnel(n))
+		r.lg("service", n.name, "host", shown).Infof("%s: on the tailnet as https://%s -> gateway -> 127.0.0.1:%d%s%s", n.name, shown, n.port, describeTCP(n.tcp, true), describeFunnel(n))
 	default:
-		r.logf("%s: on the tailnet as %s -> 127.0.0.1:%d%s", n.name, shown, n.port, describeTCP(n.tcp, false))
+		r.lg("service", n.name, "host", shown).Infof("%s: on the tailnet as %s -> 127.0.0.1:%d%s", n.name, shown, n.port, describeTCP(n.tcp, false))
 	}
 
 	if srv == nil {
@@ -611,7 +622,7 @@ func (r *Router) serve(ctx context.Context, n *node, live tailnetNode) bool {
 	go func() {
 		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			if ctx.Err() == nil {
-				r.logf("%s: tailnet listener stopped: %v", n.name, err)
+				r.lg("service", n.name, "err", err).Warnf("%s: tailnet listener stopped: %v", n.name, err)
 			}
 		}
 	}()
@@ -676,6 +687,7 @@ func (r *Router) Close() error {
 
 // shutdownNode stops a node's attach goroutine and closes whatever it built.
 func (r *Router) shutdownNode(n *node) error {
+	r.lg("service", n.name).Debugf("%s: leaving the tailnet", n.name)
 	n.cancel()
 	// Wait for the attach goroutine, so a node that arrives late is closed by
 	// bringUp rather than leaked -- but not forever. Detach runs on the
@@ -687,7 +699,7 @@ func (r *Router) shutdownNode(n *node) error {
 	select {
 	case <-n.done:
 	case <-time.After(r.shutdownGrace):
-		r.logf("%s: tailnet attach did not stop within %s; detaching anyway", n.name, r.shutdownGrace)
+		r.lg("service", n.name).Warnf("%s: tailnet attach did not stop within %s; detaching anyway", n.name, r.shutdownGrace)
 	}
 
 	n.mu.Lock()
@@ -713,22 +725,23 @@ func (r *Router) shutdownNode(n *node) error {
 // funnelReport records what a node said about its Funnel listener, logging
 // each change, since it decides whether the internet reaches the app.
 func (r *Router) funnelReport(n *node, state, why string) {
+	// The lock is held through the log line, and the state recorded after
+	// it, so anyone who sees the new state in NodeStatus also finds it said.
 	n.mu.Lock()
-	changed := n.funnelState != state || n.funnelErr != why
-	n.funnelState, n.funnelErr = state, why
+	defer n.mu.Unlock()
+	if n.funnelState == state && n.funnelErr == why {
+		return
+	}
+	defer func() { n.funnelState, n.funnelErr = state, why }()
 	host, what := n.dnsName, n.funnelFor
-	n.mu.Unlock()
 	if host == "" {
 		host = n.hostname // reported before serve has recorded the name
 	}
-	if !changed {
-		return
-	}
 	switch state {
 	case FunnelOn:
-		r.logf("%s: funnel on: the internet reaches %s at https://%s", n.name, what, host)
+		r.lg("service", n.name, "funnel", "on", "host", host).Infof("%s: funnel on: the internet reaches %s at https://%s", n.name, what, host)
 	default:
-		r.logf("%s: funnel unavailable, so only the tailnet reaches it: %s", n.name, why)
+		r.lg("service", n.name, "funnel", "unavailable").Warnf("%s: funnel unavailable, so only the tailnet reaches it: %s", n.name, why)
 	}
 }
 
@@ -770,3 +783,6 @@ func describeTCP(tcp []manifest.TCPForward, gated bool) string {
 	}
 	return "; tcp " + strings.Join(parts, ", ") + " (" + who + ")"
 }
+
+// lg is where a line goes, with kv as its fields.
+func (r *Router) lg(kv ...any) logging.Line { return logging.To(r.logger, r.logf, kv...) }

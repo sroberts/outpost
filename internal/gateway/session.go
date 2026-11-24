@@ -25,7 +25,7 @@ func (g *Gateway) session(r *http.Request) (string, auth.Session, auth.User, boo
 	s, u, err := g.auth.LookupSession(c.Value)
 	if err != nil {
 		if !errors.Is(err, auth.ErrNoSuchSession) {
-			g.logf("gateway: session lookup: %v", err)
+			g.lg("err", err).Errorf("gateway: session lookup: %v", err)
 		}
 		return "", auth.Session{}, auth.User{}, false
 	}
@@ -39,7 +39,7 @@ func (g *Gateway) touch(tok string, s auth.Session) {
 		return
 	}
 	if err := g.auth.TouchFamily(tok); err != nil && !errors.Is(err, auth.ErrNoSuchSession) {
-		g.logf("gateway: touch session: %v", err)
+		g.lg("err", err).Warnf("gateway: touch session: %v", err)
 	}
 }
 
@@ -225,7 +225,7 @@ func (g *Gateway) continueTo(w http.ResponseWriter, r *http.Request, portalTok s
 	}
 	code, err := g.codes.mint(pendingCode{user: u.Username, app: app, parent: portalTok}, g.now())
 	if err != nil {
-		g.logf("gateway: %v", err)
+		g.lg("err", err).Errorf("gateway: %v", err)
 		g.message(w, r, http.StatusServiceUnavailable, "Try again", err.Error(), g.loginURL(app, next), "Try again")
 		return
 	}

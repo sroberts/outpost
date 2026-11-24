@@ -441,6 +441,6 @@ func (s *Service) SetKey(provider, value, by string) error {
 		return err
 	}
 	s.catalogs.forget(provider)
-	s.logf("ai: %s set %s's API key (secret %s)", by, p.title, s.keySecret(provider))
+	s.lg("user", by, "provider", provider).Infof("ai: %s set %s's API key (secret %s)", by, p.title, s.keySecret(provider))
 	return nil
 }

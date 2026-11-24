@@ -143,7 +143,7 @@ func (g *Gateway) serveCapabilities(w http.ResponseWriter, r *http.Request) {
 	}
 	body, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
-		g.logf("gateway: capabilities: %v", err)
+		g.lg("err", err).Errorf("gateway: capabilities: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
