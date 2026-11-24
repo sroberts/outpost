@@ -36,6 +36,7 @@ type logView struct {
 	service string // whose log; "" with all
 	all     bool   // every service's, interleaved as it arrives
 	events  bool   // the activity feed rather than the log file
+	own     string // one of Outpost's own logs (ownSources) rather than either
 
 	lines  []logLine
 	err    string
@@ -68,6 +69,7 @@ type logViewMsg struct {
 	service string
 	all     bool
 	events  bool
+	own     string
 	lines   []logLine
 	names   []string            // the every-service view's services, in order
 	tails   map[string][]string // the every-service view's new tails
@@ -89,9 +91,26 @@ func (m Model) startLogTicks() (Model, tea.Cmd) {
 	return m, logTick()
 }
 
+// ownSources are Outpost's own logs, in the order o steps through them, and
+// what the view's title calls each.
+var ownSources = []string{applog.SourceDaemon, applog.SourceAccess}
+
+var ownTitles = map[string]string{applog.SourceDaemon: "Outpost's own log", applog.SourceAccess: "requests to the gateway"}
+
 // fetchLogView reads what the logs view shows.
 func (m Model) fetchLogView() tea.Cmd {
 	lv := m.lv
+	if lv.own != "" && m.ownLogs != nil {
+		read := m.ownLogs
+		return func() tea.Msg {
+			text, err := read(lv.own, logViewLines)
+			var lines []logLine
+			for _, l := range splitLines(text) {
+				lines = append(lines, logLine{text: l})
+			}
+			return logViewMsg{service: lv.service, all: lv.all, events: lv.events, own: lv.own, lines: lines, err: err}
+		}
+	}
 	if lv.events {
 		client, svc := m.client, lv.service
 		if lv.all {
@@ -219,15 +238,17 @@ func equalLines(a, b []string) bool {
 // updateLogView applies a read to the view.
 func (m Model) updateLogView(msg logViewMsg) Model {
 	lv := &m.lv
-	if msg.events != lv.events || msg.all != lv.all || (!msg.all && msg.service != lv.service) {
+	if msg.own != lv.own || msg.events != lv.events || msg.all != lv.all || (!msg.all && msg.service != lv.service) {
 		return m // for a view the operator has since left
 	}
 	switch {
+	case msg.err != nil && msg.own != "":
+		lv.err = msg.err.Error()
 	case msg.err != nil && !msg.events:
 		lv.lines, lv.err = nil, "no log yet"
 	case msg.err != nil:
 		lv.err = msg.err.Error()
-	case msg.all && !msg.events:
+	case msg.all && !msg.events && msg.own == "":
 		fresh := atLevel(freshLines(msg.names, lv.last, msg.tails), lv.minLevel)
 		had := len(lv.lines)
 		lv.lines = append(lv.lines, fresh...)
@@ -361,12 +382,29 @@ func (m Model) handleLogKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			return m, nil, false
 		}
 		lv.pattern, lv.match = "", -1
+	case "o":
+		if m.ownLogs == nil {
+			return m, nil, true
+		}
+		// Steps through Outpost's own logs, then back to the services'.
+		next := ownSources[0]
+		for i, s := range ownSources {
+			if s == lv.own {
+				next = ""
+				if i+1 < len(ownSources) {
+					next = ownSources[i+1]
+				}
+			}
+		}
+		lv.own = next
+		lv.reset()
+		return m, m.fetchLogView(), true
 	case "e":
-		lv.events = !lv.events
+		lv.events, lv.own = !lv.events, ""
 		lv.reset()
 		return m, m.fetchLogView(), true
 	case "a":
-		lv.all = !lv.all
+		lv.all, lv.own = !lv.all, ""
 		if !lv.all && lv.service == "" {
 			lv.service = m.selectedName()
 		}
@@ -389,8 +427,8 @@ func (m Model) handleLogKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 				at = i
 			}
 		}
-		if lv.all {
-			lv.all = false
+		if lv.all || lv.own != "" {
+			lv.all, lv.own = false, ""
 		} else if msg.String() == "]" {
 			at = (at + 1) % len(m.services)
 		} else {
@@ -443,6 +481,8 @@ func (m Model) logViewPane(height int) string {
 	var b strings.Builder
 	what := lv.service
 	switch {
+	case lv.own != "":
+		what = ownTitles[lv.own]
 	case lv.all && lv.events:
 		what = "every service's activity"
 	case lv.all:
@@ -499,7 +539,7 @@ func logRows(height int, searching bool) int {
 // otherwise) and the cells left for each line's text.
 func (m Model) logWidths() (prefixW, avail int) {
 	width := max(m.width-4, 1)
-	if !m.lv.all {
+	if !m.lv.all || m.lv.own != "" {
 		return 0, width
 	}
 	for _, l := range m.lv.lines {
@@ -540,7 +580,7 @@ func (m Model) visibleLogLines(rows int) []string {
 		body := l.text
 		avail := textW
 		prefix := ""
-		if lv.all {
+		if lv.all && lv.own == "" {
 			prefix = countStyle.Render(pad(truncate(l.svc, prefixW), prefixW)) + " "
 		}
 		var parts []string
@@ -558,7 +598,7 @@ func (m Model) visibleLogLines(rows int) []string {
 			out[j] = highlight(p, needle, style)
 			if j == 0 {
 				out[j] = prefix + out[j]
-			} else if lv.all {
+			} else if lv.all && lv.own == "" {
 				out[j] = strings.Repeat(" ", prefixW+1) + out[j]
 			}
 		}
@@ -626,5 +666,5 @@ func (m Model) logHelp(key func(k, what string) string, sep string) string {
 		return strings.Join([]string{key("enter", "search"), key("esc", "cancel")}, sep)
 	}
 	return strings.Join([]string{key("↑/↓", "scroll"), key("f", "follow"), key("/", "search"), key("n/N", "next/prev"),
-		key("v", "level"), key("w", "wrap"), key("[/]", "service"), key("a", "all"), key("e", "activity"), key(":", "commands"), key("q", "quit")}, sep)
+		key("v", "level"), key("w", "wrap"), key("[/]", "service"), key("a", "all"), key("e", "activity"), key("o", "outpost"), key(":", "commands"), key("q", "quit")}, sep)
 }

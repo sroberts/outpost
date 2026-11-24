@@ -29,6 +29,23 @@ type Query struct {
 	Stream string    // only lines from this stream, "out" or "err"
 	// Contains keeps lines whose text contains it, ignoring case.
 	Contains string
+
+	// Until keeps lines written before it; zero is no bound.
+	Until time.Time
+	// Service keeps lines about that service: an app's own output, a daemon
+	// line naming it, a request to it, or its activity.
+	Service string
+	// Apps, when not nil, keeps only lines about one of these services: what
+	// an access token scoped to apps may read. A line about no service, such
+	// as the daemon's own or a request to the portal, is left out.
+	Apps []string
+	// User keeps lines for this user, or for the access token with this id.
+	User string
+	// Status keeps requests answered with this status: "404", or a class
+	// such as "4xx".
+	Status string
+	// Component keeps daemon lines from this part of it, such as "tsnet".
+	Component string
 }
 
 func (q Query) limit() int {
@@ -51,7 +68,56 @@ func (q Query) matches(r Record) bool {
 	if q.Contains != "" && !strings.Contains(strings.ToLower(r.Line), strings.ToLower(q.Contains)) {
 		return false
 	}
+	if !q.Until.IsZero() && !r.Time.Before(q.Until) {
+		return false
+	}
+	if q.Service != "" && r.Service != q.Service {
+		return false
+	}
+	if q.Apps != nil && !contains(q.Apps, r.Service) {
+		return false
+	}
+	if q.User != "" && r.Fields["user"] != q.User && r.Fields["token"] != q.User {
+		return false
+	}
+	if q.Status != "" && !StatusMatches(r.Fields["status"], q.Status) {
+		return false
+	}
+	if q.Component != "" && r.Component != q.Component {
+		return false
+	}
 	return true
+}
+
+func contains(set []string, s string) bool {
+	for _, v := range set {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}
+
+// StatusMatches reports whether an HTTP status passes a filter: the same
+// code, or a class such as "4xx".
+func StatusMatches(status, filter string) bool {
+	filter = strings.ToLower(strings.TrimSpace(filter))
+	if len(filter) == 3 && strings.HasSuffix(filter, "xx") {
+		return len(status) == 3 && status[0] == filter[0]
+	}
+	return status == filter
+}
+
+// ValidStatus reports whether a status filter is one StatusMatches reads.
+func ValidStatus(filter string) bool {
+	f := strings.ToLower(strings.TrimSpace(filter))
+	if len(f) != 3 || f[0] < '1' || f[0] > '5' {
+		return false
+	}
+	if f[1:] == "xx" {
+		return true
+	}
+	return f[1] >= '0' && f[1] <= '9' && f[2] >= '0' && f[2] <= '9'
 }
 
 // ErrNoLog is a service with no log file yet.
@@ -78,6 +144,18 @@ func Read(dir, service string, q Query) ([]Record, error) {
 		}
 		return nil, err
 	}
+	return readFile(path, func(line string) Record {
+		r := Parse(line)
+		r.Source, r.Service = SourceApp, service
+		return r
+	}, q, false)
+}
+
+// readFile returns the newest records of the log at path, and its rotated
+// files, that match q, oldest first, reading each line with parse. With
+// indented set, a line that starts with a space or a tab continues the line
+// before it, as the daemon's text format writes a value with newlines in it.
+func readFile(path string, parse func(string) Record, q Query, indented bool) ([]Record, error) {
 	want := q.limit()
 	var newestFirst []Record
 	// The live file, then each rotated one, newest to oldest.
@@ -87,14 +165,25 @@ func Read(dir, service string, q Query) ([]Record, error) {
 	}
 	done := false
 	for _, p := range files {
+		// Read last first, so a continuation arrives before the line it
+		// belongs to. One left at the top of a file has lost its line to the
+		// rotation, and is dropped.
+		var rest string
 		err := eachLineBackward(p, func(line string) bool {
-			r := Parse(line)
+			line = strings.TrimRight(line, "\r")
+			if indented && (line == "" || line[0] == ' ' || line[0] == '\t') {
+				rest = line + "\n" + rest
+				return true
+			}
+			if rest != "" {
+				line, rest = line+"\n"+strings.TrimSuffix(rest, "\n"), ""
+			}
+			r := parse(line)
 			if !q.Since.IsZero() && !r.Time.After(q.Since) {
 				done = true
 				return false
 			}
 			if q.matches(r) {
-				r.Service = service
 				newestFirst = append(newestFirst, r)
 				if len(newestFirst) >= want {
 					done = true

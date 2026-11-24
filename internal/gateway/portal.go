@@ -146,6 +146,8 @@ func (g *Gateway) servePortal(w http.ResponseWriter, r *http.Request) {
 		g.serveAsset(w, r, "static/return.js", "text/javascript; charset=utf-8")
 	case menusPath:
 		g.serveAsset(w, r, "static/menus.js", "text/javascript; charset=utf-8")
+	case logsJSPath:
+		g.serveAsset(w, r, "static/logs.js", "text/javascript; charset=utf-8")
 	case selfJSPath:
 		g.serveAsset(w, r, "static/selfupdate.js", "text/javascript; charset=utf-8")
 	case artPath:
