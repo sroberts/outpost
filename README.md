@@ -282,9 +282,9 @@ service:
 - writes persistent state under one directory, handed to it as `OUTPOST_STORAGE_DIR`
 - exits non-zero on unrecoverable failure
 
-Outpost injects the manifest's `env` plus `OUTPOST_STORAGE_DIR` into the
-process environment. `OUTPOST_STORAGE_DIR` is appended last, so a manifest
-cannot accidentally override it.
+Outpost injects the manifest's `env` plus `OUTPOST_SERVICE` (the service's
+own name) and `OUTPOST_STORAGE_DIR` into the process environment. Both are
+appended last, so a manifest cannot accidentally override them.
 
 ## Outpost-ready projects
 
@@ -1118,7 +1118,7 @@ What a service receives on every request, once its user is logged in:
 | `X-Outpost-Name` | `Alice Example` (may be empty) |
 | `X-Outpost-Email` | `alice@example.com` (may be empty) |
 | `X-Outpost-Groups` | `family,kids` |
-| `X-Outpost-Identity` | an Ed25519-signed JWT, valid for 60 seconds, `aud` the app's host |
+| `X-Outpost-Identity` | an Ed25519-signed JWT, valid for 60 seconds, `aud` the app's host, `svc` the app's name |
 
 Any `X-Outpost-*` header a client sends is removed first, and Outpost's own
 cookie never reaches the service. The token verifies against the keys at
@@ -1353,7 +1353,7 @@ A request to `/mcp/<service>` goes through everything any token request does:
 the throttle, the token, its scope and the app's `allow` list. It then goes to
 the service at its `mcp_path`, with the query string kept, with `Host` set to
 the service's own host, and with the same identity headers and identity token
-(`aud` the service's host) as anywhere else. It takes tokens only. With no
+(`aud` the service's host, `svc` its name) as anywhere else. It takes tokens only. With no
 token it gets `401` with `WWW-Authenticate: Bearer`, never a sign-in page, and
 a browser's session doesn't count. A bad, expired or out-of-scope token, a
 service that doesn't exist and one with no `mcp_path` all get the same `401`,
@@ -1398,7 +1398,9 @@ gateway. Nothing stops another process on the machine — another service,
 say — connecting to that port directly and sending the same header with any
 name in it. The identity token in `X-Outpost-Identity` is the way a service
 tells the gateway from a neighbour; the [service contract](outpost-service-spec.md)
-says when to verify it. The login front door keeps the outside out; it does
+says when to verify it. A service that verifies it also checks its `svc` claim
+against `OUTPOST_SERVICE`, so a neighbour can't replay a token the gateway
+minted for the neighbour itself. The login front door keeps the outside out; it does
 not keep services apart from each other.
 
 **A public path behind Funnel is on the internet.** With `funnel = true`,
