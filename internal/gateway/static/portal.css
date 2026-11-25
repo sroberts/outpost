@@ -19,6 +19,18 @@
   --stop: 26px;
   --gutter: 20px;
   --measure: 40rem;
+  --g-update: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 11V2.5M4.5 6 8 2.5 11.5 6M3 14h10'/%3E%3C/svg%3E");
+  --g-add: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='2' y='2' width='12' height='12' rx='2'/%3E%3Cpath d='M8 5v6M5 8h6'/%3E%3C/svg%3E");
+  --g-key: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='5' cy='8' r='2.5'/%3E%3Cpath d='M7.5 8h6.5M11.5 8v2.5M14 8v2'/%3E%3C/svg%3E");
+  --g-spark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 1.5c.5 3.2 1.8 4.5 5 5-3.2.5-4.5 1.8-5 5-.5-3.2-1.8-4.5-5-5 3.2-.5 4.5-1.8 5-5zM13 11.5v3M11.5 13h3'/%3E%3C/svg%3E");
+  --g-mail: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='1.5' y='3.5' width='13' height='9' rx='1'/%3E%3Cpath d='m2 4.5 6 4.5 6-4.5'/%3E%3C/svg%3E");
+  --g-lines: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 4h10M3 8h10M3 12h6'/%3E%3C/svg%3E");
+  --g-globe: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='8' cy='8' r='6.5'/%3E%3Cpath d='M1.5 8h13M8 1.5c-1.9 2-2.8 4.1-2.8 6.5S6.1 12.5 8 14.5M8 1.5c1.9 2 2.8 4.1 2.8 6.5S9.9 12.5 8 14.5'/%3E%3C/svg%3E");
+  --g-sliders: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 4.5h6M11.5 4.5h2M2.5 11.5h2M7.5 11.5h6'/%3E%3Ccircle cx='10' cy='4.5' r='1.5'/%3E%3Ccircle cx='6' cy='11.5' r='1.5'/%3E%3C/svg%3E");
+  --g-refresh: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M13 8a5 5 0 1 1-1.5-3.5L13 6M13 2.5V6H9.5'/%3E%3C/svg%3E");
+  --g-download: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 2.5V11M4.5 7.5 8 11l3.5-3.5M3 14h10'/%3E%3C/svg%3E");
+  --g-down: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 2.5v11M4 9.5l4 4 4-4'/%3E%3C/svg%3E");
+  --g-filter: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 3h12l-4.5 5.5V13l-3-1.5v-3z'/%3E%3C/svg%3E");
   color-scheme: dark;
   scrollbar-color: var(--rule) var(--night);
 }
@@ -232,9 +244,23 @@ h2 { font-size: 19px; font-weight: 680; }
   display: grid; grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr)); gap: 0 1rem;
 }
 .places a {
-  display: inline-flex; align-items: center; min-height: 44px;
+  display: inline-flex; align-items: center; gap: 0.45rem; min-height: 44px;
   font-size: 14px; color: var(--dim);
 }
+/* Glyphs: one copy of each, drawn as a mask in the colour of the text it
+   sits beside. They live here rather than in the markup so the words in a
+   link or a summary stay exactly as they were, and a page needs no sprite. */
+.places a::before, .acts > summary > span::before, .setting > summary .set-name::before,
+.log-count a::before, .log-foot a::before {
+  content: ""; flex: none; width: 14px; height: 14px; background: currentColor;
+  -webkit-mask: var(--glyph) center / contain no-repeat; mask: var(--glyph) center / contain no-repeat;
+}
+.places a[href="/updates"] { --glyph: var(--g-update); }
+.places a[href="/add"] { --glyph: var(--g-add); }
+.places a[href="/secrets"] { --glyph: var(--g-key); }
+.places a[href="/ai"] { --glyph: var(--g-spark); }
+.places a[href="/mail"] { --glyph: var(--g-mail); }
+.places a[href="/logs"] { --glyph: var(--g-lines); }
 .places a:hover { color: var(--porcelain); }
 .places a[aria-current="page"] { color: var(--porcelain); font-weight: 600; text-decoration: none; }
 .panel > p { margin: 0.6rem 0 0; }
@@ -378,7 +404,7 @@ button.plain:hover { background: none; border-color: var(--beam); }
 /* The name line makes room for it, across and down: the pill sits level with
    the name, and what's beneath starts below the pill's whole target, so a tap
    on the address can't land on Manage and descriptions keep the full width. */
-.managed .top { padding-right: 6.75rem; min-height: 34px; }
+.managed .top { padding-right: 8rem; min-height: 34px; }
 .acts:not([open]) { margin-top: -3px; } /* the pill is out of flow; no gap for it */
 .acts > summary, .confirm > summary { list-style: none; }
 .acts > summary::-webkit-details-marker, .confirm > summary::-webkit-details-marker { display: none; }
@@ -395,6 +421,10 @@ button.plain:hover { background: none; border-color: var(--beam); }
   border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
   transform: rotate(45deg); transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
+/* Manage opens an app's controls; it leads with the same mark of settings
+   the actions under it carry for theirs. */
+.acts > summary > span { display: inline-flex; align-items: center; gap: 0.4rem; }
+.acts > summary > span::before { --glyph: var(--g-sliders); }
 .acts > summary:hover, .acts[open] > summary { color: var(--porcelain); }
 .acts[open] > summary { border-color: var(--beam); }
 .acts[open] > summary::after { transform: translateY(3px) rotate(-135deg); }
@@ -680,7 +710,12 @@ label.check input {
   list-style: none; cursor: pointer;
 }
 .setting > summary::-webkit-details-marker { display: none; }
-.setting > summary .set-name { font-size: 15px; font-weight: 600; }
+.setting > summary .set-name { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 15px; font-weight: 600; }
+/* An app's own setting carries its admin page's glyph from the foot. */
+.setting[id^="set-public-"] .set-name::before { --glyph: var(--g-globe); }
+.setting[id^="set-secrets-"] .set-name::before { --glyph: var(--g-key); }
+.setting[id^="set-ai-"] .set-name::before { --glyph: var(--g-spark); }
+.setting[id^="set-mail-"] .set-name::before { --glyph: var(--g-mail); }
 .setting > summary .count { margin-left: auto; font-size: 14px; color: var(--dim); text-align: right; }
 .setting > summary .count.why { color: var(--down-ink); }
 .setting > summary::after {
@@ -794,7 +829,14 @@ label.check input {
 /* Small links in a line of words, each reaching past the 44px floor as the
    tally's do, without pushing the lines apart. */
 .log-count a, .log-foot a { position: relative; }
-.log-count a::before, .log-foot a::before { content: ""; position: absolute; inset: -14px -6px; }
+.log-count a::after, .log-foot a::after { content: ""; position: absolute; inset: -14px -6px; }
+/* Inline in a line of words: the glyph sits on the text and the underline
+   stays under the words alone. */
+.log-count a::before, .log-foot a::before { display: inline-block; vertical-align: -2px; margin-right: 0.3em; }
+.log-count a[href="#newest"]::before { --glyph: var(--g-down); }
+.log-count a[href$="#newest"]:not([href="#newest"])::before, .log-foot a[href$="#newest"]::before { --glyph: var(--g-refresh); }
+.log-count a[href^="/.outpost/api/logs"]::before { --glyph: var(--g-download); }
+.log-foot a[href="#filters"]::before { --glyph: var(--g-filter); }
 .log-lines { list-style: none; margin: 0.6rem 0 0; padding: 0; }
 .log-line { padding: 0.4rem 0; border-top: 1px solid var(--rule); }
 .log-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.6rem; font-size: 12px; color: var(--dim); }
