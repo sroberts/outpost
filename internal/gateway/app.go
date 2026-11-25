@@ -254,7 +254,7 @@ func (g *Gateway) proxyAs(w http.ResponseWriter, r *http.Request, rt route, u au
 // in here.
 func (g *Gateway) proxyAsTo(w http.ResponseWriter, r *http.Request, rt route, u auth.User, to target) {
 	noteUser(r, u.Username)
-	idTok, err := g.identityToken(u, hostname(to.host))
+	idTok, err := g.identityToken(u, hostname(to.host), rt.Name)
 	if err != nil {
 		g.lg("service", rt.Name, "err", err).Errorf("gateway: %s: identity token: %v", rt.Name, err)
 		http.Error(w, "internal error", http.StatusInternalServerError)

@@ -26,9 +26,16 @@ const (
 )
 
 // identityClaims is the X-Outpost-Identity payload.
+//
+// Svc is the service the token was minted for. aud is a host, and a service
+// can't know every host it's served at (Tailscale renames a node whose name
+// is taken, after the service has started), so a service pins its tokens to
+// OUTPOST_SERVICE through svc instead: a neighbour replaying its own token at
+// another service's port is refused (#149).
 type identityClaims struct {
 	Iss    string   `json:"iss"`
 	Aud    string   `json:"aud"`
+	Svc    string   `json:"svc"`
 	Sub    string   `json:"sub"`
 	Name   string   `json:"name,omitempty"`
 	Email  string   `json:"email,omitempty"`
@@ -67,13 +74,13 @@ type tokenCache struct {
 	m  map[string]cachedToken
 }
 
-// identityToken returns a token for u at host, reusing a recent one that
-// says the same. The claims are the cache key, so a user whose groups or
-// name change is never handed a token that still says the old ones, and
-// nor is a user made afresh under a name just removed.
-func (g *Gateway) identityToken(u auth.User, host string) (string, error) {
+// identityToken returns a token for u at host, for the service svc, reusing
+// a recent one that says the same. The claims are the cache key, so a user
+// whose groups or name change is never handed a token that still says the
+// old ones, and nor is a user made afresh under a name just removed.
+func (g *Gateway) identityToken(u auth.User, host, svc string) (string, error) {
 	now := g.now()
-	key := strings.Join([]string{u.Username, host, u.DisplayName, u.Email, strings.Join(u.Groups, ",")}, "\x00")
+	key := strings.Join([]string{u.Username, host, svc, u.DisplayName, u.Email, strings.Join(u.Groups, ",")}, "\x00")
 	g.tokens.mu.Lock()
 	if c, ok := g.tokens.m[key]; ok && now.Sub(c.minted) < tokenReuse && !now.Before(c.minted) {
 		g.tokens.mu.Unlock()
@@ -92,6 +99,7 @@ func (g *Gateway) identityToken(u auth.User, host string) (string, error) {
 	tok, err := signToken(sk, identityClaims{
 		Iss:    g.portalOrigin,
 		Aud:    host, // the one the request came to, which an app with two names checks against
+		Svc:    svc,
 		Sub:    u.Username,
 		Name:   u.DisplayName,
 		Email:  u.Email,
