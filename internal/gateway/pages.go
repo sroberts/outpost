@@ -15,7 +15,7 @@ import (
 	"github.com/sroberts/outpost/internal/version"
 )
 
-//go:embed templates/*.html static/portal.css static/catalog.js static/poll.js static/return.js static/selfupdate.js static/menus.js static/lighthouse.webp
+//go:embed templates/*.html static/portal.css static/catalog.js static/poll.js static/return.js static/selfupdate.js static/menus.js static/lighthouse.webp static/push.js static/sw.js static/icon-180.png static/icon-512.png
 var assets embed.FS
 
 const (
@@ -91,7 +91,7 @@ func loadAsset(file string) (*staticAsset, error) {
 	a := &staticAsset{body: body, hash: assetHash(body)}
 	// The image is compressed already; the text is mostly repetition, and a
 	// phone on a slow link gets a quarter of it.
-	if !strings.HasSuffix(file, ".webp") {
+	if !strings.HasSuffix(file, ".webp") && !strings.HasSuffix(file, ".png") {
 		var buf bytes.Buffer
 		zw, _ := gzip.NewWriterLevel(&buf, gzip.BestCompression) // a valid level can't fail
 		if _, err := zw.Write(body); err == nil && zw.Close() == nil && buf.Len() < len(body) {
@@ -175,6 +175,8 @@ type pageData struct {
 	Station *station
 	// Consent is the page asking to let an OAuth client in.
 	Consent *consentView
+	// Notify is the account page's Notifications section.
+	Notify *notifyView
 
 	// Filled in by render for every page.
 	CSS, JS, PollJS, Art string // the assets' versioned URLs
@@ -185,6 +187,10 @@ type pageData struct {
 	Home                 string // the catalog's URL
 	Version              string // the build running, shown to anyone signed in
 	SpecLink             string // the app spec on GitHub, for an admin to hand to Claude
+	TouchIcon            string // the Home Screen icon
+	// PushJS keeps this device's subscription current on every signed-in
+	// page, and PushKey is what it subscribes with; both "" without push.
+	PushJS, PushKey string
 }
 
 // specRelease is a version that names a release tag; anything else (a dev
@@ -212,6 +218,10 @@ func (g *Gateway) render(w http.ResponseWriter, r *http.Request, status int, nam
 	d.Home = g.portalLink()
 	d.Version = version.Get().Version
 	d.Page = name
+	d.TouchIcon = icon180URL
+	if g.push != nil && d.Who != "" {
+		d.PushJS, d.PushKey = pushJSURL, g.push.PublicKey()
+	}
 	// Every page an admin sees links to the same places, from the same list
 	// at its foot, so getting from one to another never goes through home.
 	if d.Admin && d.Who != "" {

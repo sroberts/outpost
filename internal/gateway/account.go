@@ -34,6 +34,7 @@ func (g *Gateway) accountData(r *http.Request, u auth.User) pageData {
 		Admin:       u.Admin,
 		MinPassword: auth.MinPasswordLen,
 		SignIns:     g.signIns(r, u),
+		Notify:      g.notifyData(r, u),
 	}
 }
 
@@ -149,6 +150,8 @@ func (g *Gateway) accountSubmit(w http.ResponseWriter, r *http.Request) {
 		g.endSignIn(w, r, u)
 	case "others":
 		g.endOtherSignIns(w, r, u)
+	case "push-test", "push-forget", "push-apps":
+		g.pushSubmit(w, r, u)
 	case "everywhere":
 		n, tokens, err := g.auth.RevokeUserAccess(u.Username)
 		if err != nil {

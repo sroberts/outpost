@@ -303,6 +303,14 @@ operator's Gmail account, such as `you+yourservice@gmail.com`, and, if the
 operator allows it, send mail from them. You don't need them either. §16 is
 how to use them.
 
+### Notifications
+
+With the login gateway on, every service is also started with
+`OUTPOST_PUSH_URL` and `OUTPOST_PUSH_TOKEN`, which send a notification to the
+phones and computers of the people who use you: Safari on a Mac, Outpost on
+an iPhone's Home Screen, Chrome, Firefox. You never see a device or a
+subscription; you name users. §17 is how.
+
 ---
 
 ## 4. Keep all persistent state in one directory
@@ -581,6 +589,12 @@ A service conforms when all of these are true.
 - [ ] Sticks to what every provider takes: the OpenAI chat API if it can, and System 1 questions with instructions, two or more labels, and two to ten levels
 - [ ] Allows minutes for a first request, while Ollama loads the model
 - [ ] Doesn't log the token, or send it anywhere but `OUTPOST_AI_URL`
+
+**Notifications** (if it sends them, §17)
+- [ ] Reads `OUTPOST_PUSH_URL` and `OUTPOST_PUSH_TOKEN`, and treats notifications as off when they're unset
+- [ ] Names users by their `X-Outpost-User`, and gives a `path` on its own host
+- [ ] Puts nothing in a title or body it wouldn't show on a lock screen
+- [ ] Keeps running, and stays healthy, when a send is refused
 
 **Logging**
 - [ ] Logs to stdout and stderr only
@@ -1331,3 +1345,80 @@ Errors are `{"error": "…"}`.
 
 **Treat mail as an enhancement,** as with AI: keep running and keep passing
 your healthcheck when it's unavailable.
+
+---
+
+## 17. Using push notifications
+
+Outpost can put a notification on the lock screen of the people who use
+your service, with no Apple developer account, no Firebase project and no
+service worker of your own. Each person turns notifications on once per
+device, on their Outpost account page, and then chooses which apps may send
+them. On an iPhone or iPad that means adding Outpost to the Home Screen
+first; a Mac's Safari, Chrome and Firefox need nothing more.
+
+You name **users**, never devices. Outpost sends to each of their devices
+that is still signed in, and skips anyone who can't open you, has muted you,
+or hasn't turned notifications on. None of that is an error, and you aren't
+told which applied: whether someone has notifications on is theirs.
+
+Tapping a notification opens the `path` you gave, on your own host, behind
+the login like any other visit.
+
+Everything here is optional, and needs the login gateway.
+
+### What you're given
+
+```
+OUTPOST_PUSH_URL=http://127.0.0.1:47903
+OUTPOST_PUSH_TOKEN=opush_…
+```
+
+As with AI and mail (§15, §16): the URL is loopback and plain HTTP, the
+token is yours alone, sent as `Authorization: Bearer <token>`, and stays the
+same across restarts. Don't log it. **When the variables are unset,** there
+are no notifications: the gateway is off, or the operator hasn't given push
+services a contact. Carry on without them.
+
+### Sending
+
+```json
+POST /v1/send
+{"to": ["alice"], "title": "Due today", "body": "Water the plants",
+ "path": "/tasks/42", "tag": "task-42"}
+```
+
+| Field | |
+|---|---|
+| `to` | Usernames, as `X-Outpost-User` gives them, up to 500. Leave it out to send to everyone who can open you |
+| `title` | Required, up to 120 characters |
+| `body` | Up to 1000 characters; a lock screen shows the first line or two |
+| `path` | Where tapping it goes: a path on your host, starting with one `/`. Unset is `/` |
+| `tag` | A notification with the same tag replaces the last one on the device rather than stacking beside it |
+| `badge` | The number on the Home Screen or Dock icon; `0` clears it |
+| `silent` | `true` asks the device not to make a sound |
+| `urgency` | `very-low`, `low`, `normal` (the default) or `high`: how hard a phone on low battery tries |
+| `ttl` | Seconds a push service holds it for a device that's off; default a day, at most four weeks |
+| `topic` | Up to 32 letters, digits, `-` and `_`: a newer one with the same topic replaces one still waiting for a device that's off |
+
+It answers `202` with `{"devices": 2}`: how many devices it was queued for.
+Delivery follows within seconds; a device that's off gets it when it's back,
+within `ttl`. `0` is a normal answer.
+
+**Write for a lock screen.** Anyone holding the phone reads the title and
+body without unlocking it. For anything private, say that something happened
+("New message from Ann") and let the tap open the detail behind the login.
+
+### What can go wrong
+
+Errors are `{"error": "…"}`.
+
+| Status | Means | What to do |
+|---|---|---|
+| 401 | missing or wrong token | Check you send `OUTPOST_PUSH_TOKEN` |
+| 400 | no title, too long, a `path` that isn't on your host, an unknown field | Fix the request |
+| 429 | more than 300 sends in the last hour | Wait, or send fewer: one per event a person would act on |
+| 503 | the gateway isn't running yet | Carry on without |
+
+**Treat notifications as an enhancement:** keep running and keep passing your
+healthcheck when a send fails.

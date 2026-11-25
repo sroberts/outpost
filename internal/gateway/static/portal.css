@@ -824,3 +824,10 @@ label.check input {
     .log-msg { grid-row: 1; }
   }
 }
+
+/* Notifications on the account page: which of its states shows is the
+   script's to choose, so nothing in it may override [hidden]. */
+#notify [hidden] { display: none !important; }
+#notify h3 { margin: 1.5rem 0 0.5rem; font-size: 15px; font-weight: 550; }
+#notify .devices + form { margin-top: 0.75rem; }
+#notify fieldset.apps + button { margin-top: 0.75rem; }
