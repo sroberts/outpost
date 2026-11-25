@@ -32,6 +32,7 @@ type ServiceStatus struct {
 	LastStartedAt time.Time `json:"last_started_at"`
 	Port          int       `json:"port"`
 	TailscaleName string    `json:"tailscale_name"`
+	Visibility    string    `json:"visibility,omitempty"` // the manifest's, default filled in; "" from an older daemon
 	Healthcheck   string    `json:"healthcheck"`
 	Storage       string    `json:"storage"`
 	RestartPolicy string    `json:"restart_policy"`
@@ -326,6 +327,7 @@ func (s *Supervisor) statusOf(name string) ServiceStatus {
 		st.Runtime = svc.Runtime
 		st.Port = svc.Port
 		st.TailscaleName = svc.TailscaleName
+		st.Visibility = svc.VisibilityOrDefault()
 		st.Tailnet = s.tailnetOf(svc)
 		st.Healthcheck = svc.Healthcheck
 		st.Storage = svc.ExpandStorage()

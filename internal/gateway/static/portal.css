@@ -777,6 +777,18 @@ label.check input {
 .log-more[open] > summary::after { transform: translateY(3px) rotate(-135deg); }
 .log-more-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0.75rem; margin-top: 0.25rem; }
 .log-more-fields .log-q { grid-column: 1 / -1; }
+/* With Outpost's own logs to pick from, the picker takes the first row on a
+   phone, and the folded filters for requests and time ranges join the rest:
+   a time field needs a row of its own to show its whole date there. */
+.log-filter.sourced .log-source { grid-column: 1 / -1; }
+.log-more-fields .log-time { grid-column: 1 / -1; }
+.log-follow { grid-column: 1 / -1; margin-top: -0.5rem; font-size: 14px; }
+.log-follow[hidden] { display: none; }
+/* A request's id is a way to every line it left, reached like the small
+   links below. */
+.log-req { position: relative; color: var(--dim); white-space: nowrap; }
+.log-req:hover { color: var(--porcelain); }
+.log-req::before { content: ""; position: absolute; inset: -14px -6px; }
 .log-count { margin: 1rem 0 0; }
 .log-foot { margin: 1rem 0 0; }
 /* Small links in a line of words, each reaching past the 44px floor as the
@@ -806,6 +818,11 @@ label.check input {
   .log-filter { grid-template-columns: repeat(2, minmax(0, 15rem)) auto; justify-content: start; }
   .log-more-fields { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 2fr); }
   .log-more-fields .log-q { grid-column: auto; }
+  .log-filter.sourced { grid-template-columns: repeat(3, minmax(0, 13rem)) auto; }
+  .log-filter.sourced .log-source { grid-column: auto; }
+  .sourced .log-more-fields { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .sourced .log-more-fields .log-time { grid-column: auto; }
+  .sourced .log-more-fields .log-q { grid-column: span 2; }
 }
 /* Wide enough for columns: time, app, level, then the message, the same
    widths down the whole list so the eye can run down any of them. */

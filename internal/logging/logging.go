@@ -2,10 +2,11 @@
 // charmbracelet/log, in text for a person (coloured on a terminal) or json or
 // logfmt for a collector.
 //
-// The packages that log take a plain func(format string, v ...any), so they
-// stay free of any logging library; Logf adapts a logger to that, choosing
-// each line's level from what it says. A package that knows better can be
-// handed a logger with WithPrefix and call its leveled methods itself.
+// serve makes one logger and hands each part of the daemon its own Component
+// of it, which the part logs through at real levels with fields, by way of a
+// Line. A part also still takes a plain func(format string, v ...any), which
+// its tests and older callers use; Logf adapts a logger to that for whatever
+// hasn't got levels of its own, choosing each line's level from its wording.
 package logging
 
 import (

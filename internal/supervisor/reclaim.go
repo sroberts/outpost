@@ -53,7 +53,7 @@ func (s *Supervisor) ReclaimOrphans(ctx context.Context) ([]string, error) {
 			continue
 		}
 
-		s.logf("%s: stopping orphan from a previous run (pid %d)", rec.Name, pid)
+		s.lg("service", rec.Name, "action", "reclaim", "pid", pid).Infof("%s: stopping orphan from a previous run (pid %d)", rec.Name, pid)
 		if err := stopPID(pid, reclaimGrace); err != nil {
 			s.recordError(rec.Name, fmt.Sprintf("reclaim pid %d: %v", pid, err))
 			continue
@@ -65,7 +65,7 @@ func (s *Supervisor) ReclaimOrphans(ctx context.Context) ([]string, error) {
 		rec.InstanceID = ""
 		rec.Status = string(statusStopped)
 		if err := s.store.UpsertService(rec); err != nil {
-			s.logf("outpost: clear stale instance for %s: %v", rec.Name, err)
+			s.lg("service", rec.Name, "err", err).Warnf("outpost: clear stale instance for %s: %v", rec.Name, err)
 		}
 		reclaimed = append(reclaimed, rec.Name)
 	}

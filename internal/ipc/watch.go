@@ -76,7 +76,7 @@ func (s *Server) watch(ctx context.Context, conn net.Conn) {
 		sort.Slice(services, func(i, j int) bool { return services[i].Name < services[j].Name })
 		frame, err := json.Marshal(Response{OK: true, Message: watchServices, Services: services})
 		if err != nil {
-			s.logf("outpost: watch: %v", err)
+			s.lg("err", err).Errorf("outpost: watch: %v", err)
 			return
 		}
 		var werr error

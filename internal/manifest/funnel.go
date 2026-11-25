@@ -37,7 +37,9 @@ func (s *Service) validateFunnel(opts Options) []error {
 	}
 	var errs []error
 	// Funnel is a listener on the service's own node.
-	if !opts.RequireTailscale || s.TailscaleName == "" {
+	if s.GatewayOnly() {
+		errs = append(errs, noNodeError("funnel"))
+	} else if !opts.RequireTailscale || s.TailscaleName == "" {
 		errs = append(errs, fmt.Errorf("funnel is served on the service's tailnet node, so it needs Tailscale and a tailscale_name"))
 	}
 	// Without the gateway a node proxies straight to the service, so the
@@ -60,7 +62,9 @@ func (s *Service) validateMCPFunnel(opts Options) []error {
 		return nil
 	}
 	var errs []error
-	if !opts.RequireTailscale || s.TailscaleName == "" {
+	if s.GatewayOnly() {
+		errs = append(errs, noNodeError("mcp_funnel"))
+	} else if !opts.RequireTailscale || s.TailscaleName == "" {
 		errs = append(errs, fmt.Errorf("mcp_funnel is served on the service's tailnet node, so it needs Tailscale and a tailscale_name"))
 	}
 	// Without the gateway a node proxies straight to the service, so the

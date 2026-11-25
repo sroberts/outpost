@@ -17,9 +17,9 @@
 <div class="row">
 <span class="mark" aria-hidden="true"></span>
 <div class="body">
-{{if eq .State "up"}}<div class="top"><a class="name go" href="{{.URL}}">{{.Title}}</a>{{if .Hidden}}<span class="tag">Hidden</span>{{end}}{{if .Public}}<a class="tag" href="#set-public-{{.Name}}" title="{{.PublicWhat}}">Public</a>{{end}}{{if .Busy}}<span class="state">{{.Label}}</span>{{else}}<span class="sr">, {{.Label}}</span>{{end}}</div>
+{{if eq .State "up"}}<div class="top"><a class="name go" href="{{.URL}}">{{.Title}}</a>{{if .Hidden}}<span class="tag">Hidden</span>{{end}}{{if .Public}}<a class="tag" href="#set-public-{{.Name}}" title="{{.PublicWhat}}">Public</a>{{end}}{{if .GatewayOnly}}<span class="tag" title="No tailnet node of its own: reached only through the gateway">Gateway only</span>{{end}}{{if .Busy}}<span class="state">{{.Label}}</span>{{else}}<span class="sr">, {{.Label}}</span>{{end}}</div>
 <span class="meta">{{if .Description}}<span class="desc">{{.Description}}</span>{{end}}<span class="addr">{{.Addr}}</span></span>
-{{else}}<div class="top"><span class="name">{{.Title}}</span>{{if .Hidden}}<span class="tag">Hidden</span>{{end}}{{if .Public}}<a class="tag" href="#set-public-{{.Name}}" title="{{.PublicWhat}}">Public</a>{{end}}<span class="state">{{.Label}}</span></div>
+{{else}}<div class="top"><span class="name">{{.Title}}</span>{{if .Hidden}}<span class="tag">Hidden</span>{{end}}{{if .Public}}<a class="tag" href="#set-public-{{.Name}}" title="{{.PublicWhat}}">Public</a>{{end}}{{if .GatewayOnly}}<span class="tag" title="No tailnet node of its own: reached only through the gateway">Gateway only</span>{{end}}<span class="state">{{.Label}}</span></div>
 {{if not .Busy}}<span class="why">{{.Reason}}</span>
 {{template "quick" .}}
 {{if .Command}}<code class="cmd">{{.Command}}</code>{{end}}{{end}}
@@ -79,7 +79,7 @@
 <p class="hint field-hint" id="paths-hint-{{$a.Name}}">They skip the login. One per line, such as <code>/webhooks/github</code> or <code>/hooks/*</code>.</p>
 {{if .CanFunnel}}<label class="check"><input type="checkbox" name="funnel" value="1"{{if .Funnel}} checked{{end}}> Answer them from the internet, through Funnel</label>
 <p class="hint">With Funnel on, anyone on the internet can reach these paths at {{$a.Title}}'s address, and nothing else of it. {{$a.Title}} still has to check each webhook's signature.</p>
-{{else}}<p class="hint">Funnel needs the app on the tailnet, with a <code>tailscale_name</code>.</p>{{end}}
+{{else if .GatewayOnly}}<p class="hint">Funnel needs the app on the tailnet, and its manifest says <code>visibility = "gateway"</code>.</p>{{else}}<p class="hint">Funnel needs the app on the tailnet, with a <code>tailscale_name</code>.</p>{{end}}
 <button type="submit"><span>Save<span class="sr"> {{$a.Title}}'s internet access</span></span></button>
 </form>
 {{if .FromPortal}}<form class="undo" method="post" action="/settings">
@@ -97,7 +97,7 @@
 {{if $a.Public.CanFunnel}}<label class="check"><input type="checkbox" name="mcp_funnel" value="1"{{if .On}} checked{{end}}> Answer it from the internet, through Funnel</label>
 <p class="hint">Only for access tokens made for the internet and {{$a.Title}}: <code>outpost token create &lt;user&gt; --internet --app {{$a.Name}} --expires 90d</code>. Nothing else of {{$a.Title}} is answered, and a request without such a token gets nothing.</p>
 <button type="submit"><span>Save<span class="sr"> {{$a.Title}}'s MCP endpoint</span></span></button>
-{{else}}<p class="hint">Funnel needs the app on the tailnet, with a <code>tailscale_name</code>.</p>{{end}}
+{{else if $a.Public.GatewayOnly}}<p class="hint">Funnel needs the app on the tailnet, and its manifest says <code>visibility = "gateway"</code>.</p>{{else}}<p class="hint">Funnel needs the app on the tailnet, with a <code>tailscale_name</code>.</p>{{end}}
 </form>
 {{if .FromPortal}}<form class="undo" method="post" action="/settings">
 <input type="hidden" name="action" value="mcp-reset">

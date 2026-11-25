@@ -42,7 +42,7 @@ func (s *Supervisor) Backup(ctx context.Context, name string) (backup.Archive, e
 			return nil, err
 		}
 		s.event(name, state.EventBackup, "backed up to "+archive.Path)
-		s.logf("backed up %s to %s", name, archive.Path)
+		s.lg("service", name, "action", "backup", "path", archive.Path).Infof("backed up %s to %s", name, archive.Path)
 
 		// Report the archive as it landed on disk.
 		return backup.Find(s.backupDir, name, archive.Timestamp)
@@ -78,7 +78,7 @@ func (s *Supervisor) Restore(ctx context.Context, name, timestamp string) (backu
 			return nil, err
 		}
 		s.event(name, state.EventRestore, "restored from "+archive.Path)
-		s.logf("restored %s from %s", name, archive.Path)
+		s.lg("service", name, "action", "restore", "path", archive.Path).Infof("restored %s from %s", name, archive.Path)
 		return archive, nil
 	})
 	if err != nil {

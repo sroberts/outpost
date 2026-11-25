@@ -11,6 +11,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -18,7 +19,10 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"github.com/charmbracelet/log"
 
 	"github.com/sroberts/outpost/internal/auth"
 	"github.com/sroberts/outpost/internal/config"
@@ -37,6 +41,9 @@ type Options struct {
 	Auth     *auth.Store
 	Services Services
 	Logf     func(format string, v ...any)
+	// Logger is where the gateway logs, at levels and with fields, and at
+	// debug a line for every request. It supersedes Logf.
+	Logger *log.Logger
 	// TailnetHosts, when set, maps services to their own Tailscale DNS
 	// names. Each such service is served at https://<that name>, behind the
 	// same login, and the portal links there.
@@ -78,6 +85,10 @@ type Options struct {
 	// same as JSON at /.outpost/api/logs, and Outpost's own MCP server at
 	// /.outpost/mcp.
 	Logs LogSource
+	// AccessLog, when set, gets a line for every request the gateway
+	// answers, in JSON: see applog.AccessEntry for what it holds, and
+	// doesn't. Each line is one Write.
+	AccessLog io.Writer
 	// PortalNode, when set, reports the portal's own tailnet node, for the
 	// gateway's status. It reports false while there is none.
 	PortalNode func() (PortalNode, bool)
@@ -94,6 +105,7 @@ type Gateway struct {
 	auth     *auth.Store
 	services Services
 	logf     func(format string, v ...any)
+	logger   *log.Logger
 	now      func() time.Time
 
 	tailnetHosts func() map[string]string
@@ -115,6 +127,10 @@ type Gateway struct {
 	stats   Stats
 	traffic trafficMeter
 	logs    LogSource
+	// access is Options.AccessLog; accessFailed is whether a write to it
+	// has failed and been said.
+	access       io.Writer
+	accessFailed atomic.Bool
 
 	scheme       string // public_url's scheme
 	portalHost   string // public_url's host name, lower case
@@ -184,6 +200,7 @@ func New(opts Options) (*Gateway, error) {
 		auth:         opts.Auth,
 		services:     opts.Services,
 		logf:         opts.Logf,
+		logger:       opts.Logger,
 		now:          time.Now,
 		tailnetHosts: opts.TailnetHosts,
 		updater:      opts.Updates,
@@ -197,6 +214,7 @@ func New(opts Options) (*Gateway, error) {
 		control:      opts.Control,
 		stats:        opts.Stats,
 		logs:         opts.Logs,
+		access:       opts.AccessLog,
 		scheme:       u.Scheme,
 		portalHost:   strings.ToLower(u.Hostname()),
 		portalOrigin: u.Scheme + "://" + strings.ToLower(u.Host),
@@ -213,12 +231,19 @@ func New(opts Options) (*Gateway, error) {
 
 		publicThrottle: throttle{free: publicThrottleFree},
 	}
-	if g.logf == nil {
+	if g.logger != nil {
+		g.logf = nil
+	} else if g.logf == nil {
 		g.logf = func(string, ...any) {}
 	}
 	g.nodeStatus = opts.PortalNode
 	g.nodeSecret = opts.NodeSecret
-	g.activity = newActivity(opts.Events, g.logf, func() time.Time { return g.now() })
+	// Everything the feed has to say about itself is trouble.
+	feedLog := g.logf
+	if feedLog == nil {
+		feedLog = func(format string, v ...any) { g.lg().Warnf(format, v...) }
+	}
+	g.activity = newActivity(opts.Events, feedLog, func() time.Time { return g.now() })
 	// A __Host- cookie must be Secure, and a browser drops a Secure cookie
 	// set over plain http, so http setups use a plain name.
 	g.cookieName = "outpost"
@@ -319,6 +344,11 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	stripIdentity(r.Header)
 
 	host := g.hostOf(r)
+	g.observe(w, r, host, false, g.clientIP, func(w http.ResponseWriter, r *http.Request) { g.route(w, r, host) })
+}
+
+// route is ServeHTTP after the identity strip, which nothing may come ahead of.
+func (g *Gateway) route(w http.ResponseWriter, r *http.Request, host string) {
 	switch {
 	case r.URL.Path == outposttsnet.AccessPath && isLocalHost(host):
 		// Ahead of the portal, which may itself be served by address.

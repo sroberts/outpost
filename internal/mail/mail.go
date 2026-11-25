@@ -25,7 +25,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/log"
+
 	"github.com/sroberts/outpost/internal/apptoken"
+	"github.com/sroberts/outpost/internal/logging"
 )
 
 // Environment variables every app is started with.
@@ -72,6 +75,9 @@ type Options struct {
 	Services func() []string
 	// Logf receives one line per change and per routed message.
 	Logf func(format string, v ...any)
+	// Logger is where the service logs, at levels and with fields. It
+	// supersedes Logf.
+	Logger *log.Logger
 }
 
 // Service is the mail endpoint, the inbox reader and their settings. It is
@@ -89,6 +95,7 @@ type Service struct {
 	secret   string
 	services func() []string
 	logf     func(format string, v ...any)
+	logger   *log.Logger
 	now      func() time.Time
 	dial     dialer
 	send     sender
@@ -141,7 +148,9 @@ func Open(opts Options) (*Service, error) {
 		return nil, err
 	}
 	logf := opts.Logf
-	if logf == nil {
+	if opts.Logger != nil {
+		logf = nil
+	} else if logf == nil {
 		logf = func(string, ...any) {}
 	}
 	services := opts.Services
@@ -164,6 +173,7 @@ func Open(opts Options) (*Service, error) {
 		secret:   opts.PasswordSecret,
 		services: services,
 		logf:     logf,
+		logger:   opts.Logger,
 		now:      time.Now,
 		dial:     dialIMAP,
 		send:     smtpSend,
@@ -258,7 +268,7 @@ func (s *Service) SetAccount(address, password, by string) error {
 	s.mu.Lock()
 	s.status.Error, s.status.Checked = "", time.Time{}
 	s.mu.Unlock()
-	s.logf("mail: %s set the account to %s", by, address)
+	s.lg("user", by).Infof("mail: %s set the account to %s", by, address)
 	s.CheckNow()
 	return nil
 }
@@ -328,7 +338,7 @@ func (s *Service) Regenerate(service, by string) error {
 		return err
 	}
 	s.issued.Remove(old)
-	s.logf("mail: %s regenerated %s's token", by, service)
+	s.lg("user", by, "service", service).Infof("mail: %s regenerated %s's token", by, service)
 	return nil
 }
 
@@ -431,7 +441,7 @@ func (s *Service) AddAlias(service, note, by string) (Route, error) {
 		if err := s.store.addAlias(alias{Alias: r, Service: service, Note: note, CreatedBy: by}); err != nil {
 			return Route{}, err
 		}
-		s.logf("mail: %s gave %s the address +%s", by, service, r)
+		s.lg("user", by, "service", service, "route", r).Infof("mail: %s gave %s the address +%s", by, service, r)
 		for _, rt := range s.Routes(service) {
 			if rt.Route == r {
 				return rt, nil
@@ -451,7 +461,7 @@ func (s *Service) RemoveAlias(service, route, by string) error {
 	if err := s.store.removeAlias(route); err != nil {
 		return err
 	}
-	s.logf("mail: %s took the address +%s away from %s", by, route, service)
+	s.lg("user", by, "service", service, "route", route).Infof("mail: %s took the address +%s away from %s", by, route, service)
 	return nil
 }
 
@@ -467,9 +477,9 @@ func (s *Service) SetSend(service string, allowed bool, by string) error {
 		return err
 	}
 	if allowed {
-		s.logf("mail: %s let %s send mail", by, service)
+		s.lg("user", by, "service", service).Infof("mail: %s let %s send mail", by, service)
 	} else {
-		s.logf("mail: %s stopped %s sending mail", by, service)
+		s.lg("user", by, "service", service).Infof("mail: %s stopped %s sending mail", by, service)
 	}
 	return nil
 }
@@ -529,7 +539,7 @@ func (s *Service) checkOnce(ctx context.Context) bool {
 			return false
 		}
 		if s.status.Error != err.Error() {
-			s.logf("mail: %v", err)
+			s.lg("err", err).Warnf("mail: %v", err)
 		}
 		s.status.Error = err.Error()
 		return false
@@ -629,7 +639,7 @@ func (s *Service) check(ctx context.Context) (routed int, more bool, err error) 
 		}
 		m, err := parse(raw)
 		if err != nil {
-			s.logf("mail: a message to +%s couldn't be read, so it's left in the inbox: %v", d.route, err)
+			s.lg("service", d.service, "route", d.route, "err", err).Warnf("mail: a message to +%s couldn't be read, so it's left in the inbox: %v", d.route, err)
 			continue
 		}
 		m.service, m.Route, m.To, m.Received = d.service, d.route, d.rcpt, s.now().UTC()
@@ -645,7 +655,7 @@ func (s *Service) check(ctx context.Context) (routed int, more bool, err error) 
 		}
 		if isNew {
 			routed++
-			s.logf("mail: routed a message from %s to %s (+%s)", m.From.Address, d.service, d.route)
+			s.lg("service", d.service, "route", d.route).Infof("mail: routed a message from %s to %s (+%s)", m.From.Address, d.service, d.route)
 		}
 		filed[d.service] = append(filed[d.service], uid)
 	}
@@ -769,9 +779,9 @@ func (s *Service) Send(ctx context.Context, service string, o Outgoing) (string,
 		return "", fmt.Errorf("gmail didn't take it: %w", err)
 	}
 	if err := s.store.recordSent(service, route, rcpts, o.Subject, id); err != nil {
-		s.logf("mail: %s sent a message, but it wasn't recorded: %v", service, err)
+		s.lg("service", service, "err", err).Errorf("mail: %s sent a message, but it wasn't recorded: %v", service, err)
 	}
-	s.logf("mail: %s sent a message from +%s to %d recipient(s)", service, route, len(rcpts))
+	s.lg("service", service, "route", route, "recipients", len(rcpts)).Infof("mail: %s sent a message from +%s to %d recipient(s)", service, route, len(rcpts))
 	return id, nil
 }
 
@@ -823,3 +833,6 @@ func (s *Service) Serve(ctx context.Context, ln net.Listener) error {
 	inFlight.Wait()
 	return nil
 }
+
+// lg is where a line goes, with kv as its fields.
+func (s *Service) lg(kv ...any) logging.Line { return logging.To(s.logger, s.logf, kv...) }

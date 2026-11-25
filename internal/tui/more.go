@@ -37,6 +37,8 @@ func (m Model) enterCmd() tea.Cmd {
 		return m.fetchSecrets()
 	case viewTokens:
 		return m.fetchTokens()
+	case viewMail:
+		return m.fetchMail()
 	}
 	return nil
 }
@@ -45,7 +47,7 @@ func (m Model) enterCmd() tea.Cmd {
 // logs view keeps its own, faster, clock.
 func (m Model) refreshMore() tea.Cmd {
 	switch m.view {
-	case viewOverview, viewSecrets, viewTokens:
+	case viewOverview, viewSecrets, viewTokens, viewMail:
 		return m.enterCmd()
 	}
 	return nil
@@ -60,6 +62,8 @@ func (m Model) updateMore(msg tea.Msg) (Model, tea.Cmd, bool) {
 		return m, nil, true
 	case overviewMsg:
 		return m.updateOverview(msg), nil, true
+	case mailMsg:
+		return m.updateMail(msg), nil, true
 	case secretsMsg:
 		m.mg.secrets, m.mg.secretsErr = msg.list, msg.err
 		if m.mg.secrets == nil && msg.err == nil {
@@ -122,6 +126,8 @@ func (m Model) handleMoreKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return m.handleLogKey(msg)
 	case viewSecrets, viewTokens:
 		return m.handleManageKey(msg)
+	case viewMail:
+		return m.handleMailKey(msg)
 	case viewUsers:
 		id := map[string]string{"a": "user-add", "p": "user-passwd", "g": "user-groups", "A": "user-admin",
 			"t": "user-tailnet", "X": "user-rm", "n": "token-create"}[k]
@@ -179,6 +185,8 @@ func (m Model) moreHelp(key func(k, what string) string, sep string) string {
 		return m.logHelp(key, sep)
 	case viewSecrets:
 		return join(key("n", "set"), key("b", "give"), key("u", "take"), key("d", "delete"), key("tab", "views"), key(":", "commands"), key("q", "quit"))
+	case viewMail:
+		return m.mailHelp(key, sep)
 	case viewTokens:
 		return join(key("n", "create"), key("d", "revoke"), key("tab", "views"), key(":", "commands"), key("q", "quit"))
 	}

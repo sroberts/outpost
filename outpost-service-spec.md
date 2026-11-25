@@ -32,7 +32,7 @@ prints the copy carried by the binary on disk.
 - **Loopback only.** Bind `127.0.0.1`, not `0.0.0.0`. Outpost reaches you on
   `127.0.0.1:<port>`, and when Tailscale is enabled your service gets its own
   `tsnet` node, `<tailscale_name>.<tailnet>.ts.net`, which reverse-proxies to
-  that same address. With the login gateway on as well, that node serves HTTPS
+  that same address, unless the manifest says `visibility = "gateway"`. With the login gateway on as well, that node serves HTTPS
   and passes every request through the gateway's login before it reaches you
   (§3). Binding a public interface defeats the model: nothing should be
   reachable except through Tailscale and the gateway. An installation running
@@ -199,6 +199,7 @@ This is how an operator gets one login for all their services, so:
   | `X-Outpost-Email` | may be empty |
   | `X-Outpost-Groups` | comma-separated; may be empty |
   | `X-Outpost-Identity` | an Ed25519-signed JWT (`alg` `EdDSA`) |
+  | `X-Outpost-Request-Id` | the gateway's id for this request |
 
   The gateway removes any `X-Outpost-*` header a client sends before setting
   its own, so nothing that came through the gateway can forge them. But your
@@ -212,6 +213,14 @@ This is how an operator gets one login for all their services, so:
   username, and it also carries `name`, `email` and `groups`. It lives for 60
   seconds, so verify per request rather than keeping it. Trust none of these
   headers when `OUTPOST_AUTH` is unset — nothing strips them then.
+- **Log the request id.** `X-Outpost-Request-Id` is the id the gateway
+  gave this request: it is in the gateway's access log and its own log, and
+  goes back to the client in the response's header of the same name. Put it
+  in your log lines about the request, as a `request_id` field for instance
+  (§7), and an admin can follow one request from the gateway into your app
+  by searching every log for it. It is a short string of hex with no meaning
+  of its own; a client can't choose it, but it identifies nobody, so don't
+  use it as anything but a label.
 - **Check the origin of your own forms.** Every app behind one gateway is on
   the same site, `<name>.<domain>`, so the browser sends the user's cookie
   with a request one app's page makes to another, and the gateway adds the
@@ -221,7 +230,9 @@ This is how an operator gets one login for all their services, so:
 - **Hard-code no hostname.** You are served at your node's own tailnet address,
   `https://<tailscale_name>.<tailnet>.ts.net` — or, if Tailscale had to rename
   the node because the name was taken, at the name it was given (`yarr-1`).
-  Without Tailscale, it is `<name>.<domain>` from the gateway's configuration.
+  Without Tailscale, or when the operator sets `visibility = "gateway"` in your
+  manifest so you get no node of your own, it is `<name>.<domain>` from the
+  gateway's configuration.
   `Host` is preserved and `X-Forwarded-Host` and `X-Forwarded-Proto` are set,
   so build absolute URLs from those, or use relative ones.
 - **Leave `/.outpost/` alone.** Paths under it, on your host, belong to the
@@ -255,8 +266,8 @@ Funnel, at your own tailnet address. You can suggest paths in your
 `outpost.toml` (§14), but whether they are public, and whether the internet
 reaches them, is the operator's call. Plan for both.
 
-- **A request on a public path has no identity.** No `X-Outpost-*` header and
-  no Outpost cookie reaches you, and Outpost access tokens are refused before
+- **A request on a public path has no identity.** No `X-Outpost-*` header,
+  not even the request id, and no Outpost cookie reaches you, and Outpost access tokens are refused before
   you see them. Treat it as anonymous, whoever it claims to be.
 - **Assume it may be from anyone on the internet.** It may arrive any number
   of times, from scanners as well as the sender you expect. Outpost makes sure
@@ -471,7 +482,7 @@ With the gateway on, an MCP client holding an access token then has two ways
 in, both behind the gateway:
 
 - `https://<tailscale_name>.<tailnet>.ts.net<mcp_path>`, your own address, as
-  for any other request.
+  for any other request (your gateway address, with `visibility = "gateway"`).
 - `https://<portal>/mcp/<name>`, one address on the portal for every service's
   MCP. The gateway sends it to your `mcp_path`, keeping the query string.
 

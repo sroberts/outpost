@@ -82,7 +82,9 @@ func TestLayout_WideSplitsListAndDetail(t *testing.T) {
 	view := stripANSI(m.View())
 	side := false
 	for _, line := range strings.Split(view, "\n") {
-		if strings.Contains(line, "NAME") && strings.Contains(line, "│") && strings.Contains(line, "notes") {
+		// The detail's title is in its panel's border, so the row beside the
+		// list's header holds the detail's first line, its facts.
+		if strings.Contains(line, "NAME") && strings.Contains(line, "│") && strings.Contains(line, "port 8080") {
 			side = true
 		}
 	}
@@ -146,10 +148,24 @@ func TestSparkline(t *testing.T) {
 	}
 }
 
-func TestChart(t *testing.T) {
-	rows := chart([]float64{0, 2, 4, math.NaN()}, 4, 2, 4)
-	if len(rows) != 2 || rows[0] != "  █ " || rows[1] != "▁██ " {
+// The tall charts are ntcharts' columns: exactly the size asked for, the
+// largest value reaching the top, and a spike surviving a squeeze.
+func TestBarChart(t *testing.T) {
+	rows := barChart([]float64{0, 2, 4, math.NaN()}, 4, 2, lipgloss.NewStyle())
+	if len(rows) != 2 {
+		t.Fatalf("chart is %d rows, want 2: %q", len(rows), rows)
+	}
+	for _, r := range rows {
+		if w := lipgloss.Width(r); w != 4 {
+			t.Errorf("row %q is %d cells, want 4", r, w)
+		}
+	}
+	if top := []rune(stripANSI(rows[0])); top[2] != '█' || top[0] != ' ' {
 		t.Errorf("chart = %q", rows)
+	}
+	squeezed := barChart([]float64{0, 0, 0, 9, 0, 0}, 2, 1, lipgloss.NewStyle())
+	if got := stripANSI(squeezed[0]); []rune(got)[1] != '█' {
+		t.Errorf("a spike was averaged away: %q", got)
 	}
 }
 

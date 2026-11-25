@@ -370,6 +370,7 @@ release        = "v1.3.0"                      # rewritten by `outpost update`
 port           = 8081                          # required
 storage        = "~/.outpost/data/plumbline"   # required, created 0700 if absent
 tailscale_name = "plumbline"                   # required, unique on the tailnet
+visibility     = "tailnet"                     # or "gateway": no node of its own; see Gateway-only apps
 funnel         = false                         # answer public_paths from the internet; see Funnel
 mcp_funnel     = false                         # answer mcp_path from the internet; see Claude's connectors
 healthcheck    = "/up"
@@ -388,7 +389,8 @@ start_grace_seconds = 30
 | `runtime` | `process` | The only valid value; Outpost runs native processes |
 | `port` | — | Required; must be unique across `process` services |
 | `storage` | — | Required; `~` is expanded, created `0700` if missing |
-| `tailscale_name` | — | Required unless `tailscale.enabled = false`; must be unique |
+| `tailscale_name` | — | Required unless `tailscale.enabled = false` or `visibility = "gateway"`; must be unique |
+| `visibility` | `tailnet` | `tailnet` gives the app its own tailnet node, behind the gateway. `gateway` gives it none, so it's reached only through the gateway; `tailscale_name`, `funnel`, `mcp_funnel` and `tcp` are then refused. See [Gateway-only apps](#gateway-only-apps) |
 | `healthcheck` | `/up` | Must start with `/` |
 | `restart_policy` | `on-failure` | See below |
 | `backoff_seconds` | `5` | Doubles per consecutive restart, capped at 300s |
@@ -453,6 +455,10 @@ outpost logs <service> [-f]      show or follow a service's output: --level warn
                                  --json, --raw (see Logs)
 outpost logs --all [-f]          every service's output, interleaved by time
 outpost logs <service> --events  show the service's recent activity
+outpost logs --source <log> [service] [-f]
+                                 one of Outpost's own logs: daemon, tailnet, access,
+                                 events, or all of them with the apps'; --user,
+                                 --status 4xx, --until (see Logs)
 outpost start <service>          start a stopped service
 outpost stop <service>           stop a running service
 outpost restart <service>        restart a service
@@ -524,6 +530,38 @@ outpost ai test llm|system1      send it one small request
 outpost ai regenerate <service>  give an app a new token; it restarts
 ```
 
+Mail, as the portal's Mail page and each app's Mail panel do:
+
+```
+outpost mail                     the Gmail account, and each app's addresses
+outpost mail account <address> [--password-stdin]
+                                 set the account; the app password is read
+                                 hidden and tried with Gmail before it's saved
+outpost mail check               read the inbox now
+outpost mail alias add <service> [--note N]
+                                 give an app another address
+outpost mail alias rm <service> <+route>
+outpost mail send <service> on|off
+                                 whether an app may send as the account
+outpost mail token <service>     give an app a new mail token; it restarts
+```
+
+And what of an app skips the login or reaches the internet, over what its
+manifest says, as each app's Manage menu in the portal does:
+
+```
+outpost expose <service>         its public paths, Funnel and MCP endpoint
+outpost expose <service> --path P... [--funnel]
+                                 set the paths that skip the login, and
+                                 whether Funnel puts them on the internet
+outpost expose <service> --reset go back to the manifest's
+outpost expose <service> --mcp on|off|reset
+                                 whether the internet reaches its MCP endpoint
+```
+
+The daemon holds an exposure setting to the manifest's own rules and applies
+it before answering, so a refusal is said at once.
+
 Passwords are typed at a prompt with no echo, never on the command line, and
 cross only the owner-only control socket. Removing, disabling or demoting the
 last enabled admin is refused.
@@ -535,8 +573,8 @@ Global flags:
 | `--home <dir>` | `$OUTPOST_HOME`, else `~/.outpost` | Outpost root |
 | `-h`, `--help` | | Show usage |
 
-`serve` also takes `--interval` (default 3s), `--tailnet`, and
-`--tailnet-verbose`. Flags may appear on either side of a service name:
+`serve` also takes `--interval` (default 3s), `--tailnet`, `--tailnet-verbose`
+and `--log-level` (see [Logs](#logs)). Flags may appear on either side of a service name:
 `outpost status --events 20 web` and `outpost status web --events 20` both work.
 
 Every command except `logs` talks to the running daemon over the control
@@ -552,54 +590,52 @@ the files on disk.
 
 `outpost tui` is a Bubble Tea dashboard over the same control socket the CLI
 uses — it goes through the daemon, not the state store, so there is one code
-path to the supervisor.
+path to the supervisor. It fills the terminal the way btop does, as bordered
+panels that resize with the window, and anything the CLI or the portal can do
+can be done from it.
 
 ```
-  Outpost                                                        3 services
-
-    NAME       RUNTIME  STATUS             UPTIME  RESTARTS
-  ▸ plumbline  process  ● running          3h      0
-    kosync     process  ▲ unhealthy        -       3
-    broken     process  ✖ failed (halted)  -       12
-
-  plumbline ──────────────────────────────────────────────────────────────
-  port 8081 · /up · on-failure, backoff 5s
-  tailscale plumbline
-  storage   ~/.outpost/data/plumbline
-  instance  4242
-
-  recent activity
-  16:33:29  health-ok    healthcheck recovered
-  13:34:29  started      started (id 4242)
-
-  ↑/k up • ↓/j down • s start • x stop • r restart • l logs • ? help • q quit
+  Outpost  v0.9                                                       12 services
+    Overview  ▸ Services    Users    Gateway    AI    Secrets    Tokens    Logs    Mail  (tab)
+╭─ cpu · 31% ───────────────────────────────╮╭─ memory · 812 MiB ─────────────────────────╮
+│ 40%│        ╭╯ │       ╭─╯│        ╭╯      ││ 1 GiB│      ╭──╯    ╭─╯      ╭───╯       │
+│  0%├─╯      ╰──╯       ╰──╯        ╰──     ││   0 B├──────╯                           │
+╰───────────────── last 30 min · every service ╯╰────────────────────────── peak 1.1 GiB ╯
+╭─ services · live ─────────────────────────────────╮╭─ ● plumbline ───────────────────╮
+│   NAME       RUNTIME  STATUS     UPTIME  CPU  MEM ││ port 8081 · /up · on-failure    │
+│ ▸ plumbline  process  ● running  3h      4%   62M ││ address   https://plumbline.…   │
+│   kosync     process  ▲ unhealthy -      -    -   ││ usage · last 30 min · g toggles │
+╰──────────────────────────────────── 12 services ─╯╰──────────────────────── running ─╯
+  ↑/k up • ↓/j down • s start • x stop • r restart • l logs • z zoom • : commands • tab views
 ```
+
+The tabs are **Overview** (tiles for health, what needs attention, reach,
+backups, activity and sign-ins), **Services**, **Users**, **Gateway**, **AI**,
+**Secrets**, **Tokens**, **Logs** and **Mail**, each shown when the daemon
+offers it. `:` opens a command palette with every action, filled in through a
+form that starts from what's selected; anything that deletes, replaces or puts
+something on the internet asks first, and only `y` goes ahead.
 
 | Key | Action |
 |---|---|
-| `↑`/`k`, `↓`/`j` | move between services |
+| `tab`, `1`–`9` | switch view |
+| `:` | the command palette |
+| `↑`/`k`, `↓`/`j` | move |
 | `s`, `x`, `r` | start, stop, restart the selected service |
-| `l` | toggle a log pane for the selected service |
+| `l`, `L` | the selected service's log in a panel, or full screen |
+| `z`, `g` | zoom the selected service's detail; its graphs over 30 minutes or a day |
+| `b`, `u`, `S` | back up, update, or show the status of the selected service |
+| `a`, `c`, `n`, `d`, `s`, `t` (Mail) | account, check, new address, remove one, sending, token |
 | `R` | refresh now |
-| `tab` | switch between Services, Users, Gateway and AI |
-| `L` (Users, twice) | sign the selected user out everywhere |
-| `enter` (AI) | choose a kind's model, or set a provider's key |
-| `a`, `t`, `u` (AI) | choose which apps may use a kind, test it, go back to `config.toml`'s |
 | `?` | expand the help |
 | `q`, `esc`, `ctrl+c` | quit |
 
-A service's detail pane also shows its catalog title and description, its
-gateway address, and who may open it (`allow`, `hidden`, `public_paths`).
-**Users** lists everyone, as `outpost user list` does, and where the selected
-user is signed in. **Gateway** shows what `outpost gateway status` does, with
-the gateway's recent activity. **AI** does what the portal's AI models page
-does: it shows the LLM and System 1 model with their provider and apps, each
-hosted provider and whether its key is set, and each app's usage. `enter` on a
-kind opens a list of every provider's models to type into and narrow, which
-also takes a model ID a provider doesn't list; `enter` on a provider asks for
-its key, shown only as dots and never kept once it's sent; `a` chooses the
-apps. When `config.toml` has changed since the daemon started, a line under
-the title says the daemon needs a restart.
+A service's detail panel shows its catalog title and description, its gateway
+address, who may open it (`allow`, `hidden`, `public_paths`), what the internet
+reaches of it, and its usage drawn as tall as the panel allows. Secrets and app
+passwords are typed as dots and never drawn. When `config.toml` has changed
+since the daemon started, a line under the title says the daemon needs a
+restart.
 
 It refreshes every two seconds, and an action refreshes immediately rather than
 waiting for the next tick. Status is carried by both colour and a glyph, so it
@@ -608,7 +644,8 @@ how to start one, then reconnects on its own once one appears.
 
 ## Logs
 
-Outpost keeps two kinds of log.
+Outpost keeps its apps' output and four logs of its own, and every view of
+them reads them all.
 
 **Your apps' output.** Everything a service writes to stdout and stderr goes
 to `~/.outpost/logs/<name>.log`, each line stored after the time it arrived
@@ -642,17 +679,116 @@ made for some apps reads only those apps' logs, and an internet token is
 refused. A token that doesn't check out is refused outright, never retried
 as the cookie.
 
-**The daemon's own log** goes where the service manager puts the daemon's
-output (`~/.outpost/logs/outpost.{out,err}.log` on macOS, the journal on
-Linux). Each line has a time, a level and the part of the daemon it came
-from, and trouble goes to stderr. `[log]` in `config.toml` sets how much and
-in what form, and takes a daemon restart:
+**The daemon's own log** is in `~/.outpost/logs/outpost.log`, which the
+daemon writes itself, so it's there whatever the service manager does. It's
+rotated as a service's log is, at 10 MiB with 3 kept (`outpost.log.1` …
+`.3`), and is why no service may be named `outpost`. The same lines still go
+to stdout, where the service manager puts
+them (`~/.outpost/logs/outpost.{out,err}.log` on macOS, the journal on
+Linux), and the daemon's own trouble also goes to stderr.
+
+Each line has a time, a level, the part of the daemon it came from
+(`supervisor`, `gateway`, `ipc`, `ai`, `mail`, `tsnet` or `stats`), the
+message, and fields such as `service=`, `user=`, `ip=`, `action=`, `err=`
+and `took=`, so a file can be filtered down to one service or one request:
+
+```
+2026-11-24 09:14:02 INFO supervisor: started sous (id 4127) service=sous action=start id=4127
+```
+
+`[log]` in `config.toml` sets how much and in what form, and takes a daemon
+restart. `[log.levels]` sets the level for one part of the daemon, so one
+area can be turned up, or quietened, without the rest; a part it doesn't
+name logs at `level`:
 
 ```toml
 [log]
 level  = "info"   # debug, info, warn or error
-format = "text"   # text (coloured on a terminal), json or logfmt
+format = "text"   # text (coloured on a terminal), json or logfmt; the file
+                  # gets the same, without the colour
+
+[log.levels]
+gateway = "debug" # supervisor, gateway, ipc, ai, mail, tsnet or stats
 ```
+
+For one run, `outpost serve --log-level debug` or `OUTPOST_LOG_LEVEL=debug`
+replaces `level`, the flag winning over the variable; a part named in
+`[log.levels]` keeps its own level. At debug the daemon also logs:
+
+- the supervisor's decisions: each start, stop, restart, backoff and
+  reclaim, and each failed healthcheck short of a restart;
+- every socket command, with its service, whether it succeeded and `took=`;
+- every gateway request: `request_id=`, host, method, path (never the
+  query), status, `took=`, the client's `ip=`, and the `user=` it went
+  through as or why it was `refused=`;
+- every AI request: the app, kind, provider, model, status, tokens and
+  `took=`; never the prompt, the reply or a key;
+- a node leaving the tailnet.
+
+No log line carries a password, a session cookie, an access token, a
+secret's value or a request's body.
+
+**The gateway's access log** is in `~/.outpost/logs/outpost-access.log`, a
+JSON object per request the gateway answers, from the tailnet, the LAN or,
+through Funnel, the internet, whatever the daemon's level. It's rotated like
+the rest, and is why no service may be named `outpost-access`:
+
+```json
+{"time":"2026-11-24T14:02:11.52Z","request_id":"9f3c1e0a7b2d4c66","method":"GET","host":"sous.example.ts.net","path":"/api/recipes","app":"sous","status":401,"bytes":21,"ms":0.84,"ip":"100.101.102.103","token":"7","refused":"access token rejected"}
+```
+
+Each entry has the time, the request's id, the method, host and path (never
+the query, which can carry a sign-in code), the app it was for (none for the
+portal), the status, the size of the body sent, how long it took in
+milliseconds, the client's address, the `user` it went through as, the id of
+the access token it presented (`outpost token list` shows it; never the
+token), why it was `refused`, and `public` for a request from the internet.
+Nothing is taken from a request's headers or body, so no cookie,
+`Authorization` header, token or password can reach it.
+
+**Following one request.** The gateway gives every request an id, returns it
+in the `X-Outpost-Request-Id` response header, and passes it to the app in
+the same header, beside the identity headers, so an app can log it ([the
+service contract](outpost-service-spec.md) §3). A client can't choose it:
+the gateway strips any `X-Outpost-*` a client sends, and sets its own on the
+copy it forwards. The id is in the access log, in the daemon's debug line
+for the request, and in whatever the app logs with it, so searching every
+log for it (`outpost logs --source all --grep <id>`, or the id's link on the
+portal) shows one request from the gateway into the app.
+
+**The tailnet nodes' output** is relayed into the daemon's log under `tsnet`,
+and **the activity feed** (starts, crashes, sign-ins, denials, token and
+setting changes) is in `state.db`.
+
+**One view of them all.** Every way of reading logs takes a source:
+
+| Source | What it reads |
+|---|---|
+| `app` (the default) | the apps' output, one app's or every app's |
+| `daemon` | Outpost's own log |
+| `tailnet` | the daemon's lines from its tailnet nodes |
+| `access` | the gateway's access log |
+| `events` | the activity feed |
+| `all` | all of these at once, interleaved by time |
+
+and the same filters: the app a line is about, `level` (a request reads as a
+warning for a 4xx and an error for a 5xx; the feed's failures as warnings),
+`user` (a user name, or an access token's id), `status` (`404`, or `4xx`),
+`since` and `until`, and text. `outpost logs --source access --status 5xx`,
+`outpost logs sous --source all --since 1h` and `outpost logs --source
+daemon -f` read the files directly, as `outpost logs <name>` does; the
+activity feed alone needs the daemon. The portal's Logs page has the same
+as a picker and **More filters**, a **Follow new lines** box that fetches new
+lines as they come, and a **Download** link to the same lines as JSON; the
+API takes `source`, `user`, `status` and `until` beside the rest, and
+`download=1` to save them as a file, and the MCP server's `read_logs` and
+`recent_errors` take `source` too. In the dashboard's logs view, `o` steps
+through the daemon's log and the access log.
+
+A token made for some apps reads, from every source, only the lines about
+those apps: their output, their requests, their activity and the daemon's
+lines that name one of them. Nothing about the portal, another app, or the
+daemon as a whole reaches it.
 
 ## Configuration
 
@@ -1376,7 +1512,11 @@ Everything lives under `~/.outpost` (or `$OUTPOST_HOME`, or `--home`):
   config.toml              global settings, mode 0600 (optional)
   outpost.sock             control socket, mode 0600
   outpost.pid              running daemon's PID
-  logs/outpost.out.log     the daemon's own output (macOS; journal on Linux)
+  logs/outpost.log         the daemon's own log, rotated like a service's
+  logs/outpost-access.log  every request the gateway answered, one JSON object
+                           each, rotated the same way
+  logs/outpost.out.log     the daemon's output as launchd keeps it (macOS;
+                           journal on Linux)
 ```
 
 `state.db` is a cache of observed reality, not the source of truth. Deleting it
@@ -1700,7 +1840,7 @@ what the manifest asks for:
 | `needs login` | waiting to be authorised; `outpost status` has the URL |
 | `starting` | coming up |
 | `retrying` | the last attempt failed; `outpost status` says why |
-| `-` | no node: the service isn't running, or Tailscale is off |
+| `-` | no node: the service isn't running, Tailscale is off, or it's `visibility = "gateway"` |
 
 Joining the tailnet happens in the background: `Attach` records intent and
 returns, so a node that is slow to register — or waiting on a first-run login
@@ -1708,6 +1848,46 @@ URL — never stalls supervision or the control socket. A failed attach is retri
 with backoff (2s, doubling to 60s) until it succeeds or the service is detached,
 and the reconcile loop re-asserts membership for every running service, so a
 service cannot end up silently off the tailnet.
+
+`outpost list`'s `VISIBILITY` column, `outpost status` and, for an admin, a
+**Gateway only** tag in the portal's catalog say which apps have no node.
+
+### Gateway-only apps
+
+Not every app needs an address of its own on the tailnet. With
+`visibility = "gateway"`, an app gets no node: Outpost never starts one, it
+costs no device on the tailnet, and it needs no `tailscale_name`, even with
+Tailscale on.
+
+```toml
+visibility = "gateway"
+```
+
+The gateway still serves it, behind the same login, in the two ways it serves
+an app without a node:
+
+- **In a browser,** at its gateway address, `<name>.<domain>` (or its
+  `subdomain` or `hostname`), which the catalog links. That needs the wildcard
+  DNS described under [The login gateway](#the-login-gateway). With the portal
+  [on the tailnet](#the-portal-on-the-tailnet) and no `[gateway] domain`, the
+  address is under the portal's node, which MagicDNS doesn't resolve, so only
+  the next way in works; `outpost apply` warns about that.
+- **From an MCP client** with an access token, at
+  `https://<portal>/mcp/<name>`, when the app has an
+  [`mcp_path`](#mcp-clients).
+
+There is no path on the portal's own host for opening an app in a browser:
+the app's pages would share the portal's origin, and with it the reach of the
+signed-in user's portal session.
+
+A `tailscale_name` alongside `visibility = "gateway"` is refused rather than
+ignored, since it would name a node that never exists. `funnel`, `mcp_funnel`
+and `tcp` are refused too, because each is served on the app's node, and the
+portal's Internet access setting can't turn Funnel on for it. With the gateway
+off the setting still validates, and `outpost apply` warns that only this
+machine reaches the app. Switching an app between the two means adding or
+removing its `tailscale_name`, which restarts it, so its node comes up or goes
+away cleanly.
 
 ### Raw TCP forwards
 

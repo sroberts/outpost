@@ -230,7 +230,7 @@ A cold enamel night lit by exactly two warm things: the amber lamp and, when som
 - **Rule** (rule): hairline dividers between stations and panels, the rail's bottom edge, pill and tag outlines, the scrollbar.
 - **Porcelain** (porcelain): primary ink, station fills, the primary button.
 - **Porcelain Pressed** (porcelain-press): primary button hover only.
-- **Dim Porcelain** (dim): secondary text: the host in the rail, descriptions, ledes, hints, the quiet pill, the hidden tag.
+- **Dim Porcelain** (dim): secondary text: the host in the rail, descriptions, ledes, hints, the quiet pill, the station tags.
 - **Field Edge** (field-edge): input borders at rest (about 4.1:1 on night).
 
 ### Named Rules
@@ -257,13 +257,13 @@ A cold enamel night lit by exactly two warm things: the amber lamp and, when som
 - **Field label** (550, 15px): form labels, stacked above their inputs.
 - **Meta** (400, 14px): station descriptions, down reasons, pill text, the filter label.
 - **Hint** (400, 13px): field hints and footnotes.
-- **Status label** (650, 11px, 0.06em, uppercase): only the station state (DOWN, RESTARTING) and the HIDDEN tag.
+- **Status label** (650, 11px, 0.06em, uppercase): only the station state (DOWN, RESTARTING) and the station tags (HIDDEN, PUBLIC, GATEWAY ONLY).
 - **Mono** (13px for the rail host; 12px for addresses, the tally, and commands): tabular figures.
 
 ### Named Rules
 **The Machine Strings Rule.** Monospace is for the host, app addresses, the hub tally, the footer's build, and `outpost` commands or usernames in `code`. Names, descriptions and prose are never mono.
 
-**The Status Label Rule.** Uppercase tracked text is reserved for the state label and the hidden tag sitting beside a station name. It is never used as a heading or a label above a heading.
+**The Status Label Rule.** Uppercase tracked text is reserved for the state label and the station tags sitting beside a station name. It is never used as a heading or a label above a heading.
 
 ## Layout
 
@@ -333,6 +333,7 @@ An ordered list; each station draws the stretch of line above it, so the line en
 - **Stopped on purpose:** a hollow night centre in a Field Edge ring on the same broken line; the STOPPED label is dim on a rule outline and the reason is dim. Someone chose this, so it spends no red. Start sits in the row, not behind Manage.
 - **Order:** running first, then starting, then down, then stopped, so the broken stretches gather at the end of the line.
 - **Hidden:** admins see a HIDDEN tag (dim text, rule outline) beside the name.
+- **Reach:** in the same tag style, admins see PUBLIC beside an app the internet reaches through Funnel (a link to its Internet access setting, its target extended past 44px) and GATEWAY ONLY beside an app with no tailnet node of its own. The default, an app on the tailnet, carries no tag; its address already says so.
 - **Solo:** a message page can show a single station on a short line to explain why an app is unavailable.
 
 ### Command chip

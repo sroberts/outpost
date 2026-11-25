@@ -20,6 +20,7 @@ type Service struct {
 	Port           int               `toml:"port"`
 	Storage        string            `toml:"storage"`
 	TailscaleName  string            `toml:"tailscale_name"`
+	Visibility     string            `toml:"visibility"` // "tailnet" (default) or "gateway"; see visibility.go
 	Funnel         bool              `toml:"funnel"`
 	Healthcheck    string            `toml:"healthcheck"`
 	MCP            bool              `toml:"mcp"`
@@ -133,6 +134,10 @@ func (s *Service) validateWith(opts Options) []error {
 		errs = append(errs, fmt.Errorf("name is required"))
 	case PortalNodeName:
 		errs = append(errs, fmt.Errorf("name %q is reserved for the portal's tailnet node; rename the service", s.Name))
+	case DaemonLogName:
+		errs = append(errs, fmt.Errorf("name %q is reserved: the daemon keeps its own log as logs/%s.log; rename the service", s.Name, s.Name))
+	case AccessLogName:
+		errs = append(errs, fmt.Errorf("name %q is reserved: the gateway keeps its access log as logs/%s.log; rename the service", s.Name, s.Name))
 	}
 	if s.Runtime == "" {
 		errs = append(errs, fmt.Errorf("runtime is required"))
@@ -150,7 +155,7 @@ func (s *Service) validateWith(opts Options) []error {
 	if opts.RequireDNSName && s.Name != "" && s.Subdomain == "" && s.Hostname == "" && !validLabel(s.Name) {
 		errs = append(errs, fmt.Errorf("name %q can't be a DNS label (a-z, 0-9 and '-'), so the gateway has no address for it; rename the service or set subdomain", s.Name))
 	}
-	if opts.RequireTailscale && s.TailscaleName == "" {
+	if opts.RequireTailscale && s.TailscaleName == "" && !s.GatewayOnly() {
 		errs = append(errs, fmt.Errorf("tailscale_name is required (or set tailscale.enabled = false in config.toml)"))
 	}
 
@@ -185,6 +190,7 @@ func (s *Service) validateWith(opts Options) []error {
 		errs = append(errs, fmt.Errorf("restart_policy must be one of \"on-failure\", \"always\", \"never\""))
 	}
 
+	errs = append(errs, s.validateVisibility()...)
 	errs = append(errs, s.validateFunnel(opts)...)
 	errs = append(errs, s.validateMCPFunnel(opts)...)
 	errs = append(errs, s.validateCatalog()...)
@@ -196,6 +202,14 @@ func (s *Service) validateWith(opts Options) []error {
 // PortalNodeName is reserved for the portal's own tailnet node, whose state
 // lives beside the services' nodes, in a directory named after it.
 const PortalNodeName = "_portal"
+
+// DaemonLogName is reserved because a service's log is logs/<name>.log, and
+// logs/outpost.log is the daemon's own.
+const DaemonLogName = "outpost"
+
+// AccessLogName is reserved for the same reason: logs/outpost-access.log is
+// the gateway's access log.
+const AccessLogName = "outpost-access"
 
 // Options controls the validation rules that depend on global configuration.
 type Options struct {
@@ -213,6 +227,9 @@ type Options struct {
 	// it a node would put the whole app on the internet; Warnings reads it
 	// too, as mcp_path only matters to the gateway.
 	Gateway bool
+	// AppDomain is the gateway's domain for app hosts, for warning about a
+	// gateway-only app whose address can't resolve. "" when unknown.
+	AppDomain string
 }
 
 // DefaultOptions is the strictest set: Tailscale in use.

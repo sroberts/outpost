@@ -57,7 +57,7 @@ func (g *Gateway) warnUnknownAllow(service string, allow []string) {
 		}
 		if !namesSomeone(a, users) {
 			g.routes.skipped[key] = true
-			g.logf("gateway: %s: allow names %q, which matches no user or group yet", service, a)
+			g.lg("service", service).Warnf("gateway: %s: allow names %q, which matches no user or group yet", service, a)
 		}
 	}
 }
@@ -103,6 +103,9 @@ type station struct {
 	Usage  *usageView // nil when there's nothing measured to show
 	// PublicWhat says which of them, for the badge's title.
 	PublicWhat string
+	// GatewayOnly is whether the app has no tailnet node of its own, by
+	// its manifest's visibility. Only an admin is shown it.
+	GatewayOnly bool
 
 	// For an admin, when the portal can control apps.
 	Quick  *appAction  // the one step that brings it back, outside the menu
@@ -132,6 +135,7 @@ func (g *Gateway) stations(u auth.User) []station {
 			Addr:        strings.TrimPrefix(strings.TrimPrefix(origin, "https://"), "http://"),
 			Hidden:      rt.Hidden,
 			Public:      u.Admin && (rt.Funnel || rt.MCPFunnel) && rt.FunnelState == "on",
+			GatewayOnly: u.Admin && rt.GatewayOnly,
 		}
 		if st.Public {
 			st.PublicWhat = publicWhat(rt)
@@ -231,6 +235,7 @@ func tally(sts []station) counts {
 // denied is the page for someone signed in who may not open an app: a plain
 // answer, not a redirect back into a login that would only end here again.
 func (g *Gateway) denied(w http.ResponseWriter, r *http.Request, rt route, u auth.User) {
+	noteRefused(r, "not allowed")
 	g.activity.failed(EventDenied, fmt.Sprintf("for %s to %s", u.Username, rt.Name), false)
 	title := rt.Title
 	if title == "" {

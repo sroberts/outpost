@@ -237,8 +237,11 @@ func (c Config) Fingerprint() string {
 	}
 	// The level and format take a restart to apply, so a daemon running
 	// with other ones is stale.
-	if lg := (Log{Level: c.Log.LevelName(), Format: c.Log.FormatName()}); lg != (Log{Level: "info", Format: "text"}) {
-		body = append(body, "log"+lg.Level+"/"+lg.Format...)
+	if level, format := c.Log.LevelName(), c.Log.FormatName(); level != "info" || format != "text" {
+		body = append(body, "log"+level+"/"+format...)
+	}
+	if levels := c.Log.levelsKey(); levels != "" {
+		body = append(body, "loglevels"+levels...)
 	}
 	sum := sha256.Sum256(body)
 	return hex.EncodeToString(sum[:8])

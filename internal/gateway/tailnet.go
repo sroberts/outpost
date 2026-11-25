@@ -69,7 +69,7 @@ func (g *Gateway) tailnetAccess(service, login string) (user, reason string) {
 		g.activity.failed(EventDenied, fmt.Sprintf("for tailnet login %s to %s", login, rt.Name), false)
 		return "", err.Error()
 	case err != nil:
-		g.logf("gateway: tailnet access for %s to %s: %v", login, rt.Name, err)
+		g.lg("user", login, "service", rt.Name, "err", err).Warnf("gateway: tailnet access for %s to %s: %v", login, rt.Name, err)
 		return "", "the gateway could not look the login up"
 	}
 	if u.Disabled {
