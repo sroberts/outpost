@@ -19,6 +19,18 @@
   --stop: 26px;
   --gutter: 20px;
   --measure: 40rem;
+  --g-update: url("/.outpost/static/glyphs/update.svg");
+  --g-add: url("/.outpost/static/glyphs/add.svg");
+  --g-key: url("/.outpost/static/glyphs/key.svg");
+  --g-spark: url("/.outpost/static/glyphs/spark.svg");
+  --g-mail: url("/.outpost/static/glyphs/mail.svg");
+  --g-lines: url("/.outpost/static/glyphs/lines.svg");
+  --g-globe: url("/.outpost/static/glyphs/globe.svg");
+  --g-sliders: url("/.outpost/static/glyphs/sliders.svg");
+  --g-refresh: url("/.outpost/static/glyphs/refresh.svg");
+  --g-download: url("/.outpost/static/glyphs/download.svg");
+  --g-down: url("/.outpost/static/glyphs/down.svg");
+  --g-filter: url("/.outpost/static/glyphs/filter.svg");
   color-scheme: dark;
   scrollbar-color: var(--rule) var(--night);
 }
@@ -227,14 +239,39 @@ h2 { font-size: 19px; font-weight: 680; }
    page's own work, so the catalog still leads with the line and any page
    reaches any other in one tap. The page you're on is named, not linked. */
 .places { max-width: calc(var(--measure) + 2 * var(--gutter)); margin: 0 auto; padding: 0 var(--gutter) 0.75rem; }
+/* Even rows at every width, never one place left alone on a line: two
+   columns on a phone, three when there's room, and on a wide screen one row,
+   which wraps only if a long name or a big font calls for it. */
 .places ul {
   list-style: none; margin: 0; padding: 0.5rem 0 0; border-top: 1px solid var(--rule);
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr)); gap: 0 1rem;
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 1rem;
+}
+@media (min-width: 30rem) {
+  .places ul { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (min-width: 42rem) {
+  .places ul { display: flex; flex-wrap: wrap; gap: 0 1.25rem; }
 }
 .places a {
-  display: inline-flex; align-items: center; min-height: 44px;
+  display: inline-flex; align-items: center; gap: 0.45rem; min-height: 44px;
   font-size: 14px; color: var(--dim);
 }
+/* Glyphs: one file of each in static/glyphs, drawn as a mask in the colour
+   of the text it sits beside. They're named here rather than in the markup
+   so the words in a link or a summary stay exactly as they were, and they
+   are files, not data: URLs, because the pages' CSP takes images from
+   'self' only. */
+.places a::before, .acts > summary > span::before, .setting > summary .set-name::before,
+.log-count a::before, .log-foot a::before {
+  content: ""; flex: none; width: 14px; height: 14px; background: currentColor;
+  -webkit-mask: var(--glyph) center / contain no-repeat; mask: var(--glyph) center / contain no-repeat;
+}
+.places a[href="/updates"] { --glyph: var(--g-update); }
+.places a[href="/add"] { --glyph: var(--g-add); }
+.places a[href="/secrets"] { --glyph: var(--g-key); }
+.places a[href="/ai"] { --glyph: var(--g-spark); }
+.places a[href="/mail"] { --glyph: var(--g-mail); }
+.places a[href="/logs"] { --glyph: var(--g-lines); }
 .places a:hover { color: var(--porcelain); }
 .places a[aria-current="page"] { color: var(--porcelain); font-weight: 600; text-decoration: none; }
 .panel > p { margin: 0.6rem 0 0; }
@@ -378,7 +415,7 @@ button.plain:hover { background: none; border-color: var(--beam); }
 /* The name line makes room for it, across and down: the pill sits level with
    the name, and what's beneath starts below the pill's whole target, so a tap
    on the address can't land on Manage and descriptions keep the full width. */
-.managed .top { padding-right: 6.75rem; min-height: 34px; }
+.managed .top { padding-right: 8rem; min-height: 34px; }
 .acts:not([open]) { margin-top: -3px; } /* the pill is out of flow; no gap for it */
 .acts > summary, .confirm > summary { list-style: none; }
 .acts > summary::-webkit-details-marker, .confirm > summary::-webkit-details-marker { display: none; }
@@ -395,6 +432,10 @@ button.plain:hover { background: none; border-color: var(--beam); }
   border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
   transform: rotate(45deg); transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
+/* Manage opens an app's controls; it leads with the same mark of settings
+   the actions under it carry for theirs. */
+.acts > summary > span { display: inline-flex; align-items: center; gap: 0.4rem; }
+.acts > summary > span::before { --glyph: var(--g-sliders); }
 .acts > summary:hover, .acts[open] > summary { color: var(--porcelain); }
 .acts[open] > summary { border-color: var(--beam); }
 .acts[open] > summary::after { transform: translateY(3px) rotate(-135deg); }
@@ -680,7 +721,12 @@ label.check input {
   list-style: none; cursor: pointer;
 }
 .setting > summary::-webkit-details-marker { display: none; }
-.setting > summary .set-name { font-size: 15px; font-weight: 600; }
+.setting > summary .set-name { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 15px; font-weight: 600; }
+/* An app's own setting carries its admin page's glyph from the foot. */
+.setting[id^="set-public-"] .set-name::before { --glyph: var(--g-globe); }
+.setting[id^="set-secrets-"] .set-name::before { --glyph: var(--g-key); }
+.setting[id^="set-ai-"] .set-name::before { --glyph: var(--g-spark); }
+.setting[id^="set-mail-"] .set-name::before { --glyph: var(--g-mail); }
 .setting > summary .count { margin-left: auto; font-size: 14px; color: var(--dim); text-align: right; }
 .setting > summary .count.why { color: var(--down-ink); }
 .setting > summary::after {
@@ -794,7 +840,14 @@ label.check input {
 /* Small links in a line of words, each reaching past the 44px floor as the
    tally's do, without pushing the lines apart. */
 .log-count a, .log-foot a { position: relative; }
-.log-count a::before, .log-foot a::before { content: ""; position: absolute; inset: -14px -6px; }
+.log-count a::after, .log-foot a::after { content: ""; position: absolute; inset: -14px -6px; }
+/* Inline in a line of words: the glyph sits on the text and the underline
+   stays under the words alone. */
+.log-count a::before, .log-foot a::before { display: inline-block; vertical-align: -2px; margin-right: 0.3em; }
+.log-count a[href="#newest"]::before { --glyph: var(--g-down); }
+.log-count a[href$="#newest"]:not([href="#newest"])::before, .log-foot a[href$="#newest"]::before { --glyph: var(--g-refresh); }
+.log-count a[href^="/.outpost/api/logs"]::before { --glyph: var(--g-download); }
+.log-foot a[href="#filters"]::before { --glyph: var(--g-filter); }
 .log-lines { list-style: none; margin: 0.6rem 0 0; padding: 0; }
 .log-line { padding: 0.4rem 0; border-top: 1px solid var(--rule); }
 .log-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.6rem; font-size: 12px; color: var(--dim); }
