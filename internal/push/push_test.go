@@ -474,3 +474,25 @@ func TestOpen_KeepsTheVAPIDKey(t *testing.T) {
 		t.Error("a contact that isn't mailto: or https: was taken")
 	}
 }
+
+// Chromium (not Chrome) subscribes through FCM on jmt17.google.com; only
+// that exact host is let in, not the rest of google.com.
+func TestPushService_ChromiumFCMHost(t *testing.T) {
+	for _, tc := range []struct {
+		url      string
+		platform string
+	}{
+		{"https://jmt17.google.com/fcm/send/abc", "fcm"},
+		{"https://JMT17.google.com/fcm/send/abc", "fcm"},
+		{"https://jmt17.google.com:8443/fcm/send/abc", ""},
+		{"https://jmt17.google.com.example.net/fcm/send/abc", ""},
+		{"https://www.google.com/fcm/send/abc", ""},
+		{"https://x.jmt17.google.com/fcm/send/abc", ""},
+	} {
+		u, _ := url.Parse(tc.url)
+		got, ok := pushService(u)
+		if got != tc.platform || ok != (tc.platform != "") {
+			t.Errorf("%s: got %q, %v; want %q", tc.url, got, ok, tc.platform)
+		}
+	}
+}

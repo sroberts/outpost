@@ -239,7 +239,9 @@ func pushService(u *url.URL) (string, bool) {
 	switch {
 	case strings.HasSuffix(h, ".push.apple.com"):
 		return "apple", true
-	case h == "fcm.googleapis.com":
+	// Chromium builds without Chrome's branding are handed FCM endpoints on
+	// jmt17.google.com rather than fcm.googleapis.com; it is the same service.
+	case h == "fcm.googleapis.com", h == "jmt17.google.com":
 		return "fcm", true
 	case h == "updates.push.services.mozilla.com":
 		return "mozilla", true
