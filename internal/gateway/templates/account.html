@@ -32,6 +32,54 @@
 <noscript><p class="hint">Tap Sign out every other device… again to cancel.</p></noscript>
 </details>{{end}}
 </section>
+{{end}}{{with .Notify}}<section class="panel" aria-labelledby="notify-title" id="notify" data-here="{{if .Here}}1{{end}}">
+<h2 id="notify-title">Notifications</h2>
+{{if .Notice}}<p class="notice" role="status">{{.Notice}}</p>{{end}}
+<p class="hint">Outpost and your apps can send a notification to this device when something needs you, such as a task coming due or an app that has stopped. Each device is turned on separately.</p>
+<noscript><p class="hint">Turning notifications on needs JavaScript.</p></noscript>
+<div data-show="off" hidden>
+<button type="button" data-push="on">Turn on notifications</button>
+<p class="hint">Your browser asks next. Choose Allow.</p>
+</div>
+<div data-show="on" hidden>
+<p>On for this device.</p>
+<button class="ghost small" type="button" data-push="off">Turn off for this device</button>
+</div>
+<p data-show="install" hidden>On iPhone and iPad, notifications come to Outpost once it's on your Home Screen. Tap Share, then Add to Home Screen. Open Outpost from there, sign in, and come back to this page.</p>
+<p data-show="denied" hidden>Notifications are blocked for this site. On iPhone and iPad, turn them on in Settings, under Notifications. On a computer, allow them in your browser's settings for this site. Then reload this page.</p>
+<p data-show="unsupported" hidden>This browser can't show notifications from Outpost.</p>
+<p class="error" data-show="error" role="alert" hidden></p>
+{{if .Devices}}<h3>Devices</h3>
+<ul class="devices">
+{{range .Devices}}<li class="device">
+<div class="body">
+<span class="device-name">{{.Device}}</span>
+<p class="device-meta">On since {{.Since}}{{if .Platform}} · through {{.Platform}}{{end}}</p>
+<p class="device-meta">{{if .Failing}}Last notification didn't arrive{{else if .Last}}Last notification {{.Last}}{{else}}Nothing sent yet{{end}}</p>
+</div>
+{{if .This}}<p class="device-here">This one</p>{{end}}<form method="post" action="/account#notify">
+<input type="hidden" name="action" value="push-forget">
+<input type="hidden" name="id" value="{{.ID}}">
+<button class="ghost small" type="submit" aria-label="Turn off notifications for {{.Device}}, on since {{.Since}}">Turn off</button>
+</form>
+</li>
+{{end}}</ul>
+<form method="post" action="/account#notify">
+<input type="hidden" name="action" value="push-test">
+<button class="ghost" type="submit">Send a test notification</button>
+</form>
+{{end}}<h3>Who can notify you</h3>
+<form method="post" action="/account#notify">
+<input type="hidden" name="action" value="push-apps">
+<fieldset class="apps">
+<legend class="sr">Apps that can send you notifications</legend>
+{{range .Apps}}<input type="hidden" name="listed" value="{{.Value}}">
+<label class="check"><input type="checkbox" name="on" value="{{.Value}}"{{if .On}} checked{{end}}> {{.Title}}</label>
+{{end}}</fieldset>
+<button class="ghost" type="submit">Save</button>
+</form>
+{{if .Counts}}<p class="hint">{{.Counts}}</p>{{end}}
+</section>
 {{end}}<section class="panel" aria-labelledby="pw">
 <h2 id="pw">Change password</h2>
 {{if .Error}}<p class="error" id="form-error" role="alert">{{.Error}}</p>{{end}}

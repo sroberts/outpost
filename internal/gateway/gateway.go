@@ -72,6 +72,10 @@ type Options struct {
 	// Mail, when set, gives admins a page for the Gmail account apps get
 	// mail through, and a Mail panel under each app's menu.
 	Mail Mail
+	// Push, when set, makes the portal installable and lets each person
+	// turn notifications on for their devices and choose which apps may
+	// send them.
+	Push Push
 	// Control, when set, gives admins a menu on each app in the catalog to
 	// start, stop, restart or back it up.
 	Control Control
@@ -114,6 +118,7 @@ type Gateway struct {
 	exposure     Exposure
 	ai           AIModels
 	mail         Mail
+	push         Push
 	control      Control
 	ops          appOps
 	// claim serialises the busy checks of the catalog's actions and the
@@ -205,6 +210,7 @@ func New(opts Options) (*Gateway, error) {
 		exposure:     opts.Exposure,
 		ai:           opts.AI,
 		mail:         opts.Mail,
+		push:         opts.Push,
 		control:      opts.Control,
 		stats:        opts.Stats,
 		logs:         opts.Logs,

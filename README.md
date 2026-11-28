@@ -1053,6 +1053,49 @@ for, **Remove…** to retire one, whether it may **send** (off by default; up to
 100 messages a day, from its own address, so replies route back to it), and
 its token. An app's inbox keeps its newest 500 messages.
 
+## Notifications
+
+With the login gateway on, Outpost and its apps can put a notification on
+people's devices through standard Web Push: Safari on a Mac, Outpost added to
+an iPhone or iPad's Home Screen, Chrome and Firefox. There's no Apple
+developer account or Firebase project to set up.
+
+**Turning them on** is each person's own doing, on their **Account** page:
+**Turn on notifications** on each device, then choose which apps may send
+them. On iPhone and iPad, add the portal to the Home Screen first (Share,
+then Add to Home Screen), open it from there and sign in; iOS gives web
+notifications only to an installed app. **Send a test notification** checks a
+device end to end.
+
+A device gets notifications while it's signed in. Signing it out, from the
+account page's list of sign-ins or with **Sign out everywhere**, stops them.
+
+**What sends them.** Outpost tells every admin when it gives up restarting an
+app. Every app is started with:
+
+```
+OUTPOST_PUSH_URL=http://127.0.0.1:47903
+OUTPOST_PUSH_TOKEN=opush_…        # each app its own
+```
+
+and sends with `POST $OUTPOST_PUSH_URL/v1/send`, naming users, not devices.
+Only users who can open the app receive its notifications, and an app may send
+300 an hour. `outpost-service-spec.md` §17 has the app's side.
+
+**Setting it up.** Nothing to do when `public_url` is https: push services are
+given it as the contact for this server. With an http portal, give them an
+address instead, though browsers only allow notifications on an https page
+or `localhost`:
+
+```toml
+[push]
+contact = "mailto:you@example.com"
+# listen = "127.0.0.1:47903"
+```
+
+`push.db` holds the key every subscription was made against. Keep it in your
+backups: if it's lost, everyone has to turn notifications on again.
+
 ## Running without Tailscale
 
 Tailscale is off for new installs and never required. To turn it off on an

@@ -28,6 +28,7 @@ import (
 	"github.com/sroberts/outpost/internal/logging"
 	"github.com/sroberts/outpost/internal/mail"
 	"github.com/sroberts/outpost/internal/manifest"
+	"github.com/sroberts/outpost/internal/push"
 	"github.com/sroberts/outpost/internal/runtime"
 	"github.com/sroberts/outpost/internal/secrets"
 	"github.com/sroberts/outpost/internal/state"
@@ -186,6 +187,36 @@ func (a *app) cmdServe(args []string) error {
 		defer func() { _ = mailLn.Close() }() // Serve has stopped by then, or never started
 	}
 
+	// Notifications need the gateway: a device subscribes on the portal.
+	// Without it apps aren't told OUTPOST_PUSH_URL, and treat push as off.
+	var pushService *push.Service
+	var pushLn net.Listener
+	if a.config.Gateway.Enabled {
+		contact := a.config.Push.ContactFor(a.config.Gateway.PublicURL)
+		if contact == "" {
+			say("notifications are off: push services want a contact, and the portal isn't https; set [push] contact = \"mailto:you@example.com\"")
+		} else {
+			watch.at("opening the push store")
+			pushService, err = push.Open(push.Options{
+				Path:    a.pushPath(),
+				Listen:  a.config.Push.ListenAddr(),
+				Subject: contact,
+				Logf:    logging.Logf(component("push")),
+			})
+			if err != nil {
+				return err
+			}
+			defer pushService.Close()
+			// Bound before any app starts, as mail's is.
+			if pushLn, err = net.Listen("tcp", a.config.Push.ListenAddr()); err != nil {
+				sayErr("push endpoint: %v; apps can't send notifications until [push] listen names a free port and the daemon restarts", err)
+				pushLn = nil
+			} else {
+				defer func() { _ = pushLn.Close() }() // Serve has stopped by then, or never started
+			}
+		}
+	}
+
 	// config.toml decides whether the tailnet is used at all; an explicit
 	// --tailnet on the command line overrides it for this run.
 	useTailnet := a.config.TailscaleEnabled()
@@ -267,7 +298,7 @@ func (a *app) cmdServe(args []string) error {
 		ProcessRuntime:  procs,
 		Interval:        *interval,
 		CheckRelease:    (&releaseChecks{a: a}).check,
-		Secrets:         withAI{secrets: secretStore, ai: aiService, mail: mailService},
+		Secrets:         withAI{secrets: secretStore, ai: aiService, mail: mailService, push: pushService},
 		Exposure:        exposureStore,
 		Logger:          component("supervisor"),
 	})
@@ -332,6 +363,11 @@ func (a *app) cmdServe(args []string) error {
 	})
 	if a.config.Gateway.Enabled {
 		watch.at("starting the gateway")
+		// A nil *push.Service in the interface would read as set.
+		var gwPush gateway.Push
+		if pushService != nil {
+			gwPush = pushService
+		}
 		// Every request, always, whatever the daemon's level: rotated like
 		// the rest, and closed only once the gateway has stopped writing.
 		var accessLog io.Writer
@@ -357,6 +393,7 @@ func (a *app) cmdServe(args []string) error {
 			Exposure:     exposureWeb{a: a, store: exposureStore, sup: sup, opts: a.manifestOptions(useTailnet)},
 			AI:           aiService,
 			Mail:         mailService,
+			Push:         gwPush,
 			Control:      sup,
 			Stats:        sampler,
 			Logs:         logsSource{dir: a.logsDir(), services: sup, events: sup.Events},
@@ -370,6 +407,9 @@ func (a *app) cmdServe(args []string) error {
 			return err
 		}
 		srv.UseGateway(gw)
+		if pushService != nil {
+			pushService.SetGate(gw.PushGate())
+		}
 
 		// The portal isn't a service, so its node is attached here once,
 		// not by the reconcile loop. Non-blocking, like a service's.
@@ -477,6 +517,40 @@ func (a *app) cmdServe(args []string) error {
 		mailService.Run(ctx)
 	}()
 
+	// Deliveries wait on Apple's, Google's and Mozilla's servers, so they
+	// run on their own, and, like the endpoint, finish before push.db closes.
+	pushDone := make(chan struct{})
+	pushServeDone := make(chan struct{})
+	pushWatchDone := make(chan struct{})
+	if pushService != nil {
+		go func() {
+			defer close(pushDone)
+			pushService.Run(ctx)
+		}()
+		go func() {
+			defer close(pushWatchDone)
+			plog := logging.Logf(component("push"))
+			watchHalts(ctx, sup, enabledAdmins(authStore, plog), func(to []string, n push.Notification) (int, error) {
+				return pushService.Send(push.Outpost, to, n)
+			}, plog)
+		}()
+		if pushLn != nil {
+			say("push endpoint at %s", pushService.URL())
+			go func() {
+				defer close(pushServeDone)
+				if err := pushService.Serve(ctx, pushLn); err != nil {
+					sayErr("push endpoint: %v", err)
+				}
+			}()
+		} else {
+			close(pushServeDone)
+		}
+	} else {
+		close(pushDone)
+		close(pushServeDone)
+		close(pushWatchDone)
+	}
+
 	// Off the loop, which must never wait on the network, and over by the time
 	// the store closes.
 	checksDone := make(chan struct{})
@@ -499,6 +573,9 @@ func (a *app) cmdServe(args []string) error {
 	<-aiDone
 	<-mailDone
 	<-mailServeDone
+	<-pushDone
+	<-pushServeDone
+	<-pushWatchDone
 
 	say("stopped")
 	if runErr != nil && ctx.Err() == nil {

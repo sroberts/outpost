@@ -152,6 +152,24 @@ func (g *Gateway) servePortal(w http.ResponseWriter, r *http.Request) {
 		g.serveAsset(w, r, "static/selfupdate.js", "text/javascript; charset=utf-8")
 	case artPath:
 		g.serveArt(w, r)
+	case manifestPath:
+		g.serveManifest(w, r)
+	case swPath:
+		g.serveAsset(w, r, "static/sw.js", "text/javascript; charset=utf-8")
+	case pushJSPath:
+		g.serveAsset(w, r, "static/push.js", "text/javascript; charset=utf-8")
+	case icon180Path:
+		g.serveAsset(w, r, "static/icon-180.png", "image/png")
+	case icon512Path:
+		g.serveAsset(w, r, "static/icon-512.png", "image/png")
+	case pushSubPath:
+		if g.push == nil {
+			http.NotFound(w, r)
+			return
+		}
+		g.pushSubscription(w, r)
+	case pushOpenPath:
+		g.pushOpen(w, r)
 	default:
 		if strings.HasPrefix(r.URL.Path, glyphsPrefix) {
 			g.serveGlyph(w, r)

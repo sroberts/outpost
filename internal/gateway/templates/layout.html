@@ -10,9 +10,12 @@
 {{if .SelfPoll}}<noscript><meta http-equiv="refresh" content="5"></noscript>{{end}}
 <title>{{.Title}} · {{.Portal}}</title>
 <link rel="stylesheet" href="{{.CSS}}">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="{{.TouchIcon}}">
 {{if .Who}}<script src="{{.MenusJS}}" defer></script>{{end}}
+{{if .PushJS}}<script src="{{.PushJS}}" defer></script>{{end}}
 </head>
-<body>
+<body{{if .PushKey}} data-push-key="{{.PushKey}}"{{end}}>
 {{template "body" .}}
 {{if or .UpdatesLink .AddLink .SecretsLink .AILink .MailLink .LogsLink}}<nav class="places" aria-label="Outpost">
 <ul>
