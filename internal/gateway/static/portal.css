@@ -239,9 +239,18 @@ h2 { font-size: 19px; font-weight: 680; }
    page's own work, so the catalog still leads with the line and any page
    reaches any other in one tap. The page you're on is named, not linked. */
 .places { max-width: calc(var(--measure) + 2 * var(--gutter)); margin: 0 auto; padding: 0 var(--gutter) 0.75rem; }
+/* Even rows at every width, never one place left alone on a line: two
+   columns on a phone, three when there's room, and on a wide screen one row,
+   which wraps only if a long name or a big font calls for it. */
 .places ul {
   list-style: none; margin: 0; padding: 0.5rem 0 0; border-top: 1px solid var(--rule);
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr)); gap: 0 1rem;
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 1rem;
+}
+@media (min-width: 30rem) {
+  .places ul { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (min-width: 42rem) {
+  .places ul { display: flex; flex-wrap: wrap; gap: 0 1.25rem; }
 }
 .places a {
   display: inline-flex; align-items: center; gap: 0.45rem; min-height: 44px;
