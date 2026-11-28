@@ -171,6 +171,10 @@ func (g *Gateway) servePortal(w http.ResponseWriter, r *http.Request) {
 	case pushOpenPath:
 		g.pushOpen(w, r)
 	default:
+		if strings.HasPrefix(r.URL.Path, glyphsPrefix) {
+			g.serveGlyph(w, r)
+			return
+		}
 		g.message(w, r, http.StatusNotFound, "Nothing here",
 			"There's no page at this address.", g.portalLink(), "Back to apps")
 	}

@@ -166,7 +166,8 @@ Outpost injects, in this order:
    [AI models](#ai-models))
 5. With the login gateway on: `OUTPOST_AUTH=gateway`, `OUTPOST_ISSUER` and
    `OUTPOST_JWKS_URL`
-6. `OUTPOST_STORAGE_DIR`
+6. `OUTPOST_SERVICE`, your own name from the manifest, and
+   `OUTPOST_STORAGE_DIR`
 
 What Outpost sets comes after the manifest's `env` and therefore always wins —
 a manifest cannot hand your service the wrong storage path, or claim a gateway
@@ -209,9 +210,14 @@ This is how an operator gets one login for all their services, so:
   The plain headers are fine for knowing who is using you; for anything a
   neighbour on the machine must not be able to do as someone else, verify
   `X-Outpost-Identity` against the keys at `OUTPOST_JWKS_URL`: `iss` is
-  `OUTPOST_ISSUER`, `aud` is the host you are being served at, `sub` is the
-  username, and it also carries `name`, `email` and `groups`. It lives for 60
-  seconds, so verify per request rather than keeping it. Trust none of these
+  `OUTPOST_ISSUER`, `svc` is `OUTPOST_SERVICE`, `sub` is the username, and it
+  also carries `name`, `email` and `groups`. It lives for 60 seconds, so
+  verify per request rather than keeping it. Check `svc`, not just the
+  signature: the gateway mints tokens for every service with the same keys,
+  so a neighbour holding a valid token for itself could otherwise replay it
+  at your port. `aud` is the host the request came to; don't pin it, since
+  you can't know every host you're served at (Tailscale renames a node whose
+  name is taken, after you've started), which is what `svc` is for. Trust none of these
   headers when `OUTPOST_AUTH` is unset — nothing strips them then.
 - **Log the request id.** `X-Outpost-Request-Id` is the id the gateway
   gave this request: it is in the gateway's access log and its own log, and
@@ -488,8 +494,8 @@ in, both behind the gateway:
 
 Requests that come in through the portal arrive as if they had come to your own
 address: `Host` and `X-Forwarded-Host` are your own host, not the portal's, and
-the identity token's `aud` is your host too, so verifying it needs nothing
-extra. They only ever carry an access token's identity. `Set-Cookie` is dropped
+the identity token's `aud` is your host and its `svc` your name, so
+verifying it needs nothing extra. They only ever carry an access token's identity. `Set-Cookie` is dropped
 from your responses to them, because they are on the portal's origin; keep MCP
 session state in `Mcp-Session-Id`, which passes through both ways. A response
 can stream (`text/event-stream`), and there is no time limit on how long you

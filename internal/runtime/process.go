@@ -232,8 +232,9 @@ func buildEnv(svc *manifest.Service, extra []string) []string {
 		env = append(env, fmt.Sprintf("%s=%s", k, v))
 	}
 	env = append(env, extra...)
-	// Appended last so a service can never be handed the wrong storage path.
-	env = append(env, "OUTPOST_STORAGE_DIR="+svc.ExpandStorage())
+	// Appended last so a service can never be handed the wrong storage path,
+	// nor another service's name to check its identity tokens' svc against.
+	env = append(env, "OUTPOST_SERVICE="+svc.Name, "OUTPOST_STORAGE_DIR="+svc.ExpandStorage())
 	return env
 }
 

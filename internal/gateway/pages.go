@@ -15,7 +15,7 @@ import (
 	"github.com/sroberts/outpost/internal/version"
 )
 
-//go:embed templates/*.html static/portal.css static/catalog.js static/poll.js static/return.js static/selfupdate.js static/menus.js static/logs.js static/lighthouse.webp static/push.js static/sw.js static/icon-180.png static/icon-512.png
+//go:embed templates/*.html static/portal.css static/catalog.js static/poll.js static/return.js static/selfupdate.js static/menus.js static/logs.js static/lighthouse.webp static/push.js static/sw.js static/icon-180.png static/icon-512.png static/glyphs/*.svg
 var assets embed.FS
 
 const (
@@ -38,6 +38,9 @@ const (
 	// artPath is the lighthouse from the Outpost header, cropped, for the
 	// sign-in page.
 	artPath = "/.outpost/static/lighthouse.webp"
+	// glyphsPrefix holds the stylesheet's icons, one file each. They're
+	// files because the pages' CSP refuses the data: URLs they'd otherwise be.
+	glyphsPrefix = "/.outpost/static/glyphs/"
 )
 
 // pages are the portal's templates, each parsed with the shared layout.
@@ -309,6 +312,17 @@ func (g *Gateway) serveAsset(w http.ResponseWriter, r *http.Request, file, conte
 		}
 	}
 	_, _ = w.Write(body) // a client that hung up has nothing to be told
+}
+
+// serveGlyph serves one of the stylesheet's icons. Only a plain file name
+// is looked up, and only the embedded glyphs are there to be found.
+func (g *Gateway) serveGlyph(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimPrefix(r.URL.Path, glyphsPrefix)
+	if name == "" || strings.ContainsAny(name, "/\\") || !strings.HasSuffix(name, ".svg") {
+		http.NotFound(w, r)
+		return
+	}
+	g.serveAsset(w, r, "static/glyphs/"+name, "image/svg+xml")
 }
 
 // acceptsGzip is a loose reading of Accept-Encoding: any mention of gzip
