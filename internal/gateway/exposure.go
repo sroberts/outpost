@@ -14,6 +14,14 @@ type Exposure interface {
 	Reset(ctx context.Context, service, by string) error
 }
 
+// MCPExposure is an Exposure that can also set whether the internet reaches
+// an app's MCP endpoint, for internet access tokens, over the manifest's
+// mcp_funnel. It is set and reset apart from public paths and Funnel.
+type MCPExposure interface {
+	SetMCPFunnel(ctx context.Context, service string, on bool, by string) error
+	ResetMCPFunnel(ctx context.Context, service, by string) error
+}
+
 // publicRow is what the internet reaches of one app, for its Manage menu.
 type publicRow struct {
 	Paths    string // one per line, for the form
@@ -21,6 +29,9 @@ type publicRow struct {
 	Funnel   bool
 	// CanFunnel is whether the app has a tailnet node for Funnel to be on.
 	CanFunnel bool
+	// GatewayOnly says why it has none: its manifest says visibility =
+	// "gateway".
+	GatewayOnly bool
 	// State is how Funnel is doing, in words; Live is whether the internet
 	// reaches it now, and URLs where.
 	State string
@@ -34,19 +45,39 @@ type publicRow struct {
 	// is on and failing, starting on the way, off when only the tailnet can;
 	// HealthWords says it for a reader.
 	Health, HealthWords string
+	// MCP is the app's MCP endpoint on the internet; nil when the app has
+	// no mcp_path or the portal can't set it.
+	MCP *mcpRow
+}
+
+// mcpRow is whether the internet reaches an app's MCP endpoint, for access
+// tokens made for the internet and that app.
+type mcpRow struct {
+	Path string
+	On   bool
+	// State says how it is doing; URL is where the internet reaches it, once
+	// it does.
+	State string
+	URL   string
+	// FromPortal says the portal set it, over what the manifest says, in
+	// Manifest.
+	FromPortal bool
+	Manifest   string
 }
 
 // publicRowFor is what the internet reaches of rt, and how.
 func publicRowFor(rt route) publicRow {
 	row := publicRow{
-		PathList: rt.PublicPaths, Funnel: rt.Funnel,
-		CanFunnel:  rt.TailscaleName != "",
+		PathList: rt.PublicPaths, Funnel: rt.Funnel, GatewayOnly: rt.GatewayOnly,
+		CanFunnel:  rt.TailscaleName != "" && !rt.GatewayOnly,
 		FromPortal: rt.FromPortal,
 		Paths:      strings.Join(rt.PublicPaths, "\n"),
 	}
 	row.State, row.Live = funnelWords(rt)
 	switch {
-	case !rt.Funnel:
+	case !rt.Funnel && !rt.MCPFunnel && rt.GatewayOnly:
+		row.Health, row.HealthWords = "off", "gateway only"
+	case !rt.Funnel && !rt.MCPFunnel:
 		row.Health, row.HealthWords = "off", "tailnet only"
 	case row.Live:
 		row.Health, row.HealthWords = "up", "on the internet"
@@ -65,6 +96,39 @@ func publicRowFor(rt route) publicRow {
 	}
 	if rt.FromPortal {
 		row.Manifest = manifestWords(rt)
+	}
+	if rt.MCPFunnel && !rt.Funnel && rt.FunnelState == "on" && rt.Host != "" {
+		// Funnel's own words are about public paths, which it isn't answering.
+		row.Health, row.HealthWords = "up", "MCP on the internet"
+	}
+	return row
+}
+
+// mcpRowFor is whether the internet reaches rt's MCP endpoint, and how.
+func mcpRowFor(rt route) *mcpRow {
+	if rt.MCPPath == "" {
+		return nil
+	}
+	row := &mcpRow{Path: rt.MCPPath, On: rt.MCPFunnel, FromPortal: rt.MCPFromPortal}
+	switch {
+	case !rt.MCPFunnel:
+		row.State = "Only the tailnet reaches it."
+	case rt.FunnelState == "on" && rt.Host != "":
+		row.URL = "https://" + rt.Host + rt.MCPPath
+		row.State = "On: the internet reaches it, with an access token made for the internet and this app, and nothing else of the app."
+	case rt.FunnelState == "unavailable":
+		row.State = "Unavailable: " + strings.TrimSuffix(rt.FunnelError, ".") + ". Only the tailnet reaches it; Outpost keeps trying."
+	case rt.Status != "running":
+		row.State = "Waiting for the app to run."
+	default:
+		row.State = "Starting."
+	}
+	if rt.MCPFromPortal {
+		was := "off"
+		if rt.ManifestMCPFunnel {
+			was = "on"
+		}
+		row.Manifest = "Set here, over the manifest, which has it " + was + "."
 	}
 	return row
 }
@@ -131,4 +195,11 @@ func describeExposure(funnel bool, paths []string) string {
 		b.WriteString(", with Funnel off")
 	}
 	return b.String()
+}
+
+func describeMCPExposure(on bool, app, path string) string {
+	if on {
+		return "put " + app + "'s MCP endpoint " + path + " on the internet"
+	}
+	return "took " + app + "'s MCP endpoint " + path + " off the internet"
 }

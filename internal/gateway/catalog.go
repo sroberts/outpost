@@ -57,7 +57,7 @@ func (g *Gateway) warnUnknownAllow(service string, allow []string) {
 		}
 		if !namesSomeone(a, users) {
 			g.routes.skipped[key] = true
-			g.logf("gateway: %s: allow names %q, which matches no user or group yet", service, a)
+			g.lg("service", service).Warnf("gateway: %s: allow names %q, which matches no user or group yet", service, a)
 		}
 	}
 }
@@ -97,10 +97,15 @@ type station struct {
 	Reason      string // why it isn't up, in words
 	Command     string // what an admin runs to look closer
 	Hidden      bool
-	// Public is whether the internet reaches the app's public paths now,
-	// through Funnel. Only an admin is shown it.
+	// Public is whether the internet reaches the app's public paths or its
+	// MCP endpoint now, through Funnel. Only an admin is shown it.
 	Public bool
 	Usage  *usageView // nil when there's nothing measured to show
+	// PublicWhat says which of them, for the badge's title.
+	PublicWhat string
+	// GatewayOnly is whether the app has no tailnet node of its own, by
+	// its manifest's visibility. Only an admin is shown it.
+	GatewayOnly bool
 
 	// For an admin, when the portal can control apps.
 	Quick  *appAction  // the one step that brings it back, outside the menu
@@ -129,7 +134,11 @@ func (g *Gateway) stations(u auth.User) []station {
 			URL:         origin + "/",
 			Addr:        strings.TrimPrefix(strings.TrimPrefix(origin, "https://"), "http://"),
 			Hidden:      rt.Hidden,
-			Public:      u.Admin && rt.Funnel && rt.FunnelState == "on",
+			Public:      u.Admin && (rt.Funnel || rt.MCPFunnel) && rt.FunnelState == "on",
+			GatewayOnly: u.Admin && rt.GatewayOnly,
+		}
+		if st.Public {
+			st.PublicWhat = publicWhat(rt)
 		}
 		if st.Title == "" {
 			st.Title = titleCase(rt.Name)
@@ -226,6 +235,7 @@ func tally(sts []station) counts {
 // denied is the page for someone signed in who may not open an app: a plain
 // answer, not a redirect back into a login that would only end here again.
 func (g *Gateway) denied(w http.ResponseWriter, r *http.Request, rt route, u auth.User) {
+	noteRefused(r, "not allowed")
 	g.activity.failed(EventDenied, fmt.Sprintf("for %s to %s", u.Username, rt.Name), false)
 	title := rt.Title
 	if title == "" {
@@ -262,4 +272,16 @@ func titleCase(name string) string {
 		words[i] = string(unicode.ToUpper(r)) + w[size:]
 	}
 	return strings.Join(words, " ")
+}
+
+// publicWhat is the badge's title: what of an app the internet reaches.
+func publicWhat(rt route) string {
+	const mcp = "its MCP endpoint, for internet access tokens"
+	switch {
+	case rt.Funnel && rt.MCPFunnel:
+		return "The internet reaches its public paths and " + mcp + ", through Funnel"
+	case rt.MCPFunnel:
+		return "The internet reaches " + mcp + ", through Funnel"
+	}
+	return "The internet reaches its public paths, through Funnel"
 }

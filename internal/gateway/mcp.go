@@ -68,6 +68,7 @@ func (g *Gateway) serveMCP(w http.ResponseWriter, r *http.Request) {
 		pt.reject(fmt.Sprintf("for %s to %s over MCP from %s", u.Username, name, pt.ip))
 		return
 	}
+	noteApp(r, rt.Name)
 	if !allowed(u, rt) {
 		g.activity.failed(EventDenied, fmt.Sprintf("for %s to %s", u.Username, rt.Name), false)
 		http.Error(w, "this account can't open this app", http.StatusForbidden)

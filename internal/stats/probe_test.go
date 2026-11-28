@@ -156,11 +156,21 @@ func TestProbe_RealProcess(t *testing.T) {
 		_ = cmd.Process.Kill() // the test is over; it only had to exist
 		_ = cmd.Wait()
 	})
-	groups, err := p.Snapshot(context.Background())
-	if err != nil {
-		t.Fatal(err)
+	// A process that has only just exec'd can report no resident memory yet,
+	// so look until it has some.
+	var g Group
+	var ok bool
+	for deadline := time.Now().Add(5 * time.Second); ; {
+		groups, err := p.Snapshot(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		g, ok = groups[cmd.Process.Pid]
+		if ok && g.Leader && g.RSS > 0 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
-	g, ok := groups[cmd.Process.Pid]
 	if !ok || !g.Leader || g.RSS == 0 {
 		t.Errorf("group %d = %+v, %v; want a leader with memory", cmd.Process.Pid, g, ok)
 	}

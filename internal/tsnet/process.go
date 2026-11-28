@@ -238,7 +238,7 @@ func (r *Router) startProcessNode(ctx context.Context, cfg nodeConfig) (tailnetN
 				}
 				continue
 			}
-			r.logf("%s: %s", cfg.Service, sc.Text())
+			r.lg("service", cfg.Service).Infof("%s: %s", cfg.Service, sc.Text())
 		}
 		drain(stdout)
 	}()
@@ -247,7 +247,7 @@ func (r *Router) startProcessNode(ctx context.Context, cfg nodeConfig) (tailnetN
 		sc := bufio.NewScanner(stderr)
 		for sc.Scan() {
 			line := sc.Text()
-			r.logf("%s: %s", cfg.Service, line)
+			r.lg("service", cfg.Service).Infof("%s: %s", cfg.Service, line)
 			tailMu.Lock()
 			if tail = append(tail, line); len(tail) > 3 {
 				tail = tail[1:]

@@ -10,11 +10,24 @@
 {{if .SelfPoll}}<noscript><meta http-equiv="refresh" content="5"></noscript>{{end}}
 <title>{{.Title}} · {{.Portal}}</title>
 <link rel="stylesheet" href="{{.CSS}}">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="{{.TouchIcon}}">
 {{if .Who}}<script src="{{.MenusJS}}" defer></script>{{end}}
+{{if .PushJS}}<script src="{{.PushJS}}" defer></script>{{end}}
 </head>
-<body>
+<body{{if .PushKey}} data-push-key="{{.PushKey}}"{{end}}>
 {{template "body" .}}
-{{if .Who}}<footer class="foot">Outpost {{.Version}}</footer>
+{{if or .UpdatesLink .AddLink .SecretsLink .AILink .MailLink .LogsLink}}<nav class="places" aria-label="Outpost">
+<ul>
+{{if .UpdatesLink}}<li><a href="/updates"{{if eq .Page "updates"}} aria-current="page"{{end}}>Updates</a></li>
+{{end}}{{if .AddLink}}<li><a href="/add"{{if eq .Page "add"}} aria-current="page"{{end}}>Add an app</a></li>
+{{end}}{{if .SecretsLink}}<li><a href="/secrets"{{if eq .Page "secrets"}} aria-current="page"{{end}}>Secrets</a></li>
+{{end}}{{if .AILink}}<li><a href="/ai"{{if eq .Page "ai"}} aria-current="page"{{end}}>AI models</a></li>
+{{end}}{{if .MailLink}}<li><a href="/mail"{{if eq .Page "mail"}} aria-current="page"{{end}}>Mail</a></li>
+{{end}}{{if .LogsLink}}<li><a href="/logs"{{if eq .Page "logs"}} aria-current="page"{{end}}>Logs</a></li>
+{{end}}</ul>
+</nav>
+{{end}}{{if .Who}}<footer class="foot">Outpost {{.Version}}{{if .SpecLink}} · <a href="{{.SpecLink}}">App spec</a>{{end}}</footer>
 {{end}}</body>
 </html>
 {{end}}

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-29T03:19:43+00:00",
+  "generatedAt": "2026-11-19T14:40:48+00:00",
   "title": "Design System: Outpost",
   "extensions": {
     "colorMeta": {
@@ -257,6 +257,10 @@
       "mono-small": {
         "displayName": "Mono Small",
         "purpose": "Addresses, the tally, commands."
+      },
+      "row-name": {
+        "displayName": "Row name",
+        "purpose": "The name heading a row that isn't a station: a secret, a provider, an app in a list."
       }
     },
     "shadows": [
@@ -276,6 +280,11 @@
         "name": "line",
         "value": "none",
         "purpose": "The line and its stations never animate."
+      },
+      {
+        "name": "chevron-turn",
+        "value": "transform 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "A disclosure chevron turning to point up as its section opens; off under reduced motion."
       }
     ],
     "breakpoints": [
@@ -366,6 +375,54 @@
       "description": "Not a card: a section opened by a single rule, heading, prose, form.",
       "html": "<div class=\"ds-ground\"><section class=\"ds-panel\"><h2 class=\"ds-h2\">Sign out everywhere</h2><p class=\"ds-p\">Ends every session on every device, this one included.</p></section></div>",
       "css": ":host{--night:#141a21;--enamel-hi:#222c36;--rule:#26313b;--porcelain:#f3f1e9;--dim:#a3abb1;--beam:#79a59d;--lamp:#f1c191;--down:#d9583b;--down-ink:#f29a85;--field-edge:#6f7c87;--line-w:6px;--stop:26px;} .ds-ground{background:var(--night);padding:8px 20px 20px;color:var(--porcelain);font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:16px;line-height:1.4;} .ds-panel{margin-top:1.5rem;padding-top:1.5rem;border-top:1px solid var(--rule);} .ds-h2{margin:0;font-size:19px;font-weight:680;line-height:1.1;letter-spacing:-0.015em;} .ds-p{margin:0.6rem 0 0;}"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "A secondary action that isn't destructive: porcelain words in a field-edge outline.",
+      "html": "<div class=\"ds-ground\"><button class=\"ds-btn-outline\">Check now</button></div>",
+      "css": ":host{--night:#141a21;--enamel-hi:#222c36;--rule:#26313b;--porcelain:#f3f1e9;--dim:#a3abb1;--beam:#79a59d;--lamp:#f1c191;--down:#d9583b;--down-ink:#f29a85;--field-edge:#6f7c87;} .ds-ground{background:var(--night);color:var(--porcelain);padding:20px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:16px;} .ds-btn-outline{display:inline-flex;align-items:center;min-height:46px;padding:0 1.1rem;border:1px solid var(--field-edge);border-radius:6px;background:none;color:var(--porcelain);font:inherit;font-weight:680;cursor:pointer;} .ds-btn-outline:hover{border-color:var(--beam);} .ds-btn-outline:focus-visible{outline:2px solid var(--lamp);outline-offset:3px;}"
+    },
+    {
+      "name": "Confirm",
+      "kind": "custom",
+      "refersTo": "pill",
+      "description": "Every changing action: a pill that opens its consequences and the one porcelain button that does it.",
+      "html": "<div class=\"ds-ground\"><details class=\"ds-confirm\" open><summary class=\"ds-pill\">Update…</summary><p>Sous is backed up, then restarted on v0.14.0. If it isn't healthy, the old release goes back.</p><button class=\"ds-btn\">Update Sous to v0.14.0</button></details></div>",
+      "css": ":host{--night:#141a21;--enamel-hi:#222c36;--rule:#26313b;--porcelain:#f3f1e9;--dim:#a3abb1;--beam:#79a59d;--lamp:#f1c191;--down:#d9583b;--down-ink:#f29a85;--field-edge:#6f7c87;} .ds-ground{background:var(--night);color:var(--porcelain);padding:20px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:16px;} .ds-confirm>summary{list-style:none;} .ds-confirm>summary::-webkit-details-marker{display:none;} .ds-pill{display:inline-flex;align-items:center;min-height:44px;padding:0 .95rem;border:1px solid var(--field-edge);border-radius:999px;font-size:14px;cursor:pointer;} .ds-pill:hover,.ds-confirm[open]>.ds-pill{border-color:var(--beam);} .ds-confirm p{margin:.6rem 0 0;font-size:14px;color:var(--dim);max-width:34rem;} .ds-btn{margin-top:.6rem;display:inline-flex;align-items:center;min-height:46px;padding:0 1.1rem;border:0;border-radius:6px;background:var(--porcelain);color:var(--night);font:inherit;font-weight:680;cursor:pointer;} .ds-btn:hover{background:#d9d6cc;} .ds-pill:focus-visible,.ds-btn:focus-visible{outline:2px solid var(--lamp);outline-offset:3px;}"
+    },
+    {
+      "name": "Manage Menu",
+      "kind": "custom",
+      "refersTo": "pill-manage",
+      "description": "An admin's actions on a station: a quiet pill at the row's top right, opening a strip of row pills under a rule.",
+      "html": "<div class=\"ds-ground\"><div class=\"ds-row\"><span class=\"ds-name\">Yarr</span><details class=\"ds-acts\" open><summary>Manage <span class=\"ds-chev\"></span></summary><div class=\"ds-act-list\"><button class=\"ds-pill\">Restart</button><button class=\"ds-pill\">Stop</button><button class=\"ds-pill\">Back up now</button></div></details></div></div>",
+      "css": ":host{--night:#141a21;--enamel-hi:#222c36;--rule:#26313b;--porcelain:#f3f1e9;--dim:#a3abb1;--beam:#79a59d;--lamp:#f1c191;--down:#d9583b;--down-ink:#f29a85;--field-edge:#6f7c87;} .ds-ground{background:var(--night);color:var(--porcelain);padding:20px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:16px;}.ds-chev{display:inline-block;width:6px;height:6px;margin-top:-3px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg);transition:transform .2s cubic-bezier(0.16,1,0.3,1);} details[open]>summary .ds-chev{transform:translateY(3px) rotate(-135deg);} @media (prefers-reduced-motion:reduce){.ds-chev{transition:none;}} .ds-row{position:relative;padding:13px 0;} .ds-name{font-size:21px;font-weight:650;} .ds-acts>summary{list-style:none;position:absolute;top:13px;right:0;display:inline-flex;align-items:center;gap:.5rem;min-height:36px;padding:0 .8rem;border:1px solid var(--field-edge);border-radius:999px;color:var(--dim);font-size:14px;cursor:pointer;} .ds-acts>summary::-webkit-details-marker{display:none;} .ds-acts>summary:hover,.ds-acts[open]>summary{color:var(--porcelain);} .ds-acts[open]>summary{border-color:var(--beam);} .ds-act-list{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.6rem;padding-top:.75rem;border-top:1px solid var(--rule);} .ds-pill{min-height:44px;padding:0 .95rem;border:1px solid var(--field-edge);border-radius:999px;background:none;color:var(--porcelain);font:inherit;font-size:14px;cursor:pointer;} .ds-pill:hover{border-color:var(--beam);} .ds-pill:focus-visible,.ds-acts>summary:focus-visible{outline:2px solid var(--lamp);outline-offset:3px;}"
+    },
+    {
+      "name": "Small Station Mark",
+      "kind": "custom",
+      "refersTo": "station-mark-small",
+      "description": "A station for a row off the line: working, erroring, off, on its way.",
+      "html": "<div class=\"ds-ground\"><span class=\"ds-sm\"></span> Chat <span class=\"ds-sm down\"></span> Embeddings <span class=\"ds-sm off\"></span> Images <span class=\"ds-sm starting\"></span> Speech</div>",
+      "css": ":host{--night:#141a21;--enamel-hi:#222c36;--rule:#26313b;--porcelain:#f3f1e9;--dim:#a3abb1;--beam:#79a59d;--lamp:#f1c191;--down:#d9583b;--down-ink:#f29a85;--field-edge:#6f7c87;} .ds-ground{background:var(--night);color:var(--porcelain);padding:20px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:16px;} .ds-ground{display:flex;align-items:center;gap:.55rem;font-size:15px;font-weight:600;} .ds-sm{flex:none;width:16px;height:16px;border-radius:50%;border:4px solid var(--beam);background:var(--porcelain);box-sizing:border-box;} .ds-sm.down{border-color:var(--down);background:var(--night);} .ds-sm.off{border-color:var(--field-edge);background:var(--night);} .ds-sm.starting{background:var(--night);}"
+    },
+    {
+      "name": "Usage Graph",
+      "kind": "custom",
+      "refersTo": "",
+      "description": "A day of one figure, drawn like the line: beam stroke, baseline only, dashed where not yet measured, a dot at now.",
+      "html": "<div class=\"ds-ground\"><div class=\"ds-tile\"><div class=\"ds-dt\">Memory</div><svg viewBox=\"0 0 96 36\" preserveAspectRatio=\"none\"><line class=\"base\" x1=\"0\" y1=\"35\" x2=\"96\" y2=\"35\"/><polyline class=\"unmeasured\" points=\"0,30 30,30\"/><polyline class=\"spark\" points=\"30,28 40,22 52,24 64,14 76,18 90,10\"/><polyline class=\"dot\" points=\"90,10 90,10\"/></svg><span class=\"ds-val\">142 MB</span></div></div>",
+      "css": ":host{--night:#141a21;--enamel-hi:#222c36;--rule:#26313b;--porcelain:#f3f1e9;--dim:#a3abb1;--beam:#79a59d;--lamp:#f1c191;--down:#d9583b;--down-ink:#f29a85;--field-edge:#6f7c87;} .ds-ground{background:var(--night);color:var(--porcelain);padding:20px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:16px;} .ds-tile{width:180px;} .ds-dt{font-size:13px;font-weight:550;} svg{display:block;width:100%;height:36px;margin:.4rem 0;overflow:visible;} .base,.unmeasured,.spark,.dot{fill:none;} .base{stroke:var(--rule);stroke-width:1px;vector-effect:non-scaling-stroke;} .unmeasured{stroke:var(--field-edge);stroke-width:1px;stroke-dasharray:2 4;vector-effect:non-scaling-stroke;} .spark{stroke:var(--beam);stroke-width:2px;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke;} .dot{stroke:var(--beam);stroke-width:5px;stroke-linecap:round;vector-effect:non-scaling-stroke;} .ds-val{font-size:13px;color:var(--dim);font-variant-numeric:tabular-nums;}"
+    },
+    {
+      "name": "Log Line",
+      "kind": "custom",
+      "refersTo": "level-tag",
+      "description": "One line of an app's output in columns: time, app, level as a plain word, message, fields beneath.",
+      "html": "<div class=\"ds-ground\"><div class=\"ds-log\"><time>Nov 19 08:34:13</time><span class=\"svc\">Yarr</span><span class=\"lv warn\">warn</span><p class=\"msg\">slow refresh of https://example.com/feed.xml</p><p class=\"f\">feed=42 took=8.2s</p></div><div class=\"ds-log\"><time>Nov 19 08:34:16</time><span class=\"svc\">Sous</span><span class=\"lv error\">error</span><p class=\"msg\">could not open database: database is locked</p></div></div>",
+      "css": ":host{--night:#141a21;--enamel-hi:#222c36;--rule:#26313b;--porcelain:#f3f1e9;--dim:#a3abb1;--beam:#79a59d;--lamp:#f1c191;--down:#d9583b;--down-ink:#f29a85;--field-edge:#6f7c87;} .ds-ground{background:var(--night);color:var(--porcelain);padding:20px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:16px;} .ds-ground{display:grid;grid-template-columns:max-content max-content max-content minmax(0,1fr);column-gap:.9rem;} .ds-log{display:grid;grid-template-columns:subgrid;grid-column:1/-1;align-items:baseline;padding:.3rem 0;border-top:1px solid var(--rule);font-size:12px;color:var(--dim);} .ds-log time{font-family:ui-monospace,'SF Mono',Menlo,monospace;font-variant-numeric:tabular-nums;grid-column:1;grid-row:1;} .svc{color:var(--beam);font-weight:550;grid-column:2;grid-row:1;} .lv{grid-column:3;grid-row:1;justify-self:start;padding:0 5px;border:1px solid var(--rule);border-radius:3px;font-weight:550;} .lv.warn{color:var(--porcelain);border-color:var(--field-edge);} .lv.error{color:var(--down-ink);border-color:rgba(242,154,133,.6);} .msg,.f{grid-column:4;margin:0;font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:13px;color:var(--porcelain);overflow-wrap:anywhere;} .msg{grid-row:1;} .f{font-size:12px;color:var(--dim);}"
     }
   ],
   "narrative": {
@@ -382,7 +439,7 @@
     "rules": [
       {
         "name": "The One Lamp Rule",
-        "body": "Amber belongs to the lamp and to the operator's own instruments (focus ring, caret, selection, skip link). It never marks a status, a link, a heading or a button.",
+        "body": "Amber belongs to the lamp and to the operator's own instruments (focus ring, caret, selection, checkbox tick, skip link). It never marks a status, a link, a heading or a button.",
         "section": "colors"
       },
       {
@@ -397,7 +454,7 @@
       },
       {
         "name": "The Machine Strings Rule",
-        "body": "Monospace is for the host, app addresses, the hub tally, and `outpost` commands or usernames in `code`. Names, descriptions and prose are never mono.",
+        "body": "Monospace is for the host, app addresses, the hub tally, the footer's build, and `outpost` commands or usernames in `code`. Names, descriptions and prose are never mono.",
         "section": "typography"
       },
       {
@@ -412,23 +469,24 @@
       }
     ],
     "dos": [
-      "**Do** draw service state on the line: solid for up, half-lit for starting, a hollow red station and a broken stretch for down.",
-      "**Do** keep every interactive control at least 44px tall (pills 44px, buttons and inputs 46px, station rows 72px); inline links in rows keep at least a 24px target.",
-      "**Do** separate content with 1px rules in the rule colour, never with boxes.",
-      "**Do** put the address, host, tally and commands in monospace with tabular figures, and nothing else.",
-      "**Do** give every destructive action the red ghost button and every primary action the porcelain button.",
-      "**Do** keep motion to the station's hover scale (0.2s, cubic-bezier(0.16, 1, 0.3, 1)) and turn it off under `prefers-reduced-motion: reduce`.",
-      "**Do** ship styles and scripts as files from the binary, versioned by a hash of their content, so the CSP stays `default-src 'self'`."
+      "Do draw service state on the line: solid for up, half-lit for starting, a hollow red station and a broken stretch for down.",
+      "Do keep every interactive control at least 44px tall (pills 44px, buttons and inputs 46px, station rows 72px); inline links in rows keep at least a 24px target.",
+      "Do separate content with 1px rules in the rule colour, never with boxes.",
+      "Do put the address, host, tally and commands in monospace with tabular figures, and nothing else.",
+      "Do give every destructive action the red ghost button and every primary action the porcelain button.",
+      "Do keep motion to the station's hover scale and the disclosure chevron's turn (0.2s, cubic-bezier(0.16, 1, 0.3, 1)), and turn both off under `prefers-reduced-motion: reduce`.",
+      "Do ship styles and scripts as files from the binary, versioned by a hash of their content, so the CSP stays `default-src 'self'`."
     ],
     "donts": [
-      "**Don't** use amber for anything but the lamp, the focus ring, the caret, the selection and the skip link.",
-      "**Don't** use red for anything but a down station, destructive actions, and form errors.",
-      "**Don't** animate the line: no pulsing stations, flowing dashes or loading shimmer.",
-      "**Don't** put apps in cards or icon tiles; an app is a station on the line.",
-      "**Don't** add shadows other than the lamp's glow.",
-      "**Don't** write inline `style` attributes or inline `<script>`; the CSP forbids them.",
-      "**Don't** fetch fonts, icons or images from anywhere; everything is embedded.",
-      "**Don't** add a light theme."
+      "Don't use amber for anything but the lamp, the focus ring, the caret, the selection, a checkbox's tick and the skip link.",
+      "Don't use red for anything but a down station, destructive actions, and form errors.",
+      "Don't animate the line: no pulsing stations, flowing dashes or loading shimmer.",
+      "Don't put apps in cards or icon tiles; an app is a station on the line.",
+      "Don't add shadows other than the lamp's glow.",
+      "Don't write inline `style` attributes or inline `<script>`; the CSP forbids them.",
+      "Don't fetch fonts, icons or images from anywhere; everything is embedded.",
+      "Don't draw an icon as a Unicode glyph or emoji; icons come from the one sprite in the page (16-unit grid, 1.5 stroke, round caps, shown at 14px in the colour of the text beside them), always with the word for a screen reader.",
+      "Don't add a light theme."
     ]
   }
 }

@@ -269,6 +269,8 @@ step 3.
   need it, but they also need OAuth (Dynamic Client Registration), which is
   `spec.md` §3's open question. Bearer tokens over the internet without that
   are a separate decision.
+  That decision has since been made for one app's own `mcp_path`, not
+  `/mcp/<name>`: see [mcp-over-funnel.md](mcp-over-funnel.md).
 - **Exposing a whole app, or the portal, publicly.**
 - **Ports other than 443.** Funnel also allows 8443 and 10000, but the app's
   own address is the point.

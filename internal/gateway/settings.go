@@ -112,7 +112,7 @@ func (g *Gateway) settle(sts []station, fl *settingsFlash) {
 		mailStatus = g.mail.Status()
 		var err error
 		if held, err = g.mail.Held(); err != nil {
-			g.logf("gateway: %v", err) // the panels say "No mail yet." rather than fail the page
+			g.lg("err", err).Warnf("gateway: %v", err) // the panels say "No mail yet." rather than fail the page
 		}
 	}
 	// The apps' names and titles from the stations, already titled from the
@@ -144,6 +144,9 @@ func (g *Gateway) settle(sts []station, fl *settingsFlash) {
 		set := &appSettings{Name: st.Name, Title: st.Title}
 		if g.exposure != nil {
 			row := publicRowFor(rt)
+			if _, ok := g.exposure.(MCPExposure); ok {
+				row.MCP = mcpRowFor(rt)
+			}
 			set.Public = &row
 		}
 		if g.secrets != nil {
@@ -245,6 +248,10 @@ func (g *Gateway) settingsNotice(r *http.Request) *settingsFlash {
 		fl.Panel, fl.Notice = panelPublic, "Saved. It takes effect in a few seconds; the app itself doesn't restart."
 	case "public-reset":
 		fl.Panel, fl.Notice = panelPublic, "Back to what the manifest says."
+	case "mcp-saved":
+		fl.Panel, fl.Notice = panelPublic, "Saved. It takes effect in a few seconds; the app itself doesn't restart."
+	case "mcp-reset":
+		fl.Panel, fl.Notice = panelPublic, "The MCP endpoint is back to what the manifest says."
 	case "secret-added", "secret-replaced", "secret-removed":
 		name := q.Get("secret")
 		if secrets.ValidName(name) != nil {
@@ -323,7 +330,7 @@ func (g *Gateway) settingsSubmit(w http.ResponseWriter, r *http.Request) {
 	record := func(kind, format string, v ...any) {
 		what := fmt.Sprintf(format, v...)
 		g.activity.record(kind, "%s %s from %s", u.Username, what, g.clientIP(r))
-		g.logf("gateway: %s %s", u.Username, what)
+		g.lg("user", u.Username).Infof("gateway: %s %s", u.Username, what)
 	}
 	unknown := func() {
 		g.message(w, r, http.StatusBadRequest, "That didn't go through", "The form couldn't be read. Try again.", g.portalLink(), "Back to apps")
@@ -351,6 +358,29 @@ func (g *Gateway) settingsSubmit(w http.ResponseWriter, r *http.Request) {
 		}
 		record(EventExposure, "%s for %s", describeExposure(funnel, paths), app)
 		back("public-saved", nil)
+
+	case "mcp-save", "mcp-reset":
+		m, ok := g.exposure.(MCPExposure)
+		if !ok || rt.MCPPath == "" {
+			unknown()
+			return
+		}
+		if action == "mcp-reset" {
+			if err := m.ResetMCPFunnel(ctx, app, u.Username); err != nil {
+				refuse(panelPublic, err, settingsFlash{})
+				return
+			}
+			record(EventExposure, "went back to the manifest's setting for %s's MCP endpoint on the internet", app)
+			back("mcp-reset", nil)
+			return
+		}
+		on := f.Get("mcp_funnel") != ""
+		if err := m.SetMCPFunnel(ctx, app, on, u.Username); err != nil {
+			refuse(panelPublic, err, settingsFlash{})
+			return
+		}
+		record(EventExposure, "%s", describeMCPExposure(on, app, rt.MCPPath))
+		back("mcp-saved", nil)
 
 	case "secret-add", "secret-replace", "secret-remove":
 		if g.secrets == nil {
@@ -501,12 +531,7 @@ func (g *Gateway) renderHome(w http.ResponseWriter, r *http.Request, u auth.User
 	if u.Admin && g.updater != nil {
 		g.checkIfStale()
 		d.Waiting = g.waiting()
-		d.UpdatesLink = true
 	}
-	d.AddLink = u.Admin && g.adder != nil
-	d.SecretsLink = u.Admin && g.secrets != nil
-	d.AILink = u.Admin && g.ai != nil
-	d.MailLink = u.Admin && g.mail != nil
 	if u.Admin && g.control != nil {
 		d.Poll = g.manage(d.Stations)
 	}

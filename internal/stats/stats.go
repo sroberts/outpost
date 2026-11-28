@@ -17,6 +17,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/log"
+
+	"github.com/sroberts/outpost/internal/logging"
 	"github.com/sroberts/outpost/internal/runtime"
 	"github.com/sroberts/outpost/internal/supervisor"
 )
@@ -73,6 +76,11 @@ type Usage struct {
 	// reading; In and Out its total.
 	CPUSeries, RSSSeries, StorageSeries, InSeries, OutSeries []float64
 
+	// Each Recent series is the last RecentSlots 30-second samples as taken,
+	// oldest first, ending with the current one, with gaps as in the
+	// quarter-hour series.
+	RecentCPU, RecentRSS, RecentIn, RecentOut []float64
+
 	// Since is the oldest sample the series draw on, so a page can say how
 	// much of the day it knows about.
 	Since time.Time
@@ -87,6 +95,8 @@ type Options struct {
 	Traffic func() map[string]Bytes
 	Now     func() time.Time
 	Logf    func(format string, v ...any)
+	// Logger supersedes Logf, logging at levels and with fields.
+	Logger *log.Logger
 }
 
 // Sampler measures every service on a timer and keeps the history.
@@ -96,6 +106,7 @@ type Sampler struct {
 	traffic func() map[string]Bytes
 	now     func() time.Time
 	logf    func(format string, v ...any)
+	logger  *log.Logger
 
 	listTimeout time.Duration
 	walkLimit   time.Duration
@@ -157,6 +168,7 @@ func New(opts Options) *Sampler {
 		traffic:     opts.Traffic,
 		now:         opts.Now,
 		logf:        opts.Logf,
+		logger:      opts.Logger,
 		listTimeout: listTimeout,
 		walkLimit:   walkLimit,
 		entryLimit:  entryLimit,
@@ -169,11 +181,16 @@ func New(opts Options) *Sampler {
 	if s.now == nil {
 		s.now = time.Now
 	}
-	if s.logf == nil {
+	if s.logger != nil {
+		s.logf = nil
+	} else if s.logf == nil {
 		s.logf = func(string, ...any) {}
 	}
 	return s
 }
+
+// lg is where a line goes, with kv as its fields.
+func (s *Sampler) lg(kv ...any) logging.Line { return logging.To(s.logger, s.logf, kv...) }
 
 // Usage is the latest snapshot for a service, and false for one the sampler
 // hasn't seen.
@@ -182,6 +199,18 @@ func (s *Sampler) Usage(name string) (Usage, bool) {
 	defer s.snapMu.RUnlock()
 	u, ok := s.snaps[name]
 	return u, ok
+}
+
+// All is the latest snapshot of every service, keyed by name. The map is the
+// caller's; the Usages in it share their slices with other readers.
+func (s *Sampler) All() map[string]Usage {
+	s.snapMu.RLock()
+	defer s.snapMu.RUnlock()
+	out := make(map[string]Usage, len(s.snaps))
+	for name, u := range s.snaps {
+		out[name] = u
+	}
+	return out
 }
 
 // Run samples every 30 seconds, and walks storage every 10 minutes, until ctx
@@ -274,7 +303,7 @@ func (s *Sampler) report(listErr, probeErr error) {
 		msg = err.Error()
 	}
 	if msg != "" && msg != s.lastErr {
-		s.logf("stats: %s", msg)
+		s.lg().Warnf("stats: %s", msg)
 	}
 	s.lastErr = msg
 }
@@ -387,6 +416,7 @@ func (svc *service) usage(now time.Time) Usage {
 		InSeries:       ser.in,
 		OutSeries:      ser.out,
 	}
+	u.RecentCPU, u.RecentRSS, u.RecentIn, u.RecentOut = svc.samples.recent(now)
 	if ser.since != 0 {
 		u.Since = time.Unix(ser.since, 0)
 	}
@@ -444,7 +474,7 @@ func (s *Sampler) walkAll(ctx context.Context) {
 			// that hasn't started: nothing to measure, and nothing to log
 			// every ten minutes until it does.
 			if ctx.Err() == nil && !errors.Is(err, fs.ErrNotExist) {
-				s.logf("stats: %s: storage: %v", t.name, err)
+				s.lg("service", t.name, "err", err).Warnf("stats: %s: storage: %v", t.name, err)
 			}
 			continue
 		}

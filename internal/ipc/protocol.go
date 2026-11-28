@@ -5,7 +5,9 @@
 // The wire format is one JSON request per connection and one JSON response
 // back. That is enough for the control commands; log following stays a direct
 // file read on the client side, since streaming it would need a framed
-// protocol for no practical gain on a single-machine socket.
+// protocol for no practical gain on a single-machine socket. The exception is
+// watch, which answers with newline-delimited responses for as long as the
+// client stays, so a TUI hears of a change instead of polling for it.
 package ipc
 
 import (
@@ -13,9 +15,11 @@ import (
 	"time"
 
 	"github.com/sroberts/outpost/internal/ai"
+	"github.com/sroberts/outpost/internal/applog"
 	"github.com/sroberts/outpost/internal/auth"
 	"github.com/sroberts/outpost/internal/backup"
 	"github.com/sroberts/outpost/internal/gateway"
+	"github.com/sroberts/outpost/internal/mail"
 	"github.com/sroberts/outpost/internal/supervisor"
 )
 
@@ -33,6 +37,11 @@ const (
 	CmdBackup  = "backup"
 	CmdRestore = "restore"
 	CmdBackups = "backups"
+	// CmdStats reports usage from the sampler; CmdWatch streams the service
+	// list as it changes, the one command that answers with more than one
+	// response.
+	CmdStats = "stats"
+	CmdWatch = "watch"
 
 	CmdUserAdd     = "user.add"
 	CmdUserPasswd  = "user.passwd"
@@ -50,6 +59,10 @@ const (
 	CmdTokenCreate = "token.create"
 	CmdTokenList   = "token.list"
 	CmdTokenRevoke = "token.revoke"
+	// CmdTokenClients lists OAuth clients' grants, and CmdTokenRevokeClient
+	// ends one.
+	CmdTokenClients      = "token.clients"
+	CmdTokenRevokeClient = "token.revoke-client"
 
 	CmdGatewayStatus = "gateway.status"
 
@@ -67,6 +80,19 @@ const (
 	CmdAIApps       = "ai.apps"
 	CmdAIAppsReset  = "ai.apps-reset"
 	CmdAIKey        = "ai.key"
+
+	CmdMailStatus      = "mail.status"
+	CmdMailAccount     = "mail.account"
+	CmdMailCheck       = "mail.check"
+	CmdMailAliasAdd    = "mail.alias-add"
+	CmdMailAliasRemove = "mail.alias-rm"
+	CmdMailSend        = "mail.send"
+	CmdMailRegenerate  = "mail.regenerate"
+
+	CmdExposureSet      = "exposure.set"
+	CmdExposureReset    = "exposure.reset"
+	CmdExposureMCP      = "exposure.mcp"
+	CmdExposureMCPReset = "exposure.mcp-reset"
 )
 
 // Timeouts. Most commands are near-instant queries against the supervisor's
@@ -115,6 +141,12 @@ type Request struct {
 	Secret *SecretRequest `json:"secret,omitempty"`
 	// AI carries the ai.* commands' arguments.
 	AI *AIRequest `json:"ai,omitempty"`
+	// Logs carries the logs command's arguments.
+	Logs *LogsRequest `json:"logs,omitempty"`
+	// Mail carries the mail.* commands' arguments.
+	Mail *MailRequest `json:"mail,omitempty"`
+	// Exposure carries the exposure.* commands' arguments.
+	Exposure *ExposureRequest `json:"exposure,omitempty"`
 }
 
 // UserRequest is the argument to a user.* command. Password is in clear: it
@@ -194,6 +226,8 @@ type Response struct {
 	SignIns  []SignInInfo               `json:"sign_ins,omitempty"`
 	Gateway  *gateway.Status            `json:"gateway,omitempty"`
 	Tokens   []TokenInfo                `json:"tokens,omitempty"`
+	// Clients is token.clients' result: OAuth grants, with no secrets.
+	Clients []ClientInfo `json:"clients,omitempty"`
 	// Secret is a new access token, set only by token.create. It crosses the
 	// 0600 socket once and the daemon keeps nothing it could be read back from.
 	Secret string `json:"secret,omitempty"`
@@ -203,6 +237,13 @@ type Response struct {
 	AI *ai.Overview `json:"ai,omitempty"`
 	// AITest is ai.test's result.
 	AITest *ai.TestResult `json:"ai_test,omitempty"`
+	// Usage is stats' result, keyed by service name.
+	Usage map[string]UsageInfo `json:"usage,omitempty"`
+	// Logs is the logs command's result, oldest first.
+	Logs []applog.Record `json:"logs,omitempty"`
+	// Mail is mail.status's result; MailRoute the address mail.alias-add made.
+	Mail      *MailOverview `json:"mail,omitempty"`
+	MailRoute *mail.Route   `json:"mail_route,omitempty"`
 }
 
 // errorResponse builds a failure reply.

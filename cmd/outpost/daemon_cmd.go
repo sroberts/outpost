@@ -149,7 +149,7 @@ func (a *app) findDaemonJob(label string, systemOnly bool) (daemonJob, error) {
 		if err != nil {
 			return daemonJob{}, err
 		}
-		unit, err := mgr.UnitPath(cfg)
+		unit, err := unitPath(mgr, cfg)
 		if err != nil {
 			return daemonJob{}, err
 		}
@@ -180,13 +180,51 @@ func (a *app) findDaemonJob(label string, systemOnly bool) (daemonJob, error) {
 		}
 		return daemonJob{}, a.noDaemonJob(label, looked)
 	}
+	var loaded []daemonJob
 	for _, job := range found {
 		if initProbe(job.mgr.LoadedCommand(job.cfg, effectiveUID())) {
 			job.loaded = true
-			return job, nil
+			loaded = append(loaded, job)
 		}
 	}
-	return found[0], nil
+	switch len(loaded) {
+	case 0:
+		return found[0], nil
+	case 1:
+		return loaded[0], nil
+	default:
+		return daemonJob{}, duplicateJobs(loaded)
+	}
+}
+
+// unitPath is where a job's file lives. It is a seam because the system-scope
+// path is fixed (/Library/LaunchDaemons, /etc/systemd/system) and a test can't
+// write there.
+var unitPath = func(mgr autostart.Manager, cfg autostart.Config) (string, error) {
+	return mgr.UnitPath(cfg)
+}
+
+// duplicateJobs explains why nothing was restarted when jobs at both scopes
+// start a daemon for this home. Only one of them can hold the socket and the
+// ports, and the other crash-loops beside it, so restarting either one is a
+// guess: picking the user job while the system job's daemon was the one up is
+// how an update once waited on a daemon that never came, and rolled back.
+func duplicateJobs(jobs []daemonJob) error {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d autostart jobs start a daemon for this home, so there is no telling which one to restart, "+
+		"and nothing was:", len(jobs))
+	for _, job := range jobs {
+		fmt.Fprintf(&b, "\n  %s (%s scope)", job.unit, job.cfg.Scope)
+	}
+	b.WriteString("\nOnly one daemon can run a home; the other job starts one that can't get the ports, " +
+		"again and again. Remove the job you don't want, then run this again.")
+	for _, job := range jobs {
+		fmt.Fprintf(&b, "\nTo remove the %s job:", job.cfg.Scope)
+		for _, cmd := range job.mgr.DisableCommands(job.unit, job.cfg) {
+			fmt.Fprintf(&b, "\n  %s", strings.Join(cmd, " "))
+		}
+	}
+	return errors.New(b.String())
 }
 
 // samePath compares two paths the way the filesystem would: on macOS a temp

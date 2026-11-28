@@ -33,6 +33,11 @@ typography:
     fontSize: "21px"
     fontWeight: 650
     lineHeight: 1.15
+  row-name:
+    fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, sans-serif"
+    fontSize: "17px"
+    fontWeight: 650
+    lineHeight: 1.2
   title:
     fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, sans-serif"
     fontSize: "19px"
@@ -161,6 +166,27 @@ components:
     backgroundColor: "{colors.lamp}"
     rounded: "{rounded.disc}"
     size: "44px"
+  button-outline:
+    backgroundColor: "transparent"
+    textColor: "{colors.porcelain}"
+    rounded: "{rounded.control}"
+    padding: "0 1.1rem"
+    height: "46px"
+  pill-manage:
+    backgroundColor: "transparent"
+    textColor: "{colors.dim}"
+    rounded: "{rounded.pill}"
+    padding: "0 0.8rem"
+    height: "36px"
+  station-mark-small:
+    backgroundColor: "{colors.porcelain}"
+    rounded: "{rounded.disc}"
+    size: "16px"
+  level-tag:
+    backgroundColor: "transparent"
+    textColor: "{colors.dim}"
+    rounded: "{rounded.label}"
+    padding: "0 5px"
 ---
 
 # Design System: Outpost
@@ -191,12 +217,12 @@ A cold enamel night lit by exactly two warm things: the amber lamp and, when som
 - **Beam Teal** (beam): the line itself, every station ring that is up, the hub tally, app addresses, link underlines, the notice text and hover borders on pills and inputs. It is the colour of "working".
 
 ### Secondary
-- **Lamp Amber** (lamp, with lamp-core at the disc's hot centre): the hub lamp, and the operator's own instruments: the focus ring, the text caret, the text selection and the skip link. Nothing else.
+- **Lamp Amber** (lamp, with lamp-core at the disc's hot centre): the hub lamp, and the operator's own instruments: the focus ring, the text caret, the text selection, a checkbox's tick and the skip link. Nothing else.
 
 ### Tertiary
 - **Signal Red** (down): the ring of a down station. Nothing else.
 - **Signal Red Plate** (down-plate): the fill behind the porcelain DOWN label, darkened from Signal Red so porcelain text on it stays legible (about 4.9:1).
-- **Signal Red Ink** (down-ink): readable red text on night: a down station's reason, form error messages, the border of an invalid field, and the destructive ghost button.
+- **Signal Red Ink** (down-ink): readable red text on night: a down station's reason, form error messages, the border of an invalid field, the destructive ghost button, and the tag of an error-level line on the Logs page (the tag only; the line itself stays porcelain).
 
 ### Neutral
 - **Enamel Night** (night): the ground of every page, the input fill, and the hollow centre of starting and down stations. Also the browser `theme-color`.
@@ -204,11 +230,11 @@ A cold enamel night lit by exactly two warm things: the amber lamp and, when som
 - **Rule** (rule): hairline dividers between stations and panels, the rail's bottom edge, pill and tag outlines, the scrollbar.
 - **Porcelain** (porcelain): primary ink, station fills, the primary button.
 - **Porcelain Pressed** (porcelain-press): primary button hover only.
-- **Dim Porcelain** (dim): secondary text: the host in the rail, descriptions, ledes, hints, the quiet pill, the hidden tag.
+- **Dim Porcelain** (dim): secondary text: the host in the rail, descriptions, ledes, hints, the quiet pill, the station tags.
 - **Field Edge** (field-edge): input borders at rest (about 4.1:1 on night).
 
 ### Named Rules
-**The One Lamp Rule.** Amber belongs to the lamp and to the operator's own instruments (focus ring, caret, selection, skip link). It never marks a status, a link, a heading or a button.
+**The One Lamp Rule.** Amber belongs to the lamp and to the operator's own instruments (focus ring, caret, selection, checkbox tick, skip link). It never marks a status, a link, a heading or a button.
 
 **The Red Means Down Rule.** Signal Red is spent only on a down station and on destructive actions; its ink variant also carries form errors and invalid fields. A screen with nothing down and nothing destructive shows no red.
 
@@ -225,18 +251,19 @@ A cold enamel night lit by exactly two warm things: the amber lamp and, when som
 ### Hierarchy
 - **Headline** (750, 28px, rising to 32px at 42rem, line-height 1.1, -0.015em): the portal name in the hub and each page's h1. Balanced wrapping.
 - **Station name** (650, 21px, 1.15): each app's name on the line; wraps anywhere rather than overflowing.
+- **Row name** (650, 17px, 1.2): the name heading a row that isn't a station: a secret, a provider, an app in a list.
 - **Title** (680, 19px, 1.1): panel headings (Sign in, Change password).
 - **Body** (400, 16px, 1.4): running prose, ledes, messages.
 - **Field label** (550, 15px): form labels, stacked above their inputs.
 - **Meta** (400, 14px): station descriptions, down reasons, pill text, the filter label.
 - **Hint** (400, 13px): field hints and footnotes.
-- **Status label** (650, 11px, 0.06em, uppercase): only the station state (DOWN, RESTARTING) and the HIDDEN tag.
+- **Status label** (650, 11px, 0.06em, uppercase): only the station state (DOWN, RESTARTING) and the station tags (HIDDEN, PUBLIC, GATEWAY ONLY).
 - **Mono** (13px for the rail host; 12px for addresses, the tally, and commands): tabular figures.
 
 ### Named Rules
 **The Machine Strings Rule.** Monospace is for the host, app addresses, the hub tally, the footer's build, and `outpost` commands or usernames in `code`. Names, descriptions and prose are never mono.
 
-**The Status Label Rule.** Uppercase tracked text is reserved for the state label and the hidden tag sitting beside a station name. It is never used as a heading or a label above a heading.
+**The Status Label Rule.** Uppercase tracked text is reserved for the state label and the station tags sitting beside a station name. It is never used as a heading or a label above a heading.
 
 ## Layout
 
@@ -273,11 +300,14 @@ Plain and certain; one filled button per form.
 - **Focus:** the global amber ring (2px, offset 3px).
 - **Destructive ghost:** transparent with Signal Red Ink text and a 1px Signal Red Ink border at 60% alpha; hover lays a 12% Signal Red wash. Used for "Sign out everywhere".
 - **Link as button:** a link that continues a flow (the onward link on message pages) takes the primary button style.
+- **Outline:** transparent with porcelain text and a 1px field-edge border, hover turning it beam. For a secondary action that isn't destructive.
+- **Disabled:** the same button at half opacity with a not-allowed cursor, sized to its words, never stretched across the column; a hint beneath says when it comes back ("Once Outpost is back").
 
 ### Pills (rail controls)
 - **Style:** full pill (999px), transparent, 1px rule outline, 14px porcelain text, 44px tall.
 - **Quiet:** dim text, porcelain on hover (sign out).
 - **Hover:** outline turns beam teal; the fill stays empty.
+- **In rows:** the same pill with a field-edge outline is every per-row control (a row's actions, its one step back, a page's Check now). One row of pills sits on a single centre line.
 
 ### Inputs / Fields
 - **Style:** night fill, porcelain text, 1px field-edge border, 6px radius, 46px tall, 0.6rem 0.75rem padding. Labels stack above in field-label type.
@@ -288,8 +318,12 @@ Plain and certain; one filled button per form.
 ### Navigation
 The rail: a full-width bar with a 1px rule beneath. Left, the host in 13px dim monospace (porcelain on hover), padded to a tall tap area and truncated with an ellipsis. Right, the account pill and the quiet sign-out pill. A skip link ("Skip to apps") sits above the rail off-screen and drops in as an amber tab on focus.
 
+An admin's places (Updates, Add an app, Secrets, AI models, Mail, Logs, each only when it's there) are one list at the foot of every page, above the footer and under a rule: 14px dim links with beam underlines on an even grid, 44px tall. The page you're on is porcelain, 600, not underlined, and marked `aria-current`. They sit at the foot so the catalog still leads with the line, and any page reaches any other in one tap.
+
+The footer carries the build and, for an admin, an "App spec" link: the service spec as published with the running release, on GitHub so an assistant on the internet can read it. It is as quiet as the build until pointed at, in the body face because it is a name, its target extended past 44px.
+
 ### The Hub (signature)
-The lamp (a 44px glowing amber disc) beside the portal name in headline type, with the tally beneath in 12px beam monospace ("3 running · 1 down · 1 stopped"). The lamp sits in the same 44px column as the line, which starts just below it. On door pages without the line the hub may drop the lamp (sign-in, which carries the plate instead).
+The lamp (a 44px glowing amber disc) beside the portal name in headline type, with the tally beneath in 12px beam monospace ("3 running · 1 down · 1 stopped"). The tally is status only: the one link it may carry is updates waiting ("2 updates available"); places live in the list at the foot. The lamp sits in the same 44px column as the line, which starts just below it. On door pages without the line the hub may drop the lamp (sign-in, which carries the plate instead).
 
 ### The Line and its Stations (signature)
 An ordered list; each station draws the stretch of line above it, so the line ends exactly at the last running station.
@@ -299,10 +333,35 @@ An ordered list; each station draws the stretch of line above it, so the line en
 - **Stopped on purpose:** a hollow night centre in a Field Edge ring on the same broken line; the STOPPED label is dim on a rule outline and the reason is dim. Someone chose this, so it spends no red. Start sits in the row, not behind Manage.
 - **Order:** running first, then starting, then down, then stopped, so the broken stretches gather at the end of the line.
 - **Hidden:** admins see a HIDDEN tag (dim text, rule outline) beside the name.
+- **Reach:** in the same tag style, admins see PUBLIC beside an app the internet reaches through Funnel (a link to its Internet access setting, its target extended past 44px) and GATEWAY ONLY beside an app with no tailnet node of its own. The default, an app on the tailnet, carries no tag; its address already says so.
 - **Solo:** a message page can show a single station on a short line to explain why an app is unavailable.
 
 ### Command chip
 `outpost status <app>` in 12px porcelain monospace on Raised Enamel, 1px rule border, 4px radius, selectable as a whole with one tap.
+
+### Confirm
+Every action that changes something is a disclosure, not a modal: its pill opens a short paragraph of consequences in 14px dim, then the one porcelain button that does it, named in full ("Update Sous to v0.14.0"). Tapping the pill again cancels; a `noscript` hint says so. An error inside a confirmation keeps the error style.
+
+### Disclosure chevron
+A drawn 6px chevron (two 1.5px currentColor strokes, rotated 45°) at the end of a summary line; open, it turns to point up (translateY(3px), rotate(-135deg)) over 0.2s on the station's curve, and doesn't move under reduced motion. Used by the Manage pill, usage figures, settings lines, folded sections and More filters. Never a Unicode arrow.
+
+### Manage menu
+An admin's actions on a station. A 36px quiet pill pinned to the row's top right, its target extended past 44px, opening a strip of row pills beneath a rule at the foot of the row so nothing above moves. While an action runs, the station goes half lit as when starting and the state label, outlined in beam, says what is happening. The row's focus ring then rings the name rather than the whole row, stopping short of the pill.
+
+### Usage figures and graphs
+A line of figures under a station's description (14px dim, tabular), each with its sprite icon; the line is the disclosure for a day of graphs beneath a rule. Graphs are drawn like the line itself: beam strokes (2px, round joins) on the night with no frame or grid, only a rule-coloured baseline, a 5px round-cap dot at the latest value, and the stretch not yet measured drawn dashed in field-edge. Every graph shares one day-wide clock. A second series is porcelain, never a second accent, and a key names each in words. Tiles sit two across, four at the breakpoint, with a wide gap so one graph's end dot can't be read as the next one's start.
+
+### Small station mark
+A 16px station for a row that isn't on the line (an AI model, the mail account): porcelain in a 4px beam ring when it works, a hollow night centre in Signal Red when apps asking get an error, a hollow field-edge ring when it's off or unset, and a hollow beam ring on its way.
+
+### Rows and settings lines
+Lists that aren't stations (secrets, sign-ins, providers) are rows under 1px rules: a row name, a 14px dim meta sentence, then a row of pills. An app's own settings sit under its Manage menu as lines that open one at a time: a 15px 600 name on the left, a dim count on the right (Signal Red Ink when something needs attention), the chevron at the end. Reference matter read once (how apps call the AI endpoint) folds the same way under a real heading.
+
+### Logs
+The one page that leaves the 40rem measure: at the breakpoint it, its rail and its footer widen to 72rem, because log output is long and wrapping it wastes the screen. App, Level and Show share one row; Stream, Lines and Containing fold under a "More filters" disclosure that opens itself when one of them is set. Lines are monospaced; at the breakpoint they become columns (time, app when showing every app, level, message, with fields beneath the message) shared down the list through a subgrid, and below it each line keeps a wrapping meta row above its message. A level is a plain 12px word in a rule outline, not a status label: dim for info, porcelain on a field-edge outline for a warning, Signal Red Ink for an error. Amber marks no level.
+
+### Updates
+The page answers "what can I update?" before listing anything: a summary line (how many apps have a newer release, when that was checked) with a quiet pill to check again, and, with two or more waiting, an **Update all** pill (porcelain outline, 600 weight) that confirms like every other update. Rows are ordered by need: apps with a release waiting, running or queued; then Outpost; then apps whose check failed (14px Signal Red Ink, not bold, since nothing is down); then an "Up to date" group, a single line each with name and installed release. A finished update reads "Updated from vX" with the raw output behind "What happened".
 
 ### Filter
 Once the line is long, a "Filter apps" search field appears above it; it is present in the markup hidden and revealed by the one external script, so the page works without it.
@@ -315,16 +374,16 @@ Once the line is long, a "Filter apps" search field appears above it; it is pres
 - **Do** separate content with 1px rules in the rule colour, never with boxes.
 - **Do** put the address, host, tally and commands in monospace with tabular figures, and nothing else.
 - **Do** give every destructive action the red ghost button and every primary action the porcelain button.
-- **Do** keep motion to the station's hover scale (0.2s, cubic-bezier(0.16, 1, 0.3, 1)) and turn it off under `prefers-reduced-motion: reduce`.
+- **Do** keep motion to the station's hover scale and the disclosure chevron's turn (0.2s, cubic-bezier(0.16, 1, 0.3, 1)), and turn both off under `prefers-reduced-motion: reduce`.
 - **Do** ship styles and scripts as files from the binary, versioned by a hash of their content, so the CSP stays `default-src 'self'`.
 
 ### Don't:
-- **Don't** use amber for anything but the lamp, the focus ring, the caret, the selection and the skip link.
+- **Don't** use amber for anything but the lamp, the focus ring, the caret, the selection, a checkbox's tick and the skip link.
 - **Don't** use red for anything but a down station, destructive actions, and form errors.
 - **Don't** animate the line: no pulsing stations, flowing dashes or loading shimmer.
 - **Don't** put apps in cards or icon tiles; an app is a station on the line.
 - **Don't** add shadows other than the lamp's glow.
 - **Don't** write inline `style` attributes or inline `<script>`; the CSP forbids them.
 - **Don't** fetch fonts, icons or images from anywhere; everything is embedded.
-- **Do** draw icons from the one sprite in the page: 16-unit grid, 1.5 stroke, round caps, in the colour of the text beside them, always with the word for a screen reader. Never a Unicode glyph or emoji.
+- **Don't** draw an icon as a Unicode glyph or emoji; icons come from the one sprite in the page (16-unit grid, 1.5 stroke, round caps, shown at 14px in the colour of the text beside them), always with the word for a screen reader.
 - **Don't** add a light theme.

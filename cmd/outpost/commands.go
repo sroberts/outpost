@@ -5,8 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -111,7 +109,7 @@ func (a *app) cmdList(args []string) error {
 		for _, svc := range services {
 			rows = append(rows, supervisor.ServiceStatus{
 				Name: svc.Name, Runtime: svc.Runtime, Status: "unknown",
-				Port: svc.Port, TailscaleName: svc.TailscaleName,
+				Port: svc.Port, TailscaleName: svc.TailscaleName, Visibility: svc.VisibilityOrDefault(),
 			})
 		}
 		return writeTable(a.out, rows)
@@ -137,7 +135,7 @@ func writeTable(w io.Writer, services []supervisor.ServiceStatus) error {
 		updates = updates || s.UpdateAvailable
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprint(tw, "NAME\tRUNTIME\tSTATUS\tUPTIME\tRESTARTS\tTAILSCALE")
+	fmt.Fprint(tw, "NAME\tRUNTIME\tSTATUS\tUPTIME\tRESTARTS\tTAILSCALE\tVISIBILITY")
 	if updates {
 		fmt.Fprint(tw, "\tUPDATE")
 	}
@@ -147,8 +145,8 @@ func writeTable(w io.Writer, services []supervisor.ServiceStatus) error {
 		if s.Halted {
 			status += " (halted)"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%s",
-			s.Name, orDash(s.Runtime), status, uptime(s), s.RestartCount, orDash(s.TailnetSummary()))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%s\t%s",
+			s.Name, orDash(s.Runtime), status, uptime(s), s.RestartCount, orDash(s.TailnetSummary()), orDash(s.Visibility))
 		switch {
 		case s.UpdateAvailable:
 			fmt.Fprintf(tw, "\t%s available", s.LatestRelease)
@@ -196,6 +194,9 @@ func (a *app) cmdStatus(args []string) error {
 		if st.TailscaleName != "" {
 			fmt.Fprintf(a.out, "  tailscale:     %s\n", st.TailnetDetail())
 		}
+		if st.Visibility != "" {
+			fmt.Fprintf(a.out, "  visibility:    %s\n", st.Visibility)
+		}
 		if t := st.Tailnet; t != nil && t.LoginURL != "" {
 			fmt.Fprintf(a.out, "  login:         %s\n", t.LoginURL)
 			fmt.Fprintln(a.out, "                 open it to add this node to your tailnet, or set an auth key with `outpost config --authkey`")
@@ -207,6 +208,13 @@ func (a *app) cmdStatus(args []string) error {
 			}
 			fmt.Fprintf(a.out, "  public paths:  %s%s\n", strings.Join(st.PublicPaths, ", "), from)
 			fmt.Fprintf(a.out, "  funnel:        %s\n", funnelLine(st))
+		}
+		if st.MCPFunnel || st.MCPFromPortal {
+			from := ""
+			if st.MCPFromPortal {
+				from = " (set on the portal's Internet access page, over the manifest)"
+			}
+			fmt.Fprintf(a.out, "  mcp funnel:    %s%s\n", mcpFunnelLine(st), from)
 		}
 		fmt.Fprintf(a.out, "  restart:       %s (backoff %ds)\n", st.RestartPolicy, st.Backoff)
 		if st.Source != "" {
@@ -262,103 +270,6 @@ func availableLine(st supervisor.ServiceStatus) string {
 		line += "; the latest check failed: " + st.ReleaseCheckError
 	}
 	return line
-}
-
-// cmdLogs shows or follows a service's log file.
-//
-// Unlike the control commands this reads the log file directly: the file is
-// local, and streaming a follow over the socket would need a framed protocol
-// for no practical gain.
-func (a *app) cmdLogs(args []string) error {
-	fs := flag.NewFlagSet("logs", flag.ContinueOnError)
-	fs.SetOutput(a.err)
-	follow := fs.Bool("f", false, "follow the log as it grows")
-	events := fs.Bool("events", false, "show the activity feed instead of the log file")
-	limit := fs.Int("n", 20, "number of events to show with --events")
-	name, err := parseServiceCommand(fs, "logs", args)
-	if err != nil {
-		return err
-	}
-
-	// The activity feed lives in the state store and comes from the daemon,
-	// unlike the log file, which is read directly (§8).
-	if *events {
-		return a.showEvents(name, *limit)
-	}
-
-	path := filepath.Join(a.logsDir(), name+".log")
-	f, err := os.Open(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("no logs for %s yet (expected %s)", name, path)
-		}
-		return err
-	}
-	defer f.Close()
-
-	if _, err := io.Copy(a.out, f); err != nil {
-		return err
-	}
-	if !*follow {
-		return nil
-	}
-	return a.followLog(f, path)
-}
-
-// showEvents prints a service's recent lifecycle events.
-func (a *app) showEvents(name string, limit int) error {
-	c := a.client()
-	if !c.Available() {
-		return errNoDaemon()
-	}
-	events, err := c.Events(name, limit)
-	if err != nil {
-		return err
-	}
-	if len(events) == 0 {
-		fmt.Fprintf(a.out, "no recorded activity for %s\n", name)
-		return nil
-	}
-	for i := len(events) - 1; i >= 0; i-- {
-		e := events[i]
-		fmt.Fprintf(a.out, "%s  %-12s %s\n",
-			e.At.Format("2006-01-02 15:04:05"), e.Kind, e.Message)
-	}
-	return nil
-}
-
-// followLog polls the open file for growth, reopening it if it is rotated or
-// replaced underneath us.
-func (a *app) followLog(f *os.File, path string) error {
-	const poll = 300 * time.Millisecond
-	current := f
-
-	for {
-		time.Sleep(poll)
-
-		if _, err := io.Copy(a.out, current); err != nil {
-			return err
-		}
-
-		onDisk, err := os.Stat(path)
-		if err != nil {
-			continue
-		}
-		here, err := current.Stat()
-		if err != nil {
-			continue
-		}
-		if !os.SameFile(onDisk, here) || onDisk.Size() < here.Size() {
-			reopened, err := os.Open(path)
-			if err != nil {
-				continue
-			}
-			if current != f {
-				current.Close()
-			}
-			current = reopened
-		}
-	}
 }
 
 // cmdStart, cmdStop and cmdRestart act on the running daemon.
@@ -469,6 +380,25 @@ func truncateDur(d time.Duration) string {
 		return d.Truncate(time.Minute).String()
 	}
 	return d.Truncate(time.Hour).String()
+}
+
+// mcpFunnelLine says whether the internet reaches a service's MCP endpoint,
+// and at what address. Only an internet access token for the service gets in,
+// so the line says that too.
+func mcpFunnelLine(st supervisor.ServiceStatus) string {
+	if !st.MCPFunnel {
+		return "off (only the tailnet reaches its MCP endpoint)"
+	}
+	t := st.Tailnet
+	switch {
+	case t == nil || t.Funnel == "":
+		return "on, once its node is up"
+	case t.Funnel == supervisor.FunnelOn && t.Host != "":
+		return "on: https://" + t.Host + st.MCPPath + " (internet access tokens only; `outpost token create <user> --internet --app " + st.Name + " --expires 90d`)"
+	case t.Funnel == supervisor.FunnelUnavailable:
+		return "unavailable: " + t.FunnelError
+	}
+	return "starting"
 }
 
 // funnelLine says whether the internet reaches a service's public paths, and

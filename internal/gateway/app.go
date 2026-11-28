@@ -20,6 +20,7 @@ import (
 const reservedPrefix = "/.outpost/"
 
 func (g *Gateway) serveApp(w http.ResponseWriter, r *http.Request, rt route) {
+	noteApp(r, rt.Name)
 	// Ahead of everything below, public paths included: a request presenting a
 	// token stands or falls by it, and the token never goes any further.
 	if presented := presentedAccessTokens(r.Header); len(presented) > 0 {
@@ -152,7 +153,7 @@ func (g *Gateway) callback(w http.ResponseWriter, r *http.Request, rt route) {
 	if err != nil {
 		// Most likely the portal session ended, or the user was disabled,
 		// in the minute since the code was minted.
-		g.logf("gateway: %s: callback for %s: %v", rt.Name, p.user, err)
+		g.lg("service", rt.Name, "user", p.user, "err", err).Errorf("gateway: %s: callback for %s: %v", rt.Name, p.user, err)
 		g.message(w, r, http.StatusBadRequest, "Sign in again",
 			"Your sign-in ended before it reached this app.", again, "Sign in")
 		return
@@ -172,13 +173,13 @@ func (g *Gateway) callback(w http.ResponseWriter, r *http.Request, rt route) {
 func (g *Gateway) stampAndReturn(w http.ResponseWriter, r *http.Request, p pendingCode, next string) {
 	stamp, err := auth.NewToken()
 	if err != nil {
-		g.logf("gateway: %s: callback: %v", p.app, err)
+		g.lg("service", p.app, "err", err).Errorf("gateway: %s: callback: %v", p.app, err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	code, err := g.codes.mint(pendingCode{user: p.user, app: p.app, parent: p.parent, state: stamp}, g.now())
 	if err != nil {
-		g.logf("gateway: %v", err)
+		g.lg("err", err).Errorf("gateway: %v", err)
 		g.message(w, r, http.StatusServiceUnavailable, "Try again", err.Error(), g.loginURL(p.app, next), "Try again")
 		return
 	}
@@ -209,7 +210,7 @@ func (g *Gateway) appLogout(w http.ResponseWriter, r *http.Request) {
 	_, _, u, signedIn := g.session(r)
 	if c, err := r.Cookie(g.cookieName); err == nil {
 		if err := g.auth.RevokeFamily(c.Value); err != nil {
-			g.logf("gateway: logout: %v", err)
+			g.lg("err", err).Warnf("gateway: logout: %v", err)
 		} else if signedIn {
 			g.activity.record(EventSignOut, "%s signed out from %s", u.Username, g.clientIP(r))
 		}
@@ -223,6 +224,7 @@ func (g *Gateway) appLogout(w http.ResponseWriter, r *http.Request) {
 func (g *Gateway) proxyApp(w http.ResponseWriter, r *http.Request, rt route) {
 	tok, s, u, ok := g.session(r)
 	if !ok || s.App != rt.Name {
+		noteRefused(r, "not signed in")
 		if r.Method == http.MethodGet || r.Method == http.MethodHead {
 			http.Redirect(w, r, g.loginURL(rt.Name, safeNext(r.URL.RequestURI())), http.StatusFound)
 			return
@@ -251,9 +253,10 @@ func (g *Gateway) proxyAs(w http.ResponseWriter, r *http.Request, rt route, u au
 // and for MCP its path and how errors are answered. The rest of to is filled
 // in here.
 func (g *Gateway) proxyAsTo(w http.ResponseWriter, r *http.Request, rt route, u auth.User, to target) {
-	idTok, err := g.identityToken(u, hostname(to.host))
+	noteUser(r, u.Username)
+	idTok, err := g.identityToken(u, hostname(to.host), rt.Name)
 	if err != nil {
-		g.logf("gateway: %s: identity token: %v", rt.Name, err)
+		g.lg("service", rt.Name, "err", err).Errorf("gateway: %s: identity token: %v", rt.Name, err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -261,8 +264,14 @@ func (g *Gateway) proxyAsTo(w http.ResponseWriter, r *http.Request, rt route, u 
 	removeCookie(r.Header, g.cookieName)
 	removeCookie(r.Header, g.stateCookieName())
 
-	to.name, to.port, to.client = rt.Name, rt.Port, g.clientIP(r)
+	to.name, to.port = rt.Name, rt.Port
+	// A caller from the internet has already said who the client is; the
+	// public listener's peer is only ever the node.
+	if to.client == "" {
+		to.client = g.clientIP(r)
+	}
 	to.admin, to.user, to.token = u.Admin, &u, idTok
+	to.requestID = requestIDOf(r)
 	ctx := context.WithValue(r.Context(), targetKey{}, to)
 	g.proxy.ServeHTTP(w, r.WithContext(ctx))
 }
@@ -292,6 +301,9 @@ type target struct {
 	// nil for a public path, which carries none.
 	user  *auth.User
 	token string
+	// requestID is the gateway's id for the request, which goes with the
+	// identity.
+	requestID string
 	// path, when set, replaces the request's path, keeping its query: the
 	// app's mcp_path, for a request that came to /mcp/<name>.
 	path string
@@ -302,6 +314,11 @@ type target struct {
 	// public marks a request from the internet, through Funnel: an error
 	// says nothing about what's behind it.
 	public bool
+	// funnelMCP marks an MCP request from the internet. It's on the app's own
+	// origin, so none of mcp's rewriting for the portal applies, but the app
+	// may still set no cookies: MCP keeps its session in Mcp-Session-Id, and
+	// a cookie would be the app's credential held in someone else's cloud.
+	funnelMCP bool
 }
 
 func (g *Gateway) newProxy() *httputil.ReverseProxy {
@@ -331,6 +348,11 @@ func (g *Gateway) newProxy() *httputil.ReverseProxy {
 			}
 			if t.user != nil {
 				setIdentity(pr.Out.Header, *t.user, t.token)
+				// With the identity, and not on a public path, which
+				// carries no X-Outpost-* header at all.
+				if t.requestID != "" {
+					pr.Out.Header.Set(RequestIDHeader, t.requestID)
+				}
 			}
 			// Rewrite has already dropped any X-Forwarded-* the client sent;
 			// these are the gateway's own account of the request, under
@@ -350,12 +372,20 @@ func (g *Gateway) newProxy() *httputil.ReverseProxy {
 			pr.Out.Header.Del("Forwarded")
 		},
 		ModifyResponse: func(resp *http.Response) error {
-			if t, _ := resp.Request.Context().Value(targetKey{}).(target); t.mcp {
+			// The gateway's id is already on the response; an app's own
+			// would read as a second one.
+			resp.Header.Del(RequestIDHeader)
+			t, _ := resp.Request.Context().Value(targetKey{}).(target)
+			if t.mcp {
 				// The portal's origin is shared by every app's MCP endpoint
 				// and the portal itself, so no app gets to set a cookie on
 				// it. MCP keeps its session in Mcp-Session-Id instead.
 				resp.Header.Del("Set-Cookie")
 				onPortalOrigin(resp.Header)
+				return nil
+			}
+			if t.funnelMCP {
+				resp.Header.Del("Set-Cookie")
 				return nil
 			}
 			removeSetCookies(resp.Header, sessionCookieNames)
@@ -373,7 +403,7 @@ func (g *Gateway) newProxy() *httputil.ReverseProxy {
 			if errors.Is(err, context.Canceled) {
 				return // the client went away; nobody to tell
 			}
-			g.logf("gateway: %s: %v", t.name, err)
+			g.lg("service", t.name, "err", err).Warnf("gateway: %s: %v", t.name, err)
 			if t.public {
 				http.Error(w, "unavailable", http.StatusBadGateway)
 				return

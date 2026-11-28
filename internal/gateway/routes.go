@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/sroberts/outpost/internal/config"
+	"github.com/sroberts/outpost/internal/manifest"
 )
 
 // routeRefresh is how often the route table is rebuilt from the supervisor.
@@ -42,6 +43,12 @@ type route struct {
 	Funnel      bool
 	FunnelState string
 	FunnelError string
+	// MCPFunnel is whether the public listener answers MCPPath, for internet
+	// access tokens scoped to this app.
+	MCPFunnel bool
+	// MCPFromPortal says MCPFunnel was set on the portal's Internet access
+	// page, over the manifest's ManifestMCPFunnel.
+	MCPFromPortal, ManifestMCPFunnel bool
 	// FromPortal says Funnel and PublicPaths were set on the portal's
 	// Internet access page, over the manifest's ManifestFunnel and
 	// ManifestPublicPaths.
@@ -49,6 +56,9 @@ type route struct {
 	ManifestFunnel      bool
 	ManifestPublicPaths []string
 	TailscaleName       string
+	// GatewayOnly says the app has no tailnet node, by its manifest's
+	// visibility, so it's served at Addr alone.
+	GatewayOnly bool
 
 	// What the supervisor says, for explaining a service that isn't up.
 	Desired      string
@@ -99,7 +109,7 @@ func (g *Gateway) refreshRoutes(ctx context.Context) {
 	list, err := g.services.List(ctx)
 	if err != nil {
 		if ctx.Err() == nil {
-			g.logf("gateway: refresh routes: %v", err)
+			g.lg("err", err).Warnf("gateway: refresh routes: %v", err)
 		}
 		return
 	}
@@ -128,7 +138,7 @@ func (g *Gateway) refreshRoutes(ctx context.Context) {
 		if !config.ValidLabel(s.Name) {
 			if !g.routes.skipped[s.Name] {
 				g.routes.skipped[s.Name] = true
-				g.logf("gateway: %q isn't a valid DNS label (a-z, 0-9, '-', at most 63), so it has no address on the gateway; rename the service to route it", s.Name)
+				g.lg("service", s.Name).Warnf("gateway: %q isn't a valid DNS label (a-z, 0-9, '-', at most 63), so it has no address on the gateway; rename the service to route it", s.Name)
 			}
 			continue
 		}
@@ -137,8 +147,10 @@ func (g *Gateway) refreshRoutes(ctx context.Context) {
 			Title: s.Title, Description: s.Description, Hidden: s.Hidden,
 			Allow: s.Allow, PublicPaths: s.PublicPaths, MCPPath: s.MCPPath, Source: s.Source, Release: s.Release,
 			Desired: s.Desired, Halted: s.Halted, RestartCount: s.RestartCount, NextAttempt: s.NextAttempt,
-			Funnel: s.Funnel, FromPortal: s.FromPortal, ManifestFunnel: s.ManifestFunnel,
+			Funnel: s.Funnel, MCPFunnel: s.MCPFunnel, FromPortal: s.FromPortal, ManifestFunnel: s.ManifestFunnel,
 			ManifestPublicPaths: s.ManifestPublicPaths, TailscaleName: s.TailscaleName,
+			MCPFromPortal: s.MCPFromPortal, ManifestMCPFunnel: s.ManifestMCPFunnel,
+			GatewayOnly: s.Visibility == manifest.VisibilityGateway,
 		}
 		if t := s.Tailnet; t != nil {
 			r.FunnelState, r.FunnelError = t.Funnel, t.FunnelError
@@ -157,12 +169,14 @@ func (g *Gateway) refreshRoutes(ctx context.Context) {
 			key := "addr:" + s.Name
 			if !g.routes.skipped[key] {
 				g.routes.skipped[key] = true
-				g.logf("gateway: %s and %s both want %s; only %s is served there", other, s.Name, r.Addr, other)
+				g.lg("service", s.Name).Warnf("gateway: %s and %s both want %s; only %s is served there", other, s.Name, r.Addr, other)
 			}
 			continue
 		}
 		byHost[r.Addr] = s.Name
-		if h := strings.ToLower(hosts[s.Name]); h != "" {
+		// A gateway-only app never takes a tailnet host, even one a stale
+		// node still reports: that would be a way in it was declared without.
+		if h := strings.ToLower(hosts[s.Name]); h != "" && !r.GatewayOnly {
 			// A node's name comes from Tailscale, not the manifests, so
 			// nothing has checked it against the addresses already taken;
 			// overwriting one would hand another app's traffic to this one.
@@ -170,7 +184,7 @@ func (g *Gateway) refreshRoutes(ctx context.Context) {
 				key := "host:" + s.Name
 				if !g.routes.skipped[key] {
 					g.routes.skipped[key] = true
-					g.logf("gateway: %s and %s both want %s; only %s is served there", other, s.Name, h, other)
+					g.lg("service", s.Name).Warnf("gateway: %s and %s both want %s; only %s is served there", other, s.Name, h, other)
 				}
 			} else {
 				r.Host = h

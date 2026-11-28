@@ -13,9 +13,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/log"
+
 	"github.com/sroberts/outpost/internal/auth"
 	"github.com/sroberts/outpost/internal/backup"
 	"github.com/sroberts/outpost/internal/gateway"
+	"github.com/sroberts/outpost/internal/logging"
 	"github.com/sroberts/outpost/internal/secrets"
 	"github.com/sroberts/outpost/internal/supervisor"
 	"github.com/sroberts/outpost/internal/version"
@@ -27,18 +30,27 @@ const maxSocketPath = 104
 
 // Server exposes a Supervisor over a Unix socket.
 type Server struct {
-	sup     *supervisor.Supervisor
-	auth    *auth.Store
-	secrets *secrets.Store
-	ai      gateway.AIModels
-	gateway GatewayStatus
-	config  string
-	started time.Time
-	path    string
-	ln      net.Listener
-	logf    func(string, ...any)
+	sup      *supervisor.Supervisor
+	auth     *auth.Store
+	secrets  *secrets.Store
+	ai       gateway.AIModels
+	mail     gateway.Mail
+	exposure gateway.Exposure
+	gateway  GatewayStatus
+	stats    StatsSource
+	logDir   string
+	config   string
+	started  time.Time
+	path     string
+	ln       net.Listener
+	logf     func(string, ...any)
+	logger   *log.Logger
 
 	wg sync.WaitGroup
+	// closing ends watch streams at Close, which would otherwise outlive the
+	// listener for as long as their clients stayed.
+	closing   chan struct{}
+	closeOnce sync.Once
 }
 
 // Listen binds the socket at path. A socket left behind by a dead daemon is
@@ -79,8 +91,15 @@ func Listen(path string, sup *supervisor.Supervisor, logf func(string, ...any)) 
 		return nil, fmt.Errorf("chmod socket: %w", err)
 	}
 
-	return &Server{sup: sup, started: time.Now(), path: path, ln: ln, logf: logf}, nil
+	return &Server{sup: sup, started: time.Now(), path: path, ln: ln, logf: logf, closing: make(chan struct{})}, nil
 }
+
+// UseLogger has the server log through l, at levels and with fields, in
+// place of the func Listen was given. Call it before Serve.
+func (s *Server) UseLogger(l *log.Logger) { s.logger, s.logf = l, nil }
+
+// lg is where a line goes, with kv as its fields.
+func (s *Server) lg(kv ...any) logging.Line { return logging.To(s.logger, s.logf, kv...) }
 
 // UseAuth enables the user.* and auth.* commands. Call it before Serve. It's
 // a setter rather than a Listen parameter so a daemon, or a test, that has no
@@ -129,6 +148,7 @@ func (s *Server) Serve(ctx context.Context) error {
 
 // Close stops listening and removes the socket file.
 func (s *Server) Close() error {
+	s.closeOnce.Do(func() { close(s.closing) })
 	err := s.ln.Close()
 	os.Remove(s.path)
 	return err
@@ -142,12 +162,16 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 
 	body, err := io.ReadAll(io.LimitReader(conn, 1<<20))
 	if err != nil {
-		s.logf("outpost: read request: %v", err)
+		s.lg("err", err).Warnf("outpost: read request: %v", err)
 		return
 	}
 	req, err := decodeRequest(body)
 	if err != nil {
 		writeResponse(conn, errorResponse(fmt.Errorf("malformed request: %w", err)))
+		return
+	}
+	if req.Command == CmdWatch {
+		s.watch(ctx, conn)
 		return
 	}
 
@@ -159,7 +183,16 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 
 	ctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
-	writeResponse(conn, s.dispatch(ctx, req))
+	start := time.Now()
+	resp := s.dispatch(ctx, req)
+	writeResponse(conn, resp)
+	// The command and service only: a request's other arguments can carry a
+	// secret's value or a password.
+	line := s.lg("command", req.Command, "ok", resp.OK, "took", time.Since(start).Round(time.Microsecond))
+	if req.Service != "" {
+		line = line.With("service", req.Service)
+	}
+	line.Debugf("%s", req.Command)
 }
 
 // dispatch maps a request onto the supervisor's public API.
@@ -247,7 +280,7 @@ func (s *Server) dispatch(ctx context.Context, req Request) Response {
 		CmdUserDisable, CmdUserEnable, CmdUserLogout, CmdUserAdmin, CmdUserSignIns, CmdUserTailnet, CmdAuthRotate:
 		return s.dispatchAuth(ctx, req)
 
-	case CmdTokenCreate, CmdTokenList, CmdTokenRevoke:
+	case CmdTokenCreate, CmdTokenList, CmdTokenRevoke, CmdTokenClients, CmdTokenRevokeClient:
 		return s.dispatchToken(ctx, req)
 
 	case CmdSecretList, CmdSecretSet, CmdSecretRemove, CmdSecretBind, CmdSecretUnbind:
@@ -256,12 +289,24 @@ func (s *Server) dispatch(ctx context.Context, req Request) Response {
 	case CmdAIStatus, CmdAISet, CmdAIReset, CmdAITest, CmdAIRegenerate, CmdAIApps, CmdAIAppsReset, CmdAIKey:
 		return s.dispatchAI(ctx, req)
 
+	case CmdMailStatus, CmdMailAccount, CmdMailCheck, CmdMailAliasAdd, CmdMailAliasRemove, CmdMailSend, CmdMailRegenerate:
+		return s.dispatchMail(ctx, req)
+
+	case CmdExposureSet, CmdExposureReset, CmdExposureMCP, CmdExposureMCPReset:
+		return s.dispatchExposure(ctx, req)
+
 	case CmdGatewayStatus:
 		if s.gateway == nil {
 			return errorResponse(errors.New("the gateway is off; turn it on with [gateway] enabled = true in config.toml, then run `outpost daemon restart`"))
 		}
 		st := s.gateway.Status()
 		return Response{OK: true, Gateway: &st}
+
+	case CmdStats:
+		return s.dispatchStats(req)
+
+	case CmdLogs:
+		return s.dispatchLogs(ctx, req)
 
 	case CmdBackups:
 		archives, err := s.sup.ListBackups(ctx, req.Service)

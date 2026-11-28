@@ -265,12 +265,24 @@ func TestMCP_AppCantSetCookies(t *testing.T) {
 }
 
 func TestMCP_AppDownIsAPlain502(t *testing.T) {
+	// The port stays ours, hanging up on every connection, rather than being
+	// freed for "nothing listens there": a freed port can be handed straight
+	// to the harness's own echo backend, which then answers 200.
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = ln.Close() }) // ends the accept loop below
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_ = conn.Close() // the app is down: nothing comes back
+		}
+	}()
 	port := ln.Addr().(*net.TCPAddr).Port
-	_ = ln.Close() // nothing listens there now
 	h := newHarness(t)
 	h.withServices(supervisor.ServiceStatus{Name: "yarr", Status: "running", MCPPath: "/mcp", Port: port})
 	h.addUser(auth.User{Username: "alice"})

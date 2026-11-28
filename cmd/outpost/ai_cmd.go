@@ -12,6 +12,7 @@ import (
 	"github.com/sroberts/outpost/internal/ai"
 	"github.com/sroberts/outpost/internal/config"
 	"github.com/sroberts/outpost/internal/mail"
+	"github.com/sroberts/outpost/internal/push"
 	"github.com/sroberts/outpost/internal/secrets"
 	"github.com/sroberts/outpost/internal/supervisor"
 )
@@ -26,6 +27,7 @@ type withAI struct {
 	secrets supervisor.Secrets
 	ai      *ai.Service
 	mail    *mail.Service // nil leaves mail out
+	push    *push.Service // nil leaves notifications out
 }
 
 func (w withAI) Resolve(service string) (map[string]string, string) {
@@ -45,6 +47,13 @@ func (w withAI) Resolve(service string) (map[string]string, string) {
 			out[k] = v
 		}
 		rev += "|" + mailRev
+	}
+	if w.push != nil {
+		pushVars, pushRev := w.push.Resolve(service)
+		for k, v := range pushVars {
+			out[k] = v
+		}
+		rev += "|" + pushRev
 	}
 	return out, rev
 }

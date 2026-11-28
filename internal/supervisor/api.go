@@ -32,6 +32,7 @@ type ServiceStatus struct {
 	LastStartedAt time.Time `json:"last_started_at"`
 	Port          int       `json:"port"`
 	TailscaleName string    `json:"tailscale_name"`
+	Visibility    string    `json:"visibility,omitempty"` // the manifest's, default filled in; "" from an older daemon
 	Healthcheck   string    `json:"healthcheck"`
 	Storage       string    `json:"storage"`
 	RestartPolicy string    `json:"restart_policy"`
@@ -55,6 +56,13 @@ type ServiceStatus struct {
 	// Funnel is the manifest's funnel: whether public_paths are meant to be
 	// answered from the internet. Tailnet.Funnel says whether they are.
 	Funnel bool `json:"funnel,omitempty"`
+	// MCPFunnel is whether the app's mcp_path is meant to be answered from
+	// the internet too, for access tokens made for it.
+	MCPFunnel bool `json:"mcp_funnel,omitempty"`
+	// MCPFromPortal says MCPFunnel is the portal's setting, which wins over
+	// the manifest's, ManifestMCPFunnel.
+	MCPFromPortal     bool `json:"mcp_from_portal,omitempty"`
+	ManifestMCPFunnel bool `json:"manifest_mcp_funnel,omitempty"`
 	// FromPortal says Funnel and PublicPaths are the portal's setting, which
 	// wins over the manifest; ManifestFunnel and ManifestPublicPaths are what
 	// the manifest says instead.
@@ -319,6 +327,7 @@ func (s *Supervisor) statusOf(name string) ServiceStatus {
 		st.Runtime = svc.Runtime
 		st.Port = svc.Port
 		st.TailscaleName = svc.TailscaleName
+		st.Visibility = svc.VisibilityOrDefault()
 		st.Tailnet = s.tailnetOf(svc)
 		st.Healthcheck = svc.Healthcheck
 		st.Storage = svc.ExpandStorage()
@@ -335,8 +344,12 @@ func (s *Supervisor) statusOf(name string) ServiceStatus {
 		st.PublicPaths = svc.PublicPaths
 		st.MCPPath = svc.MCPPath
 		st.Funnel = svc.Funnel
+		st.MCPFunnel = svc.MCPFunnel
 		if m, ok := s.fromManifest[name]; ok {
 			st.FromPortal, st.ManifestFunnel, st.ManifestPublicPaths = true, m.funnel, m.publicPaths
+		}
+		if m, ok := s.fromManifestMCP[name]; ok {
+			st.MCPFromPortal, st.ManifestMCPFunnel = true, m
 		}
 		s.addRelease(&st, svc)
 	}
@@ -398,6 +411,9 @@ func (s *Supervisor) mutate(ctx context.Context, name string, fn func(*Superviso
 		if err := fn(s); err != nil {
 			return nil, err
 		}
+		// What was asked for is in the list too, whether or not the
+		// reconcile below gets as far as persisting anything.
+		defer s.changes.notify()
 		s.reconcileService(ctx, s.desired[name])
 		return nil, nil
 	})
@@ -450,6 +466,8 @@ func (s *Supervisor) Forget(ctx context.Context, name string) error {
 		if tracked {
 			s.stopUndeclaredLocked(ctx, name, st)
 		}
+		// The row leaving the list is a change, though nothing is persisted.
+		defer s.changes.notify()
 		return nil, s.store.DeleteService(name)
 	})
 	return err

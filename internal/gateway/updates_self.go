@@ -139,7 +139,7 @@ func (g *Gateway) checkSelf() {
 	refusal := ""
 	defer func() {
 		if p := recover(); p != nil {
-			g.logf("gateway: checking Outpost for updates: panic: %v", p)
+			g.lg().Errorf("gateway: checking Outpost for updates: panic: %v", p)
 			c.Err = "The check failed unexpectedly; see the daemon's log."
 		}
 		s := &g.updateState
@@ -152,7 +152,7 @@ func (g *Gateway) checkSelf() {
 	refusal = g.selfUpdater.Refusal()
 	rc, err := g.selfUpdater.Latest(ctx)
 	if err != nil {
-		g.logf("gateway: checking Outpost for updates: %v", err)
+		g.lg("err", err).Warnf("gateway: checking Outpost for updates: %v", err)
 		c.Err = "Couldn't check: " + err.Error()
 		return
 	}
@@ -208,10 +208,10 @@ func (g *Gateway) selfStateNow() (SelfStatus, bool) {
 			by = ", which " + st.By + " started,"
 		}
 		if st.Failed {
-			g.logf("gateway: the update of Outpost to %s failed", to)
+			g.lg("version", to).Errorf("gateway: the update of Outpost to %s failed", to)
 			g.activity.record(EventUpdate, "update of Outpost to %s%s failed", to, by)
 		} else {
-			g.logf("gateway: the update of Outpost to %s finished", to)
+			g.lg("version", to).Infof("gateway: the update of Outpost to %s finished", to)
 			g.activity.record(EventUpdate, "update of Outpost to %s%s finished", to, by)
 		}
 		st.Announce = false // recorded; a remembered copy mustn't record it again
@@ -294,7 +294,7 @@ func (g *Gateway) startSelfUpdate(w http.ResponseWriter, r *http.Request, userna
 	g.claim.Lock()
 	s := &g.updateState
 	s.mu.Lock()
-	apps := len(s.running) > 0
+	apps := len(s.running) > 0 || len(s.queue) > 0
 	s.mu.Unlock()
 	if apps {
 		g.claim.Unlock()
@@ -327,13 +327,13 @@ func (g *Gateway) startSelfUpdate(w http.ResponseWriter, r *http.Request, userna
 	s.selfMemoAt = time.Time{} // Start wrote a status the memo hasn't seen
 	s.mu.Unlock()
 	if err != nil {
-		g.logf("gateway: %s asked to update Outpost: %v", username, err)
+		g.lg("user", username, "err", err).Warnf("gateway: %s asked to update Outpost: %v", username, err)
 		g.message(w, r, http.StatusConflict, "Outpost wasn't updated", err.Error(), "/updates", "Back to updates")
 		return
 	}
 	// The only record of who asked, since the update itself runs as the daemon.
 	g.activity.record(EventUpdate, "%s started an update of Outpost from %s", username, g.clientIP(r))
-	g.logf("gateway: %s is updating Outpost", username)
+	g.lg("user", username).Infof("gateway: %s is updating Outpost", username)
 	http.Redirect(w, r, "/updates", http.StatusSeeOther)
 }
 

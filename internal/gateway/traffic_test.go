@@ -100,7 +100,14 @@ func TestTraffic_WebSocketIsCounted(t *testing.T) {
 	if _, err := io.ReadFull(br, echo); err != nil {
 		t.Fatal(err)
 	}
+	// The bytes written to the backend are counted once that Write returns,
+	// which can be just after the echo has come back on another goroutine, so
+	// the count is waited for rather than read once.
 	after := h.g.Traffic()["yarr"]
+	for deadline := time.Now().Add(5 * time.Second); after.In-before.In < 5 && time.Now().Before(deadline); {
+		time.Sleep(5 * time.Millisecond)
+		after = h.g.Traffic()["yarr"]
+	}
 	if after.In-before.In < 5 || after.Out-before.Out < 5 {
 		t.Errorf("websocket frames: in +%d out +%d; want at least 5 each way", after.In-before.In, after.Out-before.Out)
 	}

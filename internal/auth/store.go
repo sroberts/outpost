@@ -62,7 +62,15 @@ CREATE TABLE IF NOT EXISTS access_tokens (
     name         TEXT NOT NULL DEFAULT '',
     created_at   INTEGER NOT NULL,
     expires_at   INTEGER NOT NULL DEFAULT 0,
-    last_used_at INTEGER NOT NULL DEFAULT 0
+    last_used_at INTEGER NOT NULL DEFAULT 0,
+    internet     INTEGER NOT NULL DEFAULT 0,
+    -- When the token was first used from the internet, so the activity feed
+    -- can say so once. Nothing sets it until the gateway accepts these tokens
+    -- over Funnel; it's added with internet so auth.db changes once.
+    internet_used_at INTEGER NOT NULL DEFAULT 0,
+    -- The OAuth grant that issued it, or 0 for one made with
+    -- outpost token create. A grant's tokens go when it does.
+    grant_id INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS access_tokens_user ON access_tokens(user_id);
@@ -72,6 +80,25 @@ CREATE TABLE IF NOT EXISTS access_token_apps (
     app      TEXT NOT NULL,
     PRIMARY KEY (token_id, app)
 );
+
+-- An OAuth client's access to one app's MCP endpoint, as one user. Only the
+-- current refresh token's hash and the one before it are kept: the one before
+-- is how a replayed refresh token is recognised.
+CREATE TABLE IF NOT EXISTS oauth_grants (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT, -- never reused, like access tokens
+    user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    app           TEXT NOT NULL,
+    client_id     TEXT NOT NULL,
+    client_name   TEXT NOT NULL DEFAULT '',
+    refresh_hash  TEXT NOT NULL UNIQUE,
+    previous_hash TEXT NOT NULL DEFAULT '',
+    created_at    INTEGER NOT NULL,
+    refreshed_at  INTEGER NOT NULL DEFAULT 0,
+    expires_at    INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS oauth_grants_user ON oauth_grants(user_id);
+CREATE INDEX IF NOT EXISTS oauth_grants_previous ON oauth_grants(previous_hash);
 
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 `
@@ -131,6 +158,14 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	if err := addTailnetLogin(db); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := addTokenInternet(db); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := addTokenGrant(db); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -223,6 +258,58 @@ func addTailnetLogin(db *sql.DB) error {
 	}
 	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS users_tailnet_login ON users(tailnet_login) WHERE tailnet_login != ''`); err != nil {
 		return fmt.Errorf("index users.tailnet_login: %w", err)
+	}
+	return nil
+}
+
+// addTokenInternet gives an access_tokens table from before tokens could work
+// from the internet its internet and internet_used_at columns. Every existing
+// token reads as tailnet-only, which is the point: none gains reach it wasn't
+// made for.
+func addTokenInternet(db *sql.DB) error {
+	rows, err := db.Query(`SELECT name FROM pragma_table_info('access_tokens')`)
+	if err != nil {
+		return fmt.Errorf("read access_tokens columns: %w", err)
+	}
+	defer rows.Close()
+	have := map[string]bool{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return fmt.Errorf("read access_tokens columns: %w", err)
+		}
+		have[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows.Close()
+	for _, col := range []string{"internet", "internet_used_at"} {
+		if have[col] {
+			continue
+		}
+		if _, err := db.Exec(`ALTER TABLE access_tokens ADD COLUMN ` + col + ` INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return fmt.Errorf("add access_tokens.%s: %w", col, err)
+		}
+	}
+	return nil
+}
+
+// addTokenGrant gives an access_tokens table from before OAuth grants its
+// grant_id column, and the index revoking a grant uses. Every existing token
+// reads as one made with `outpost token create`, which it was.
+func addTokenGrant(db *sql.DB) error {
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('access_tokens') WHERE name = 'grant_id'`).Scan(&n); err != nil {
+		return fmt.Errorf("read access_tokens columns: %w", err)
+	}
+	if n == 0 {
+		if _, err := db.Exec(`ALTER TABLE access_tokens ADD COLUMN grant_id INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return fmt.Errorf("add access_tokens.grant_id: %w", err)
+		}
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS access_tokens_grant ON access_tokens(grant_id)`); err != nil {
+		return fmt.Errorf("index access_tokens.grant_id: %w", err)
 	}
 	return nil
 }

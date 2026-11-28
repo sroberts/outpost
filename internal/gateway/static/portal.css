@@ -19,6 +19,18 @@
   --stop: 26px;
   --gutter: 20px;
   --measure: 40rem;
+  --g-update: url("/.outpost/static/glyphs/update.svg");
+  --g-add: url("/.outpost/static/glyphs/add.svg");
+  --g-key: url("/.outpost/static/glyphs/key.svg");
+  --g-spark: url("/.outpost/static/glyphs/spark.svg");
+  --g-mail: url("/.outpost/static/glyphs/mail.svg");
+  --g-lines: url("/.outpost/static/glyphs/lines.svg");
+  --g-globe: url("/.outpost/static/glyphs/globe.svg");
+  --g-sliders: url("/.outpost/static/glyphs/sliders.svg");
+  --g-refresh: url("/.outpost/static/glyphs/refresh.svg");
+  --g-download: url("/.outpost/static/glyphs/download.svg");
+  --g-down: url("/.outpost/static/glyphs/down.svg");
+  --g-filter: url("/.outpost/static/glyphs/filter.svg");
   color-scheme: dark;
   scrollbar-color: var(--rule) var(--night);
 }
@@ -217,6 +229,51 @@ h2 { font-size: 19px; font-weight: 680; }
   max-width: calc(var(--measure) + 2 * var(--gutter)); margin: 0 auto; padding: 0 var(--gutter) 1.5rem;
   font-size: 12px; color: var(--dim); overflow-wrap: anywhere;
 }
+/* The app spec, for an admin to hand an assistant: a name, so not mono, and
+   as quiet as the build beside it until it's pointed at. Its target reaches
+   past 44px without making the footer taller. */
+.foot a { position: relative; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: inherit; }
+.foot a:hover { color: var(--porcelain); }
+.foot a::before { content: ""; position: absolute; inset: -16px -8px; }
+/* An admin's places: the same list at the foot of every page, after the
+   page's own work, so the catalog still leads with the line and any page
+   reaches any other in one tap. The page you're on is named, not linked. */
+.places { max-width: calc(var(--measure) + 2 * var(--gutter)); margin: 0 auto; padding: 0 var(--gutter) 0.75rem; }
+/* Even rows at every width, never one place left alone on a line: two
+   columns on a phone, three when there's room, and on a wide screen one row,
+   which wraps only if a long name or a big font calls for it. */
+.places ul {
+  list-style: none; margin: 0; padding: 0.5rem 0 0; border-top: 1px solid var(--rule);
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 1rem;
+}
+@media (min-width: 30rem) {
+  .places ul { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (min-width: 42rem) {
+  .places ul { display: flex; flex-wrap: wrap; gap: 0 1.25rem; }
+}
+.places a {
+  display: inline-flex; align-items: center; gap: 0.45rem; min-height: 44px;
+  font-size: 14px; color: var(--dim);
+}
+/* Glyphs: one file of each in static/glyphs, drawn as a mask in the colour
+   of the text it sits beside. They're named here rather than in the markup
+   so the words in a link or a summary stay exactly as they were, and they
+   are files, not data: URLs, because the pages' CSP takes images from
+   'self' only. */
+.places a::before, .acts > summary > span::before, .setting > summary .set-name::before,
+.log-count a::before, .log-foot a::before {
+  content: ""; flex: none; width: 14px; height: 14px; background: currentColor;
+  -webkit-mask: var(--glyph) center / contain no-repeat; mask: var(--glyph) center / contain no-repeat;
+}
+.places a[href="/updates"] { --glyph: var(--g-update); }
+.places a[href="/add"] { --glyph: var(--g-add); }
+.places a[href="/secrets"] { --glyph: var(--g-key); }
+.places a[href="/ai"] { --glyph: var(--g-spark); }
+.places a[href="/mail"] { --glyph: var(--g-mail); }
+.places a[href="/logs"] { --glyph: var(--g-lines); }
+.places a:hover { color: var(--porcelain); }
+.places a[aria-current="page"] { color: var(--porcelain); font-weight: 600; text-decoration: none; }
 .panel > p { margin: 0.6rem 0 0; }
 .door .hub + .panel { margin-top: 1.5rem; }
 form { display: grid; gap: 1rem; margin-top: 1.1rem; }
@@ -278,6 +335,7 @@ button.small { padding: 0 0.95rem; font-size: 14px; }
 .updates li + li { border-top: 1px solid var(--rule); }
 .updates p { margin: 0.35rem 0 0; }
 .updates form { margin-top: 0.5rem; justify-self: start; }
+.updates li > button { justify-self: start; margin-top: 0.5rem; }
 .output { font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
 /* Outpost's own update: a sentence for how it ended, and the helper's whole
    output behind it, since that is a machine's account, read only when the
@@ -304,6 +362,45 @@ button.small { padding: 0 0.95rem; font-size: 14px; }
 .adding pre.error.output { color: var(--down-ink); }
 .adding pre.notice.output { color: var(--porcelain); }
 .recheck { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; }
+/* The page's answer first: how many apps have a release waiting and when
+   that was asked, with asking again beside it as a quiet control, then
+   one button for all of them. */
+.up-sum { display: flex; flex-wrap: wrap; align-items: center; gap: 0 0.75rem; margin-top: 1.1rem; }
+.up-status { margin: 0; font-weight: 550; }
+.up-status .hint { font-weight: 400; }
+.up-sum .recheck { margin: 0; }
+button.quiet-btn {
+  min-height: 44px; padding: 0 0.95rem; border: 1px solid var(--rule); border-radius: 999px;
+  background: none; color: var(--dim); font-size: 14px; font-weight: 400;
+}
+button.quiet-btn:hover { background: none; color: var(--porcelain); border-color: var(--beam); }
+.up-all { margin-top: 0.75rem; }
+.up-all > summary.pill { border-color: var(--porcelain); font-weight: 600; }
+.up-all > p { margin: 0.6rem 0 0; max-width: 34rem; }
+/* A check that didn't get an answer isn't an app that's down: said
+   plainly, at the size of the line it's about. */
+.check-err { margin: 0.35rem 0 0; font-size: 14px; color: var(--down-ink); }
+/* What needs nothing, a line each. */
+.up-group { margin: 1.75rem 0 0; font-size: 15px; font-weight: 600; color: var(--dim); letter-spacing: 0; }
+.up-current { list-style: none; margin: 0.4rem 0 0; padding: 0; }
+.up-current li {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.1rem 0.75rem;
+  padding: 0.55rem 0; border-top: 1px solid var(--rule);
+}
+.up-current .name { font-size: 16px; font-weight: 600; }
+.up-current .addr { color: var(--dim); }
+.up-current .hint { flex-basis: 100%; }
+.up-current details.log { flex-basis: 100%; margin: 0; }
+.up-current details.log summary {
+  display: inline-flex; align-items: center; min-height: 32px;
+  color: var(--dim); font-size: 13px; cursor: pointer;
+  text-decoration: underline; text-decoration-color: var(--beam); text-underline-offset: 3px;
+}
+.up-current pre.output {
+  margin: 0.25rem 0 0; padding: 0 0 0 0.85rem; border-left: 1px solid var(--rule);
+  font-size: 12px; line-height: 1.55; color: var(--dim);
+}
+.byhand + .cmd { display: inline-block; max-width: 100%; margin-top: 0.4rem; overflow-wrap: anywhere; }
 button.plain { background: none; color: var(--porcelain); border: 1px solid var(--field-edge); }
 button.plain:hover { background: none; border-color: var(--beam); }
 .byhand { margin: 1.25rem 0 0; }
@@ -318,7 +415,7 @@ button.plain:hover { background: none; border-color: var(--beam); }
 /* The name line makes room for it, across and down: the pill sits level with
    the name, and what's beneath starts below the pill's whole target, so a tap
    on the address can't land on Manage and descriptions keep the full width. */
-.managed .top { padding-right: 6.75rem; min-height: 34px; }
+.managed .top { padding-right: 8rem; min-height: 34px; }
 .acts:not([open]) { margin-top: -3px; } /* the pill is out of flow; no gap for it */
 .acts > summary, .confirm > summary { list-style: none; }
 .acts > summary::-webkit-details-marker, .confirm > summary::-webkit-details-marker { display: none; }
@@ -335,6 +432,10 @@ button.plain:hover { background: none; border-color: var(--beam); }
   border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
   transform: rotate(45deg); transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
+/* Manage opens an app's controls; it leads with the same mark of settings
+   the actions under it carry for theirs. */
+.acts > summary > span { display: inline-flex; align-items: center; gap: 0.4rem; }
+.acts > summary > span::before { --glyph: var(--g-sliders); }
 .acts > summary:hover, .acts[open] > summary { color: var(--porcelain); }
 .acts[open] > summary { border-color: var(--beam); }
 .acts[open] > summary::after { transform: translateY(3px) rotate(-135deg); }
@@ -596,6 +697,8 @@ label.check input {
 .page .panel.fold { margin-top: 1rem; padding-top: 0.5rem; }
 .ref[open] { padding-bottom: 0.5rem; }
 .ref > .hint { margin: 0.6rem 0 0; }
+/* Reference read once, in the hint's voice wherever it's folded. */
+.ref .set-list p { margin: 0; font-size: 14px; color: var(--dim); }
 .ai .calls { list-style: none; margin: 0.75rem 0 0; padding: 0; display: grid; gap: 0.75rem; }
 .ai .calls li { display: grid; gap: 2px; font-size: 14px; color: var(--dim); }
 .ai .calls .cmd { overflow-wrap: anywhere; }
@@ -618,7 +721,12 @@ label.check input {
   list-style: none; cursor: pointer;
 }
 .setting > summary::-webkit-details-marker { display: none; }
-.setting > summary .set-name { font-size: 15px; font-weight: 600; }
+.setting > summary .set-name { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 15px; font-weight: 600; }
+/* An app's own setting carries its admin page's glyph from the foot. */
+.setting[id^="set-public-"] .set-name::before { --glyph: var(--g-globe); }
+.setting[id^="set-secrets-"] .set-name::before { --glyph: var(--g-key); }
+.setting[id^="set-ai-"] .set-name::before { --glyph: var(--g-spark); }
+.setting[id^="set-mail-"] .set-name::before { --glyph: var(--g-mail); }
 .setting > summary .count { margin-left: auto; font-size: 14px; color: var(--dim); text-align: right; }
 .setting > summary .count.why { color: var(--down-ink); }
 .setting > summary::after {
@@ -681,3 +789,114 @@ label.check input {
 .mail-apps a:hover .mail-app { text-decoration: underline; }
 .mail-apps .mail-app { font-weight: 550; }
 .mail-apps .tag { font-size: 12px; font-weight: 550; letter-spacing: 0; text-transform: none; }
+
+/* Logs: two filters and Show on one row, the rest folded beneath, so the
+   lines start in the first screen; then the lines, monospaced, each
+   wrapping rather than pushing the page sideways. Output is long, so this
+   one page takes a wider measure. */
+.log-filter {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: end;
+  gap: 0.75rem; margin-top: 1.25rem;
+}
+.log-filter select {
+  font: inherit; color: var(--porcelain); background: var(--night);
+  min-height: 46px; padding: 0.6rem 0.75rem;
+  border: 1px solid var(--field-edge); border-radius: 6px;
+}
+.log-filter select:hover { border-color: var(--beam); }
+.log-filter select:focus-visible { outline-offset: 1px; border-color: var(--lamp); }
+.log-filter input, .log-filter select { width: 100%; min-width: 0; }
+/* Spanning the row, the folded filters mustn't widen Show's column. */
+.log-more { grid-column: 1 / -1; margin-top: -0.25rem; width: 0; min-width: 100%; }
+.log-more > summary {
+  display: inline-flex; align-items: center; gap: 0.5rem; min-height: 44px;
+  font-size: 14px; color: var(--dim); list-style: none; cursor: pointer;
+}
+.log-more > summary::-webkit-details-marker { display: none; }
+.log-more > summary::after {
+  content: ""; width: 5px; height: 5px; margin-top: -3px;
+  border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+}
+.log-more > summary:hover, .log-more[open] > summary { color: var(--porcelain); }
+.log-more[open] > summary::after { transform: translateY(3px) rotate(-135deg); }
+.log-more-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0.75rem; margin-top: 0.25rem; }
+.log-more-fields .log-q { grid-column: 1 / -1; }
+/* With Outpost's own logs to pick from, the picker takes the first row on a
+   phone, and the folded filters for requests and time ranges join the rest:
+   a time field needs a row of its own to show its whole date there. */
+.log-filter.sourced .log-source { grid-column: 1 / -1; }
+.log-more-fields .log-time { grid-column: 1 / -1; }
+.log-follow { grid-column: 1 / -1; margin-top: -0.5rem; font-size: 14px; }
+.log-follow[hidden] { display: none; }
+/* A request's id is a way to every line it left, reached like the small
+   links below. */
+.log-req { position: relative; color: var(--dim); white-space: nowrap; }
+.log-req:hover { color: var(--porcelain); }
+.log-req::before { content: ""; position: absolute; inset: -14px -6px; }
+.log-count { margin: 1rem 0 0; }
+.log-foot { margin: 1rem 0 0; }
+/* Small links in a line of words, each reaching past the 44px floor as the
+   tally's do, without pushing the lines apart. */
+.log-count a, .log-foot a { position: relative; }
+.log-count a::after, .log-foot a::after { content: ""; position: absolute; inset: -14px -6px; }
+/* Inline in a line of words: the glyph sits on the text and the underline
+   stays under the words alone. */
+.log-count a::before, .log-foot a::before { display: inline-block; vertical-align: -2px; margin-right: 0.3em; }
+.log-count a[href="#newest"]::before { --glyph: var(--g-down); }
+.log-count a[href$="#newest"]:not([href="#newest"])::before, .log-foot a[href$="#newest"]::before { --glyph: var(--g-refresh); }
+.log-count a[href^="/.outpost/api/logs"]::before { --glyph: var(--g-download); }
+.log-foot a[href="#filters"]::before { --glyph: var(--g-filter); }
+.log-lines { list-style: none; margin: 0.6rem 0 0; padding: 0; }
+.log-line { padding: 0.4rem 0; border-top: 1px solid var(--rule); }
+.log-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.6rem; font-size: 12px; color: var(--dim); }
+.log-meta time, .log-stream { font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.log-svc { color: var(--beam); font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.log-msg, .log-fields {
+  margin: 0.15rem 0 0; font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.log-fields { color: var(--dim); font-size: 12px; }
+/* A level is a word beside the line, not a status: no capitals, and only
+   an error spends red, on its tag. A warning is louder than info by ink
+   and outline alone, since amber is the lamp's. */
+.log-meta .tag.lv { font-size: 12px; font-weight: 550; letter-spacing: 0; text-transform: none; padding: 0 5px; line-height: 1.45; }
+.lv-warn .tag.lv { color: var(--porcelain); border-color: var(--field-edge); }
+.lv-error .tag.lv { color: var(--down-ink); border-color: rgba(242, 154, 133, 0.6); }
+.log-stream { color: var(--dim); }
+@media (min-width: 42rem) {
+  /* The rail widens with it, so the host and the page share a left edge. */
+  .page.logs, body:has(.page.logs) :is(.rail-in, .places, .foot) { max-width: calc(72rem + 2 * var(--gutter)); }
+  .log-filter { grid-template-columns: repeat(2, minmax(0, 15rem)) auto; justify-content: start; }
+  .log-more-fields { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 2fr); }
+  .log-more-fields .log-q { grid-column: auto; }
+  .log-filter.sourced { grid-template-columns: repeat(3, minmax(0, 13rem)) auto; }
+  .log-filter.sourced .log-source { grid-column: auto; }
+  .sourced .log-more-fields { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .sourced .log-more-fields .log-time { grid-column: auto; }
+  .sourced .log-more-fields .log-q { grid-column: span 2; }
+}
+/* Wide enough for columns: time, app, level, then the message, the same
+   widths down the whole list so the eye can run down any of them. */
+@supports (grid-template-columns: subgrid) {
+  @media (min-width: 42rem) {
+    .log-lines { display: grid; grid-template-columns: max-content max-content minmax(0, 1fr); column-gap: 0.9rem; }
+    .log-lines.all { grid-template-columns: max-content fit-content(9rem) max-content minmax(0, 1fr); }
+    .log-line { display: grid; grid-template-columns: subgrid; grid-column: 1 / -1; align-items: baseline; padding: 0.3rem 0; }
+    .log-meta { display: contents; }
+    .log-meta time { grid-column: 1; grid-row: 1; }
+    .log-svc { grid-column: 2; grid-row: 1; }
+    .log-meta .tag.lv, .log-meta .log-stream { grid-column: 2; grid-row: 1; justify-self: start; }
+    .log-msg, .log-fields { grid-column: 3; margin: 0; }
+    .all .log-meta .tag.lv, .all .log-meta .log-stream { grid-column: 3; }
+    .all .log-msg, .all .log-fields { grid-column: 4; }
+    .log-msg { grid-row: 1; }
+  }
+}
+
+/* Notifications on the account page: which of its states shows is the
+   script's to choose, so nothing in it may override [hidden]. */
+#notify [hidden] { display: none !important; }
+#notify h3 { margin: 1.5rem 0 0.5rem; font-size: 15px; font-weight: 550; }
+#notify .devices + form { margin-top: 0.75rem; }
+#notify fieldset.apps + button { margin-top: 0.75rem; }

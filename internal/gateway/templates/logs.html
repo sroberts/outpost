@@ -1,0 +1,72 @@
+{{define "body"}}
+{{template "rail" .}}
+<main class="page logs">
+<p class="back"><a href="{{.Home}}">Back to apps</a></p>
+<h1>Logs</h1>
+{{with .Logs}}<p class="lede">{{.Lede}}</p>
+<form id="filters" class="log-filter{{if .Sources}} sourced{{end}}" method="get" action="/logs#newest">
+{{if .Sources}}<label for="log-source" class="log-source">Log
+<select id="log-source" name="source">
+{{range .Sources}}<option value="{{.Value}}"{{if or (eq .Value $.Logs.Source) (and (eq .Value "app") (eq $.Logs.Source ""))}} selected{{end}}>{{.Label}}</option>
+{{end}}</select>
+</label>
+{{end}}<label for="log-service">App
+<select id="log-service" name="service">
+<option value=""{{if eq .Service ""}} selected{{end}}>Every app</option>
+{{range .Services}}<option value="{{.Name}}"{{if eq .Name $.Logs.Service}} selected{{end}}>{{.Title}}</option>
+{{end}}</select>
+</label>
+<label for="log-level">Level
+<select id="log-level" name="level">
+<option value=""{{if eq .Level ""}} selected{{end}}>Any</option>
+{{range .Levels}}<option value="{{.}}"{{if eq . $.Logs.Level}} selected{{end}}>{{.}} and above</option>
+{{end}}</select>
+</label>
+<button type="submit"><span>Show</span></button>
+<details class="log-more"{{if .More}} open{{end}}>
+<summary>More filters</summary>
+<div class="log-more-fields">
+<label for="log-stream">Stream
+<select id="log-stream" name="stream">
+<option value=""{{if eq .Stream ""}} selected{{end}}>Both</option>
+<option value="out"{{if eq .Stream "out"}} selected{{end}}>stdout</option>
+<option value="err"{{if eq .Stream "err"}} selected{{end}}>stderr</option>
+</select>
+</label>
+<label for="log-lines">Lines
+<input id="log-lines" name="lines" type="number" min="1" max="2000" value="{{.Lines}}">
+</label>
+{{if .Sources}}<label for="log-status">Status
+<input id="log-status" name="status" type="text" inputmode="numeric" placeholder="404 or 5xx" value="{{.Status}}" autocomplete="off" spellcheck="false">
+</label>
+<label for="log-user">User or token
+<input id="log-user" name="user" type="text" placeholder="name or token id" value="{{.User}}" autocomplete="off" autocapitalize="off" spellcheck="false">
+</label>
+<label for="log-since" class="log-time">From
+<input id="log-since" name="since" type="datetime-local" step="1" value="{{.Since}}">
+</label>
+<label for="log-until" class="log-time">To
+<input id="log-until" name="until" type="datetime-local" step="1" value="{{.Until}}">
+</label>
+{{end}}<label for="log-q" class="log-q">Containing
+<input id="log-q" name="q" type="search" value="{{.Contains}}" autocomplete="off" spellcheck="false">
+</label>
+</div>
+</details>
+{{if .Sources}}<label class="check log-follow" hidden><input type="checkbox" id="log-follow" name="follow" value="1"{{if .Follow}} checked{{end}}> Follow new lines</label>
+{{end}}</form>
+{{if .Error}}<p class="error" role="alert">{{.Error}}</p>
+{{else}}<p class="hint log-count" aria-live="polite">{{if .Rows}}{{len .Rows}} {{if eq (len .Rows) 1}}line{{else}}lines{{end}} · <a href="#newest">Jump to newest</a> · {{end}}<a href="{{.Self}}#newest">Refresh</a>{{if .Sources}} · <a href="{{.Download}}">Download</a>{{end}}</p>
+<div id="log-body">{{if .Rows}}<ol class="log-lines{{if .All}} all{{end}}">
+{{range .Rows}}<li class="log-line{{if .Level}} lv-{{.Level}}{{end}}">
+<div class="log-meta">{{if .When}}<time datetime="{{.Stamp}}">{{.When}}</time>{{end}}{{if $.Logs.All}}<span class="log-svc">{{.Title}}</span>{{end}}{{if .Level}}<span class="tag lv">{{.Level}}</span>{{else if eq .Stream "err"}}<span class="log-stream">stderr</span>{{end}}</div>
+<p class="log-msg">{{.Message}}</p>
+{{if or .Fields .RequestID}}<p class="log-fields">{{.Fields}}{{if .RequestID}}{{if .Fields}} {{end}}<a class="log-req" href="{{.Trace}}" title="Every line of this request">request {{.RequestID}}</a>{{end}}</p>{{end}}
+</li>
+{{end}}</ol>
+{{else}}<p class="empty">No lines match.</p>{{end}}</div>
+<p id="newest" class="hint log-foot">Newest above. <a href="{{.Self}}#newest">Refresh</a> · <a href="#filters">Filters</a>. The same lines are at <code class="whole">/.outpost/api/logs</code> as JSON, for an admin's session or access token.</p>{{end}}
+{{end}}
+</main>
+{{if and .Logs .Logs.Sources}}<script src="{{.LogsJS}}" defer></script>{{end}}
+{{end}}

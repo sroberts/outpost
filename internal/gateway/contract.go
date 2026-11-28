@@ -105,6 +105,7 @@ var contractFeatures = []capFeature{
 	{Name: "github_release_install", Section: "14. Publishing releases outpost add can install"},
 	{Name: "ai_models", Section: "15. Using the operator's AI models"},
 	{Name: "email", Section: "16. Using email"},
+	{Name: "push_notifications", Section: "17. Using push notifications"},
 }
 
 // serveCapabilities describes this server to someone signed in to the portal
@@ -143,7 +144,7 @@ func (g *Gateway) serveCapabilities(w http.ResponseWriter, r *http.Request) {
 	}
 	body, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
-		g.logf("gateway: capabilities: %v", err)
+		g.lg("err", err).Errorf("gateway: capabilities: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}

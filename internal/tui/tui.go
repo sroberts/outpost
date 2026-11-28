@@ -7,9 +7,11 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/charmbracelet/bubbles/help"
@@ -19,6 +21,7 @@ import (
 
 	"github.com/sroberts/outpost/internal/gateway"
 	"github.com/sroberts/outpost/internal/ipc"
+	"github.com/sroberts/outpost/internal/stats"
 	"github.com/sroberts/outpost/internal/supervisor"
 )
 
@@ -52,6 +55,10 @@ type Model struct {
 	logs   LogReader
 	keys   keyMap
 	help   help.Model
+
+	// ownLogs reads Outpost's own logs by source (applog.SourceDaemon,
+	// SourceAccess), for the logs view; nil leaves them out.
+	ownLogs LogReader
 
 	services []supervisor.ServiceStatus
 	events   []supervisor.EventRecord
@@ -87,10 +94,43 @@ type Model struct {
 
 	// The AI view, when the client has AIExtras (ai.go).
 	ai aiState
+
+	// ctx ends when the dashboard quits, taking the watch stream with it.
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	// The pushed service list, when the client is a Watcher (watch.go).
+	watching   bool
+	watchCh    <-chan []supervisor.ServiceStatus
+	watchRetry int
+
+	// Usage, when the client is a StatsClient (graphs.go).
+	usage     map[string]stats.Usage
+	graphLong bool // the day rather than the last half hour
+
+	// zoom gives the selected service's detail and graphs the whole body.
+	zoom bool
+	// logRows is how many log lines the stacked layout's pane shows; View
+	// sets it to fill whatever the table leaves.
+	logRows int
+	// noteInBorder has the list leave its range note to its panel's border.
+	noteInBorder bool
+
+	lv  logView       // the logs view (logs.go)
+	ov  overviewState // the overview (overview.go)
+	mg  manageState   // the secrets and tokens views (manage.go)
+	ml  mailState     // the mail view (mail.go)
+	pal palette       // the command palette and its forms (palette.go)
+	out *outputPane   // a command's output, over the body
+
+	runner        Runner
+	terminal      TerminalRunner
+	daemonVersion string
 }
 
 // New builds a dashboard model.
 func New(client Client, logs LogReader) Model {
+	ctx, cancel := context.WithCancel(context.Background())
 	return Model{
 		client: client,
 		logs:   logs,
@@ -98,7 +138,30 @@ func New(client Client, logs LogReader) Model {
 		help:   help.New(),
 		width:  80,
 		height: 24,
+		ctx:    ctx,
+		cancel: cancel,
+		lv:     logView{follow: true},
+		ov:     overviewState{scanning: new(atomic.Bool)},
+		// Init subscribes; without this a tick landing before that answers
+		// would subscribe a second time and leak the first stream.
+		watchRetry: watchRetryTicks,
 	}
+}
+
+// WithOwnLogs lets the logs view show Outpost's own logs, read by r with
+// the source's name in place of a service's.
+func (m Model) WithOwnLogs(r LogReader) Model {
+	m.ownLogs = r
+	return m
+}
+
+// WithOverview opens the dashboard on the overview, when the client can
+// show one, rather than on the service list.
+func (m Model) WithOverview() Model {
+	if _, ok := m.statsClient(); ok {
+		m.view = viewOverview
+	}
+	return m
 }
 
 // --- messages ---
@@ -106,6 +169,8 @@ func New(client Client, logs LogReader) Model {
 type servicesMsg struct {
 	services []supervisor.ServiceStatus
 	err      error
+	// pushed is a list from the watch stream, which waits for the next.
+	pushed bool
 }
 
 type eventsMsg struct {
@@ -130,7 +195,8 @@ type tickMsg time.Time
 
 // Init starts the first load and the refresh ticker.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.fetchServices(), m.fetchGateway(), tick())
+	return tea.Batch(m.fetchServices(), m.fetchGateway(), m.fetchUsage(),
+		m.startWatch(), m.fetchDaemonVersion(), m.enterCmd(), tick())
 }
 
 func tick() tea.Cmd {
@@ -174,7 +240,7 @@ func (m Model) fetchLogs(service string) tea.Cmd {
 		return nil
 	}
 	return func() tea.Msg {
-		text, err := m.logs(service, logLines)
+		text, err := m.logs(service, max(logLines, m.height))
 		return logsMsg{service: service, text: text, err: err}
 	}
 }
@@ -203,6 +269,12 @@ func (m Model) act(verb, service string) tea.Cmd {
 
 // Update handles one message.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if next, cmd, ok := m.updateWatch(msg); ok {
+		return next, cmd
+	}
+	if next, cmd, ok := m.updateMore(msg); ok {
+		return next, cmd
+	}
 	if next, cmd, ok := m.updateAI(msg); ok {
 		return next, cmd
 	}
@@ -210,6 +282,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return next, cmd
 	}
 	switch msg := msg.(type) {
+	case formMsg:
+		// A form that has since closed, or moved on to its question, has no
+		// use for it.
+		if f := m.pal.form; f != nil && !f.confirming && f.hf != nil {
+			return m.stepForm(msg.msg)
+		}
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		// Some terminals — and pty wrappers like script(1) — report a zero
 		// size. Keep the last known good width rather than collapsing the
@@ -221,14 +301,38 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Height > 0 {
 			m.height = msg.Height
 		}
+		if f := m.pal.form; f != nil && f.hf != nil {
+			f.hf = f.hf.WithWidth(m.formWidth())
+		}
 		return m, nil
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 
 	case tickMsg:
-		// Keep the view current without the user asking.
-		return m, tea.Batch(m.fetchServices(), m.refreshExtras(), tick())
+		// Keep the view current without the user asking. While the list is
+		// pushed it needn't be asked for, but the selected service's
+		// activity and log still are: neither changes the list.
+		var watchCmd tea.Cmd
+		m, watchCmd = m.watchOnTick()
+		cmds := []tea.Cmd{m.refreshExtras(), m.refreshMore(), watchCmd, tick()}
+		if m.usageShown() {
+			cmds = append(cmds, m.fetchUsage())
+		}
+		if m.watching {
+			cmds = append(cmds, m.fetchEvents(m.selectedName()), m.maybeFetchLogs())
+		} else {
+			cmds = append(cmds, m.fetchServices())
+		}
+		return m, tea.Batch(cmds...)
+
+	case usageMsg:
+		// A failed read keeps the last graphs rather than blanking them;
+		// they are a picture of the recent past either way.
+		if msg.err == nil {
+			m.usage = msg.usage
+		}
+		return m, nil
 
 	case servicesMsg:
 		m.loaded = true
@@ -245,6 +349,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds := []tea.Cmd{m.fetchEvents(m.selectedName())}
 		if m.showLogs {
 			cmds = append(cmds, m.fetchLogs(m.selectedName()))
+		}
+		if msg.pushed && m.watchCh != nil {
+			cmds = append(cmds, nextFrame(m.watchCh))
 		}
 		return m, tea.Batch(cmds...)
 
@@ -274,17 +381,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.noticeIsErr = false
 		}
 		// Reflect the result straight away rather than waiting for the tick.
-		return m, tea.Batch(m.fetchServices(), m.refreshExtras())
+		return m, tea.Batch(m.fetchServices(), m.refreshExtras(), m.refreshMore())
 	}
 	return m, nil
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// The palette, a form, or a command's output take every key while they
+	// are up, q and esc included, so typing never acts on the view below.
+	if next, cmd, ok := m.handleOverlayKey(msg); ok {
+		return next, cmd
+	}
 	// First, so a picker or the key field gets every key, q and esc too.
 	if m.view == viewAI {
 		if next, cmd, ok := m.handleAIKey(msg); ok {
 			return next, cmd
 		}
+	}
+	if next, cmd, ok := m.handleMoreKey(msg); ok {
+		return next, cmd
 	}
 	if !key.Matches(msg, m.keys.Quit) && !key.Matches(msg, m.keys.Help) {
 		if next, cmd, ok := m.handleExtraKey(msg); ok {
@@ -294,6 +409,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, m.keys.Quit):
 		m.quitting = true
+		if m.cancel != nil {
+			m.cancel()
+		}
 		return m, tea.Quit
 
 	case key.Matches(msg, m.keys.Help):

@@ -29,6 +29,12 @@ type Config struct {
 	// Mail is the Gmail account apps get mail through. Left out of
 	// Fingerprint's JSON in the same way as AI.
 	Mail Mail `toml:"mail" json:"-"`
+	// Push is how notifications reach people's devices. Left out of
+	// Fingerprint's JSON in the same way as AI.
+	Push Push `toml:"push" json:"-"`
+	// Log is how the daemon writes its own log. Left out of Fingerprint's
+	// JSON in the same way as AI.
+	Log Log `toml:"log" json:"-"`
 }
 
 // Tailscale settings.
@@ -107,6 +113,12 @@ func (c Config) Validate() error {
 	if err := c.Mail.validate(); err != nil {
 		return fmt.Errorf("mail: %w", err)
 	}
+	if err := c.Push.validate(); err != nil {
+		return fmt.Errorf("push: %w", err)
+	}
+	if err := c.Log.validate(); err != nil {
+		return fmt.Errorf("log: %w", err)
+	}
 	if c.Gateway.TailscaleName != "" && (!c.Gateway.Enabled || !c.TailscaleEnabled()) {
 		return errors.New("gateway: tailscale_name puts the portal on the tailnet, so it needs both the gateway " +
 			"([gateway] enabled = true) and Tailscale ([tailscale] enabled = true); turn them on or remove tailscale_name")
@@ -170,6 +182,7 @@ func (c Config) Render() string {
 	c.AI.render(&b)
 	b.WriteString("\n")
 	c.Mail.render(&b)
+	c.Push.render(&b)
 	return b.String()
 }
 
@@ -214,6 +227,21 @@ func (c Config) Fingerprint() string {
 			return "" // can't happen: Mail is plain data
 		}
 		body = append(append(body, "mail"...), more...)
+	}
+	if c.Push != (Push{}) {
+		more, err := json.Marshal(c.Push)
+		if err != nil {
+			return "" // can't happen: Push is plain data
+		}
+		body = append(append(body, "push"...), more...)
+	}
+	// The level and format take a restart to apply, so a daemon running
+	// with other ones is stale.
+	if level, format := c.Log.LevelName(), c.Log.FormatName(); level != "info" || format != "text" {
+		body = append(body, "log"+level+"/"+format...)
+	}
+	if levels := c.Log.levelsKey(); levels != "" {
+		body = append(body, "loglevels"+levels...)
 	}
 	sum := sha256.Sum256(body)
 	return hex.EncodeToString(sum[:8])

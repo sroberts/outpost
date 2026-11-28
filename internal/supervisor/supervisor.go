@@ -19,6 +19,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/charmbracelet/log"
+
+	"github.com/sroberts/outpost/internal/logging"
 	"github.com/sroberts/outpost/internal/manifest"
 	"github.com/sroberts/outpost/internal/runtime"
 	"github.com/sroberts/outpost/internal/state"
@@ -90,6 +93,9 @@ type Options struct {
 	Now func() time.Time
 	// Logf receives operator-facing progress lines; defaults to discarding.
 	Logf func(format string, args ...any)
+	// Logger is where the supervisor logs, at levels and with fields. It
+	// supersedes Logf, which stays for callers that pass a plain func.
+	Logger *log.Logger
 }
 
 // Secrets is where a service's secrets come from. Resolve is called on every
@@ -105,6 +111,13 @@ type Secrets interface {
 // manifest's.
 type Exposure interface {
 	Override(service string) (funnel bool, publicPaths []string, ok bool)
+}
+
+// MCPExposure is an Exposure that also holds the portal's setting for
+// mcp_funnel. ok is false for a service the portal hasn't set it for, which
+// then has its manifest's.
+type MCPExposure interface {
+	MCPOverride(service string) (on, ok bool)
 }
 
 // manifestExposure is what a service's manifest says about funnel and
@@ -129,11 +142,15 @@ type Supervisor struct {
 	// fromManifest is, for each service the portal overrides, what its
 	// manifest says instead. Reconcile-loop goroutine only.
 	fromManifest map[string]manifestExposure
+	// fromManifestMCP is, for each service whose mcp_funnel the portal
+	// sets, the manifest's mcp_funnel. Reconcile-loop goroutine only.
+	fromManifestMCP map[string]bool
 
 	Interval            time.Duration
 	healthFailThreshold int
 	now                 func() time.Time
 	logf                func(format string, args ...any)
+	logger              *log.Logger
 
 	// desired is the last successfully applied manifest set, keyed by name.
 	desired map[string]*manifest.Service
@@ -144,6 +161,10 @@ type Supervisor struct {
 	// the loop exits so pending callers fail fast instead of hanging.
 	cmds    chan command
 	stopped chan struct{}
+	// exits names a service whose instance has just exited, so Run reaps it
+	// at once rather than on the next tick: until then the store still says
+	// running, and a service crashing on start reads as up in the meantime.
+	exits chan string
 	// loopRunning is true while Run is draining commands, so the exported API
 	// knows whether to hand work to the loop or run it inline.
 	loopRunning atomic.Bool
@@ -170,6 +191,13 @@ type Supervisor struct {
 	// cache that a restart simply fills again, so it stays out of the state
 	// store. Reconcile-loop goroutine only.
 	releases map[string]*knownRelease
+
+	// changes wakes Changed's watchers. Its own lock, not loopMu, so a
+	// watcher never waits on a busy loop just to learn there is news.
+	changes changes
+	// tailnetSeen is each node's state as of the last tick, so a node
+	// changing state, which persists nothing, still wakes watchers.
+	tailnetSeen map[string]TailnetStatus
 }
 
 // svcState is what the supervisor remembers about one service between ticks.
@@ -196,6 +224,10 @@ type svcState struct {
 	// secretRev is the revision of the secrets the running instance was
 	// started with.
 	secretRev string
+	// persisted is the record persist last wrote, so a write that changes
+	// nothing doesn't wake every watcher; persistedOK says there is one.
+	persisted   state.ServiceRecord
+	persistedOK bool
 }
 
 // New builds a Supervisor. It does not touch the runtime or load manifests;
@@ -225,10 +257,12 @@ func New(opts Options) (*Supervisor, error) {
 		healthFailThreshold: opts.HealthFailThreshold,
 		now:                 opts.Now,
 		logf:                opts.Logf,
+		logger:              opts.Logger,
 		desired:             map[string]*manifest.Service{},
 		tracked:             map[string]*svcState{},
 		cmds:                make(chan command, 64),
 		stopped:             make(chan struct{}),
+		exits:               make(chan string, 64),
 		heartbeat:           newHeartbeat(heartbeatPeriod, stallThreshold),
 		checkRelease:        opts.CheckRelease,
 		releases:            map[string]*knownRelease{},
@@ -242,11 +276,16 @@ func New(opts Options) (*Supervisor, error) {
 	if s.now == nil {
 		s.now = time.Now
 	}
-	if s.logf == nil {
+	if s.logger != nil {
+		s.logf = nil
+	} else if s.logf == nil {
 		s.logf = func(string, ...any) {}
 	}
 	return s, nil
 }
+
+// lg is where a line goes, with kv as its fields.
+func (s *Supervisor) lg(kv ...any) logging.Line { return logging.To(s.logger, s.logf, kv...) }
 
 // applyLocked is Apply's body. Reconcile-loop goroutine only.
 func (s *Supervisor) applyLocked(ctx context.Context) error {
@@ -255,13 +294,14 @@ func (s *Supervisor) applyLocked(ctx context.Context) error {
 		return fmt.Errorf("load manifests: %w", err)
 	}
 	services, fromManifest := s.withExposure(services)
+	services, fromManifestMCP := s.withMCPExposure(services)
 	if errs := manifest.ValidateWith(services, s.manifestOpts); len(errs) > 0 {
 		return fmt.Errorf("invalid manifests:\n%s", indentErrors(errs))
 	}
 	// Here rather than only in `outpost apply`, so a manifest edited and
 	// picked up by Reload, or read at startup, is pointed out too.
 	for _, w := range manifest.Warnings(services, s.manifestOpts) {
-		s.logf("warning: %v", w)
+		s.lg().Warnf("warning: %v", w)
 	}
 
 	next := make(map[string]*manifest.Service, len(services))
@@ -275,6 +315,7 @@ func (s *Supervisor) applyLocked(ctx context.Context) error {
 
 	s.desired = next
 	s.fromManifest = fromManifest
+	s.fromManifestMCP = fromManifestMCP
 	if fp, err := s.manifestFingerprint(); err == nil {
 		s.fingerprint = fp
 	}
@@ -300,10 +341,37 @@ func (s *Supervisor) withExposure(services []*manifest.Service) ([]*manifest.Ser
 		}
 		merged, errs := svc.WithExposure(funnel, paths, s.manifestOpts)
 		if len(errs) > 0 {
-			s.logf("%s: the portal's setting for public paths and Funnel doesn't apply, so the manifest's does: %s", svc.Name, joinErrors(errs))
+			s.lg("service", svc.Name).Warnf("%s: the portal's setting for public paths and Funnel doesn't apply, so the manifest's does: %s", svc.Name, joinErrors(errs))
 			continue
 		}
 		from[svc.Name] = manifestExposure{funnel: svc.Funnel, publicPaths: svc.PublicPaths}
+		out[i] = merged
+	}
+	return out, from
+}
+
+// withMCPExposure lays the portal's mcp_funnel settings over the
+// manifests', as withExposure does for funnel and public_paths, and returns
+// the manifest's mcp_funnel for each service it changed.
+func (s *Supervisor) withMCPExposure(services []*manifest.Service) ([]*manifest.Service, map[string]bool) {
+	from := map[string]bool{}
+	m, ok := s.exposure.(MCPExposure)
+	if !ok {
+		return services, from
+	}
+	out := make([]*manifest.Service, len(services))
+	for i, svc := range services {
+		out[i] = svc
+		on, ok := m.MCPOverride(svc.Name)
+		if !ok {
+			continue
+		}
+		merged, errs := svc.WithMCPFunnel(on, s.manifestOpts)
+		if len(errs) > 0 {
+			s.lg("service", svc.Name).Warnf("%s: the portal's setting for the MCP endpoint on the internet doesn't apply, so the manifest's does: %s", svc.Name, joinErrors(errs))
+			continue
+		}
+		from[svc.Name] = svc.MCPFunnel
 		out[i] = merged
 	}
 	return out, from
@@ -466,10 +534,33 @@ func (s *Supervisor) Run(ctx context.Context) error {
 				value, cmdErr := cmd.fn(s)
 				cmd.resp <- commandResult{value: value, err: cmdErr}
 			})
+		case name := <-s.exits:
+			s.withLoopLock(func() { s.reapExited(name) })
 		case <-ticker.C:
 			s.withLoopLock(func() { s.reloadAndTick(ctx) })
 		}
 	}
+}
+
+// watchExit tells the loop when h exits. The send never blocks: with no
+// loop draining exits, or the buffer full, the next tick reaps it as before.
+func (s *Supervisor) watchExit(name string, h runtime.Handle) {
+	<-h.Done()
+	select {
+	case s.exits <- name:
+	default:
+	}
+}
+
+// reapExited applies the restart policy to a service whose instance has
+// exited, ahead of the tick. A stale name is harmless: an instance stopped on
+// purpose has already been let go, and a newer one hasn't exited.
+func (s *Supervisor) reapExited(name string) {
+	st, ok := s.tracked[name]
+	if !ok || st.handle == nil || !exited(st.handle) {
+		return
+	}
+	s.handleExit(st)
 }
 
 // withLoopLock runs fn holding the lock that keeps inline API calls out.
@@ -484,9 +575,11 @@ func (s *Supervisor) reloadAndTick(ctx context.Context) {
 	changed, err := s.reloadLocked(ctx)
 	switch {
 	case err != nil:
-		s.logf("outpost: manifests not reloaded, previous set still in force: %v", err)
+		s.lg("err", err).Errorf("outpost: manifests not reloaded, previous set still in force: %v", err)
 	case changed:
-		s.logf("outpost: reloaded manifests (%d service(s))", len(s.desired))
+		s.lg("services", len(s.desired)).Infof("outpost: reloaded manifests (%d service(s))", len(s.desired))
+		// The list carries manifest fields, which persist doesn't record.
+		s.changes.notify()
 	}
 	s.tickLocked(ctx)
 }
@@ -507,10 +600,11 @@ func (s *Supervisor) tickLocked(ctx context.Context) {
 		s.reconcileService(ctx, svc)
 	}
 	s.probes = nil
+	s.noticeTailnetLocked()
 
 	if s.ticks%eventPruneEvery == 0 {
 		if err := s.store.PruneEvents(eventPruneAge, eventPruneRows); err != nil {
-			s.logf("outpost: prune events: %v", err)
+			s.lg("err", err).Warnf("outpost: prune events: %v", err)
 		}
 	}
 }
@@ -529,7 +623,7 @@ func (s *Supervisor) retireLocked(ctx context.Context, name string, st *svcState
 		RestartCount:  st.restartCount,
 		LastStartedAt: st.startedAt,
 	}); err != nil {
-		s.logf("outpost: %v", err)
+		s.lg("service", name, "err", err).Errorf("outpost: %v", err)
 	}
 }
 
@@ -537,7 +631,7 @@ func (s *Supervisor) retireLocked(ctx context.Context, name string, st *svcState
 // tracking it, leaving its row and events for the caller to keep or clear.
 // Reconcile-loop goroutine only.
 func (s *Supervisor) stopUndeclaredLocked(ctx context.Context, name string, st *svcState) {
-	s.logf("stopping %s: removed from manifest", name)
+	s.lg("service", name, "action", "stop").Infof("stopping %s: removed from manifest", name)
 	if st.handle != nil {
 		if err := s.runtimeFor(st.svc).Stop(ctx, st.handle); err != nil {
 			s.recordError(name, fmt.Sprintf("stop: %v", err))
@@ -567,7 +661,7 @@ func (s *Supervisor) reconcileService(ctx context.Context, svc *manifest.Service
 	// keeps running the old configuration indefinitely. Policy-only edits
 	// (restart_policy, backoff, healthcheck path) take effect without one.
 	if st.handle != nil && execFingerprint(st.svc) != execFingerprint(svc) {
-		s.logf("%s: manifest changed, restarting", svc.Name)
+		s.lg("service", svc.Name, "action", "restart").Infof("%s: manifest changed, restarting", svc.Name)
 		s.event(svc.Name, state.EventRestarted, "manifest changed")
 		s.stopInstance(ctx, st, "manifest changed")
 		st.backoff = initialBackoff(svc)
@@ -578,7 +672,7 @@ func (s *Supervisor) reconcileService(ctx context.Context, svc *manifest.Service
 	// point of rotating is that the old value stops being used.
 	if st.handle != nil && s.secrets != nil {
 		if _, rev := s.secrets.Resolve(svc.Name); rev != st.secretRev {
-			s.logf("%s: secrets changed, restarting", svc.Name)
+			s.lg("service", svc.Name, "action", "restart").Infof("%s: secrets changed, restarting", svc.Name)
 			s.event(svc.Name, state.EventRestarted, "secrets changed")
 			s.stopInstance(ctx, st, "secrets changed")
 			st.backoff = initialBackoff(svc)
@@ -593,7 +687,7 @@ func (s *Supervisor) reconcileService(ctx context.Context, svc *manifest.Service
 		// The zero-valued record would read as desired=running, halted=false,
 		// silently resurrecting a service the user stopped. Leave the previous
 		// intent in force and try again next tick.
-		s.logf("outpost: read state for %s: %v (leaving current intent in force)", svc.Name, err)
+		s.lg("service", svc.Name, "err", err).Warnf("outpost: read state for %s: %v (leaving current intent in force)", svc.Name, err)
 		return
 	}
 	desired := rec.Desired
@@ -675,7 +769,7 @@ func (s *Supervisor) handleExit(st *svcState) {
 	crashed := code != 0
 	msg := fmt.Sprintf("exited with code %d", code)
 	s.event(st.svc.Name, state.EventExited, msg)
-	s.logf("%s %s", st.svc.Name, msg)
+	s.lg("service", st.svc.Name, "code", code).Warnf("%s %s", st.svc.Name, msg)
 
 	if !s.shouldRestart(st.svc, crashed) {
 		if crashed {
@@ -718,6 +812,8 @@ func (s *Supervisor) scheduleRestart(st *svcState) {
 		next = maxBackoff
 	}
 	st.backoff = next
+	s.lg("service", st.svc.Name, "action", "backoff", "restarts", st.restartCount).
+		Debugf("%s: next start at %s", st.svc.Name, st.nextAttempt.Format(time.RFC3339))
 }
 
 // maybeStart starts a service whose backoff has elapsed.
@@ -738,6 +834,7 @@ func (s *Supervisor) maybeStart(ctx context.Context, st *svcState) {
 	}
 
 	st.handle = h
+	go s.watchExit(st.svc.Name, h)
 	st.secretRev = rev
 	st.reaped = false
 	st.status = runtime.StatusRunning
@@ -747,7 +844,7 @@ func (s *Supervisor) maybeStart(ctx context.Context, st *svcState) {
 	st.everHealthy = false
 
 	s.event(st.svc.Name, state.EventStarted, fmt.Sprintf("started (id %s)", h.ID()))
-	s.logf("started %s (id %s)", st.svc.Name, h.ID())
+	s.lg("service", st.svc.Name, "action", "start", "id", h.ID()).Infof("started %s (id %s)", st.svc.Name, h.ID())
 
 	// Join the tailnet once the service is up. A failure here leaves the
 	// service running and reachable on loopback rather than tearing it down:
@@ -776,7 +873,7 @@ func (s *Supervisor) withSecrets(svc *manifest.Service) (*manifest.Service, stri
 	}
 	for k, v := range vars {
 		if _, ok := svc.Env[k]; ok {
-			s.logf("%s: secret replaces env %s from the manifest", svc.Name, k)
+			s.lg("service", svc.Name, "env", k).Infof("%s: secret replaces env %s from the manifest", svc.Name, k)
 		}
 		run.Env[k] = v
 	}
@@ -787,7 +884,8 @@ func (s *Supervisor) withSecrets(svc *manifest.Service) (*manifest.Service, stri
 // returns immediately and retries in the background, so this is safe to call
 // from the reconcile loop on every tick.
 func (s *Supervisor) attachToTailnet(ctx context.Context, svc *manifest.Service) {
-	if s.tailnet == nil {
+	// A gateway-only service never gets a node: one would be a second way in.
+	if s.tailnet == nil || svc.GatewayOnly() {
 		return
 	}
 	if err := s.tailnet.Attach(ctx, svc); err != nil {
@@ -833,7 +931,7 @@ func (s *Supervisor) checkHealth(ctx context.Context, st *svcState) {
 	// the service: every probe in flight times out together, and counting
 	// them restarted healthy services in bulk (#29).
 	if stall, stalled := s.heartbeat.stalledSince(r.started); stalled {
-		s.logf("%s: healthcheck failed while outpost itself was stalled for %s; not counting it",
+		s.lg("service", st.svc.Name, "stall", stall).Warnf("%s: healthcheck failed while outpost itself was stalled for %s; not counting it",
 			st.svc.Name, stall.Round(100*time.Millisecond))
 		s.persist(st)
 		return
@@ -849,11 +947,13 @@ func (s *Supervisor) checkHealth(ctx context.Context, st *svcState) {
 		fmt.Sprintf("%s (%d/%d)", reason, st.healthFails, s.healthFailThreshold))
 
 	if st.healthFails < s.healthFailThreshold {
+		s.lg("service", st.svc.Name, "fails", st.healthFails, "err", err).
+			Debugf("%s: healthcheck failed (%d/%d)", st.svc.Name, st.healthFails, s.healthFailThreshold)
 		s.persist(st)
 		return
 	}
 
-	s.logf("%s: unhealthy %d times, restarting", st.svc.Name, st.healthFails)
+	s.lg("service", st.svc.Name, "action", "restart", "fails", st.healthFails).Warnf("%s: unhealthy %d times, restarting", st.svc.Name, st.healthFails)
 	s.stopInstance(ctx, st, "unhealthy")
 	st.healthFails = 0
 	st.status = runtime.StatusUnhealthy
@@ -879,7 +979,7 @@ func (s *Supervisor) stopInstance(ctx context.Context, st *svcState, reason stri
 	if err := s.runtimeFor(st.svc).Stop(ctx, st.handle); err != nil {
 		s.recordError(st.svc.Name, fmt.Sprintf("stop: %v", err))
 	}
-	s.logf("stopped %s: %s", st.svc.Name, reason)
+	s.lg("service", st.svc.Name, "action", "stop", "reason", reason).Infof("stopped %s: %s", st.svc.Name, reason)
 	st.handle = nil
 	st.reaped = false
 	st.startedAt = time.Time{}
@@ -947,8 +1047,22 @@ func (s *Supervisor) persist(st *svcState) {
 		rec.InstanceID = st.handle.ID()
 	}
 	if err := s.store.UpsertService(rec); err != nil {
-		s.logf("outpost: persist %s: %v", st.svc.Name, err)
+		s.lg("service", st.svc.Name, "err", err).Errorf("outpost: persist %s: %v", st.svc.Name, err)
 	}
+	// The health check persists every healthy service on every tick; only a
+	// record that differs from the last one is news to a watcher.
+	if st.persistedOK && sameRecord(st.persisted, rec) {
+		return
+	}
+	st.persisted, st.persistedOK = rec, true
+	s.changes.notify()
+}
+
+// sameRecord compares what persist writes, with times compared as instants.
+func sameRecord(a, b state.ServiceRecord) bool {
+	return a.Name == b.Name && a.Runtime == b.Runtime && a.Status == b.Status &&
+		a.InstanceID == b.InstanceID && a.RestartCount == b.RestartCount &&
+		a.LastStartedAt.Equal(b.LastStartedAt)
 }
 
 // halt records that the supervisor has stopped trying to keep a service up.
@@ -956,10 +1070,10 @@ func (s *Supervisor) halt(st *svcState, reason string) {
 	st.halted = true
 	st.nextAttempt = time.Time{}
 	if err := s.store.SetHalted(st.svc.Name, true); err != nil {
-		s.logf("outpost: %v", err)
+		s.lg("service", st.svc.Name, "err", err).Errorf("outpost: %v", err)
 	}
 	s.event(st.svc.Name, state.EventError, reason)
-	s.logf("%s: %s", st.svc.Name, reason)
+	s.lg("service", st.svc.Name, "action", "halt").Errorf("%s: %s", st.svc.Name, reason)
 }
 
 // event appends to the activity feed. Recording is best-effort by design: the
@@ -967,12 +1081,13 @@ func (s *Supervisor) halt(st *svcState, reason string) {
 // never interrupt supervision. A failed write is logged rather than swallowed.
 func (s *Supervisor) event(service, kind, message string) {
 	if err := s.store.AppendEvent(service, kind, message); err != nil {
-		s.logf("outpost: record %s event for %q: %v", kind, service, err)
+		s.lg("service", service, "kind", kind, "err", err).Errorf("outpost: record %s event for %q: %v", kind, service, err)
 	}
+	s.changes.notify()
 }
 
 func (s *Supervisor) recordError(service, msg string) {
-	s.logf("%s: %s", service, msg)
+	s.lg("service", service).Errorf("%s: %s", service, msg)
 	s.event(service, state.EventError, msg)
 }
 
