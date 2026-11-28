@@ -57,4 +57,8 @@
   });
   var target = reveal();
   if (target && target.hasAttribute("tabindex")) target.focus({ preventScroll: true });
+  // A refused setting comes back in place, with no hash to land on, so its
+  // error takes focus the way a saved one's note does.
+  var refusal = !target && document.querySelector(".app-set .error[tabindex]");
+  if (refusal) refusal.focus();
 })();
