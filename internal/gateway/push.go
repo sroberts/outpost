@@ -195,7 +195,7 @@ func (g *Gateway) pushSubscription(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method == http.MethodDelete {
 		if err := g.push.Unsubscribe(u.Username, req.Endpoint); err != nil {
-			g.logf("gateway: turn notifications off: %v", err)
+			g.lg().Warnf("gateway: turn notifications off: %v", err)
 			jsonError(http.StatusInternalServerError, "couldn't turn notifications off")
 			return
 		}
@@ -211,17 +211,21 @@ func (g *Gateway) pushSubscription(w http.ResponseWriter, r *http.Request) {
 		if eu, perr := url.Parse(req.Endpoint); perr == nil {
 			host = eu.Host
 		}
-		g.logf("gateway: %s's notifications refused (endpoint host %q): %v", u.Username, host, err)
+		// No DNS name is longer; past that it's someone filling the log.
+		if len(host) > 253 {
+			host = host[:253]
+		}
+		g.lg().Warnf("gateway: %s's notifications refused (endpoint host %q): %v", u.Username, host, err)
 		jsonError(http.StatusBadRequest, err.Error())
 		return
 	case err != nil:
-		g.logf("gateway: turn notifications on: %v", err)
+		g.lg().Warnf("gateway: turn notifications on: %v", err)
 		jsonError(http.StatusInternalServerError, "couldn't turn notifications on")
 		return
 	}
 	if req.OldEndpoint != "" && req.OldEndpoint != req.Endpoint {
 		if err := g.push.Unsubscribe(u.Username, req.OldEndpoint); err != nil {
-			g.logf("gateway: forget a replaced subscription: %v", err)
+			g.lg().Warnf("gateway: forget a replaced subscription: %v", err)
 		}
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -267,7 +271,7 @@ func (g *Gateway) notifyData(r *http.Request, u auth.User) *notifyView {
 	v := &notifyView{Key: g.push.PublicKey()}
 	devs, err := g.push.Devices(u.Username)
 	if err != nil {
-		g.logf("gateway: list devices: %v", err)
+		g.lg().Warnf("gateway: list devices: %v", err)
 		return nil
 	}
 	this := ""
@@ -288,7 +292,7 @@ func (g *Gateway) notifyData(r *http.Request, u auth.User) *notifyView {
 	}
 	muted, err := g.push.Muted(u.Username)
 	if err != nil {
-		g.logf("gateway: list muted apps: %v", err)
+		g.lg().Warnf("gateway: list muted apps: %v", err)
 		return nil
 	}
 	v.Apps = append(v.Apps, notifyApp{Value: outpostSender, Title: g.cfg.PortalName() + " itself", On: !muted[push.Outpost]})
@@ -333,7 +337,7 @@ func (g *Gateway) pushSubmit(w http.ResponseWriter, r *http.Request, u auth.User
 		http.Redirect(w, r, "/account?push="+done+"#notify", http.StatusSeeOther)
 	}
 	fail := func(err error) {
-		g.logf("gateway: notifications: %v", err)
+		g.lg().Warnf("gateway: notifications: %v", err)
 		g.message(w, r, http.StatusInternalServerError, "That didn't go through", "Something went wrong. Try again.", "/account#notify", "Back to account")
 	}
 	switch r.PostForm.Get("action") {
