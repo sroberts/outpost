@@ -205,6 +205,13 @@ func (g *Gateway) pushSubscription(w http.ResponseWriter, r *http.Request) {
 	err := g.push.Subscribe(u.Username, auth.HashToken(tok), req.Endpoint, req.Keys.P256dh, req.Keys.Auth, r.UserAgent())
 	switch {
 	case push.IsBadRequest(err):
+		// Only the host: the rest of an endpoint is the device's token. A
+		// browser whose push service isn't on the list shows up here.
+		host := ""
+		if eu, perr := url.Parse(req.Endpoint); perr == nil {
+			host = eu.Host
+		}
+		g.logf("gateway: %s's notifications refused (endpoint host %q): %v", u.Username, host, err)
 		jsonError(http.StatusBadRequest, err.Error())
 		return
 	case err != nil:
